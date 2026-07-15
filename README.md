@@ -5,10 +5,10 @@ The IBM Storage Protect Model Context Protocol (MCP) server enables natural lang
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Installation and configuration](#installation-and-configuration)
-  - [Linux/Unix installation](#linuxunix-installation)
-  - [Windows installation](#windows-installation)
-- [Environment variables ](#environment-variables)
+- [Installation](#installation)
+  - [Quick Install (Recommended - Wheel Package)](#quick-install-recommended---wheel-package)
+  - [Developer Install (From Source)](#developer-install-from-source)
+- [Environment variables](#environment-variables)
 - [Usage Examples](#usage-examples)
 - [Reporting Issues and Feedback](#reporting-issues-and-feedback)
 - [Contributing Code](#contributing-code)
@@ -20,264 +20,235 @@ The IBM Storage Protect Model Context Protocol (MCP) server enables natural lang
 
 - IBM Storage Protect server
 - Administrator credentials with appropriate permissions
-- Access to the server instance user account (typically `tsmsvr01`)
-- Python 3.11 and pip package manager
-- Git for cloning the repository
+- Access to the server instance user account (typically `tsminst1`)
+- Python 3.10 or higher (Python 3.11 recommended)
+- pip package manager
 
 ---
 
 ## Installation
 
-You can install the IBM Storage Protect MCP server on Linux/Unix systems or Windows systems. Choose the appropriate installation guide for your environment.
+### Quick Install (Recommended - Wheel Package)
 
-### Linux/Unix installation
+The easiest way to install the IBM Storage Protect MCP server is using the pre-built wheel package. This method eliminates the need to clone the repository or build from source.
 
-Complete the following steps to install the MCP server on a Linux or Unix system.
+#### Linux/Unix Installation
 
-#### Step 1: Install Python 3.11 and pip package manager
+**Step 1: Install Python 3.10 or Higher**
 
-Ensure that Python 3.11 and pip are installed on your system. Verify the installation by running the following commands:
-
-```python3 --version
-pip3 --version
+For RHEL/CentOS/Rocky Linux:
+```bash
+sudo dnf install python3.11 python3.11-pip python3.11-devel -y
+python3.11 --version
 ```
 
-#### Step 2: Clone the repository
-
-Navigate to `/opt` and clone the IBM Storage Protect MCP server repository:
-
-```cd /opt
-git clone https://github.com/IBM/ibm-storage-protect-mcp-server
-cd ibm-storage-protect-mcp-server
-git checkout dev
+For Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3.11-dev -y
+python3.11 --version
 ```
 
-#### Step 3: Create pyproject.toml in the project root
+**Step 2: Create Installation Directory**
 
-Copy the configuration file from `util/` to the project root and verify:
-
-```mkdir /opt/ibm-storage-protect-mcp-server
-cd /opt/ibm-storage-protect-mcp-server
-cp util/pyproject.toml .
-ls -la pyproject.toml
+```bash
+sudo mkdir -p /opt/sp-mcp-server
+cd /opt/sp-mcp-server
 ```
 
-#### Step 4: Create a virtual environment
+**Step 3: Create Virtual Environment**
 
-Create and activate a Python 3.11 virtual environment, and then upgrade pip:
-
-```python3.11 -m venv venv
+```bash
+python3.11 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 ```
 
-#### Step 5: Install the MCP server package
+**Step 4: Install from Wheel**
 
-Install the package in editable mode and verify the installation:
+Download the wheel file and install:
+```bash
+# Option A: Install from local wheel file
+pip install ibm_sp_mcp_server-1.0.0-py3-none-any.whl
 
-```pip install -e .
-pip list | grep -E "mcp|ibm-sp"
+# Option B: Install from URL (when available)
+pip install https://github.com/IBM/ibm-storage-protect-mcp-server/releases/download/v1.0.0/ibm_sp_mcp_server-1.0.0-py3-none-any.whl
+
+# Option C: Install from PyPI (when published)
+pip install ibm-sp-mcp-server
 ```
 
-#### Step 6: Verify MCP server commands
+**Step 5: Verify Installation**
 
-Confirm that all MCP server commands are accessible:
+```bash
+# Check installed package
+pip list | grep ibm-sp
 
-```which mcp-server-clients-core
-which mcp-server-system-admin
-which mcp-server-storage-pools
+# Verify commands are available
+which sp-mcp-server
+sp-mcp-server --help
 ```
 
-Test the help output for one of the commands:
+**Step 6: Configure Environment Variables**
 
-```mcp-server-clients-core --help
+Create a `.env` file:
+```bash
+cat > /opt/sp-mcp-server/.env << 'EOF'
+SP_ADMIN_ID=tsmadmin
+SP_ADMIN_PASSWORD=your_password_here
+SP_INSTANCE_USER=tsminst1
+SP_SERVERMON_XML_DIR=/home/tsminst1/tsminst1/srvmon
+SP_DSMSERV_PATH=/opt/tivoli/tsm/server/bin
+SP_SERVER_INSTANCE_DIR=/home/tsminst1
+SP_SERVERMON_PATH=/opt/tivoli/tsm/server/bin/servermon/servermon
+EOF
+
+chmod 600 /opt/sp-mcp-server/.env
 ```
 
-#### Step 7: Configure environment variables
+**Step 7: Configure MCP Client**
 
-Create a `.env` file in the project directory:
-
-```cd /opt/ibm-storage-protect-mcp-server
-vi .env
-```
-
-Add the following environment variables to the `.env` file:
-
-```SP_ADMIN_ID="<admin_user_of_dsmadmc>"
-SP_ADMIN_PASSWORD="<dsmadmc_admin_password>"
-SP_INSTANCE_USER="tsm_instance_name_eg_tmsint1"
-SP_SERVERMON_XML_DIR="<instance_home_path>/srvmon"
-```
-
-Restrict file permissions for security:
-
-```chmod 600 .env
-```
-
-#### Step 8: Configure the MCP client
-
-Add the following JSON configuration to your MCP client (Examples: Bob, Claude, or Cursor). Replace the placeholders with your actual host name and root password:
-
+Add to your MCP client configuration:
 ```json
 {
   "mcpServers": {
-    "<host_of_sp-mcp-server-name>": {
+    "sp-mcp-server": {
       "command": "sshpass",
       "args": [
         "-p",
-        "<root_password>",
+        "your_root_password",
         "ssh",
         "-o",
         "StrictHostKeyChecking=no",
-        "root@<host_of_sp-mcp-server-name>",
-        "cd /opt/ibm-storage-protect-mcp-server && source venv/bin/activate && python3 -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
+        "root@your-sp-server",
+        "cd /opt/sp-mcp-server && source venv/bin/activate && python3 -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
       ],
       "disabled": false,
       "alwaysAllow": []
     }
-  },
-  "preferences": {
-    "coworkScheduledTasksEnabled": false,
-    "sidebarMode": "chat",
-    "coworkWebSearchEnabled": true,
-    "ccdScheduledTasksEnabled": false
   }
 }
 ```
 
-**Installation complete.** The MCP server is now ready to handle storage protection operations.
+**Installation complete!** The MCP server is ready to use.
+
+#### Windows Installation
+
+**Step 1: Install Python 3.10 or Higher**
+
+Download and install Python 3.11 from [python.org](https://www.python.org/downloads/).
+
+**Step 2: Create Installation Directory**
+
+```powershell
+mkdir C:\sp-mcp-server
+cd C:\sp-mcp-server
+```
+
+**Step 3: Create Virtual Environment**
+
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+**Step 4: Install from Wheel**
+
+```powershell
+pip install ibm_sp_mcp_server-1.0.0-py3-none-any.whl
+```
+
+**Step 5: Configure Environment Variables**
+
+Create `.env` file:
+```powershell
+@"
+SP_ADMIN_ID=tsmadmin
+SP_ADMIN_PASSWORD=your_password_here
+SP_INSTANCE_USER=tsminst1
+SP_SERVERMON_XML_DIR=C:\TSM\srvmon
+"@ | Out-File -FilePath .env -Encoding UTF8
+```
+
+**Step 6: Configure SSH and MCP Client**
+
+Follow the SSH setup instructions below for Windows-specific configuration.
 
 ---
 
-### Windows installation
+### Developer Install (From Source)
 
-Complete the following steps to install the MCP server on a Windows system that is `dsmadmc` is installed on Windows machine.
+For developers who want to contribute or customize the code, install from source:
 
-**Note:** The ability to login to the Storage Protect server with a dsmadmc client works regardless of the SP server platform (Linux/Windows/AIX). The SP MCP server (Python code) works on Windows as well. While the dsmadmc client can be on Windows, the Storage Protect server itself can be on Windows, Linux, or AIX.
+**Step 1: Clone the Repository**
 
-#### Step 1: Install Python 3.11 and pip package manager
-
-Ensure that Python 3.11 and pip are installed on your Windows system. Verify the installation by running the following commands:
-
-```python3 --version
-pip3 --version
-```
-
-#### Step 2: Clone the repository
-
-Navigate to `C:\src\` and clone the IBM Storage Protect MCP server repository:
-
-```cd C:\src\
+```bash
 git clone https://github.com/IBM/ibm-storage-protect-mcp-server
 cd ibm-storage-protect-mcp-server
 git checkout dev
 ```
 
-#### Step 3: Create pyproject.toml in the project root
-
-If needed, copy the configuration file from `util/` to the project root:
-
-```cd C:\src\ibm-storage-protect-mcp-server
-# cp util/pyproject.toml . (if needed)
-ls -la pyproject.toml
-```
-
-#### Step 4: Create a virtual environment
-
-Create and activate a Python 3.11 virtual environment:
-
-```
-py -3.11 -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-
-#### Step 5: Install the MCP server package
-
-Install the package in editable mode:
-
-```pip install -e .
-```
-
-#### Step 6: Verify all micro-MCP server commands
-
-Confirm that all MCP server commands are accessible:
-
-```where mcp-server-clients-core
-where mcp-server-system-admin
-where mcp-server-storage-pools
-```
-
-Example output:
-```
-C:\src\ibm-storage-protect-mcp-server>where mcp-server-system-admin
-C:\Program Files\Python311\Scripts\mcp-server-system-admin.exe
-```
-
-Test the help output for one of the commands:
-
-```powershell
-mcp-server-clients-core --help
-```
-
-#### Step 7: Configure environment variables
-
-Create a `.env` file in the project directory:
-
-```cd C:\src\ibm-storage-protect-mcp-server
-notepad .env
-```
-
-Add the following environment variables to the `.env` file:
+**Step 2: Create Virtual Environment**
 
 ```bash
-SP_ADMIN_ID="<admin_user_of_dsmadmc>"
-SP_ADMIN_PASSWORD="<dsmadmc_admin_password>"
-SP_INSTANCE_USER="tsm_instance_name_eg_tmsint1"
-SP_SERVERMON_XML_DIR="<instance_home_path>/srvmon"
+python3.11 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
 ```
 
-#### Step 8: Set up SSH for remote connection
+**Step 3: Install in Development Mode**
 
-Complete the following steps to enable SSH access.
-
-##### Generate an SSH key pair if not already generated
-
-Run the following command to generate an SSH key pair:
-
-```ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_windows
+```bash
+pip install -e .
 ```
 
-This command creates the following files:
-- Private key: `~/.ssh/id_rsa_windows`
-- Public key: `~/.ssh/id_rsa_windows.pub`
+**Step 4: Verify Installation**
 
-##### Copy the public key to the Windows machine
-
-Run the following command to copy your public key to the Windows machine:
-
-```ssh-copy-id -i ~/.ssh/id_rsa_windows.pub SPuser@<windows-machine-ip>
+```bash
+pip list | grep -E "mcp|ibm-sp"
+which sp-mcp-server
 ```
 
-Alternatively, you can manually copy the public key:
-1. Copy the content of `~/.ssh/id_rsa_windows.pub`
-2. On the Windows machine, append the content to `C:\Users\SPuser\.ssh\authorized_keys`
+**Step 5: Configure Environment Variables**
 
-##### Test the SSH connection
+Follow the same `.env` configuration steps as the Quick Install method above.
 
-Verify that you can connect to the Windows machine without a password prompt:
+For detailed build and distribution instructions, see [DISTRIBUTION.md](DISTRIBUTION.md).
 
-```ssh -i ~/.ssh/id_rsa_windows SPuser@<windows-machine-ip>
+---
+
+#### SSH Setup for Windows (Remote Access)
+
+If you need to access the Windows MCP server remotely from a Mac or Linux machine:
+
+**Step 1: Generate SSH Key Pair**
+
+On your local machine (Mac/Linux):
+```bash
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_windows
 ```
-Should connect without password prompt.
-If the connection is successful, you can proceed to configure the MCP settings.
 
-##### Configure MCP settings on Mac
+**Step 2: Copy Public Key to Windows**
 
-Create or update the `~/.bob/settings/mcp_settings.json` file with the following configuration:
+```bash
+ssh-copy-id -i ~/.ssh/id_rsa_windows.pub SPuser@<windows-machine-ip>
+```
 
-```{
+Or manually append the public key content to `C:\Users\SPuser\.ssh\authorized_keys` on Windows.
+
+**Step 3: Test SSH Connection**
+
+```bash
+ssh -i ~/.ssh/id_rsa_windows SPuser@<windows-machine-ip>
+```
+
+**Step 4: Configure MCP Client**
+
+Add to your MCP client configuration:
+```json
+{
   "mcpServers": {
-    "sp-mcp-server-remote-windows": {
+    "sp-mcp-server-windows": {
       "command": "ssh",
       "args": [
         "-i",
@@ -286,7 +257,7 @@ Create or update the `~/.bob/settings/mcp_settings.json` file with the following
         "powershell",
         "-NoProfile",
         "-Command",
-        "cd C:\\src\\ibm-storage-protect-mcp-server; $env:SP_MASTER_PASSWORD='Welcome1#'; python -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
+        "cd C:\\sp-mcp-server; .\\venv\\Scripts\\Activate.ps1; python -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
       ],
       "disabled": false,
       "alwaysAllow": []
@@ -294,16 +265,6 @@ Create or update the `~/.bob/settings/mcp_settings.json` file with the following
   }
 }
 ```
-
-#### Verify the installation
-
-After you complete the installation, test the MCP server by running the following command:
-
-```
-"get list of mcp-servers and tools in sp-mcp-server-remote-windows"
-```
-
-You should see 195+ tools listed with explanations, confirming that the MCP server is running correctly.
 
 ---
 

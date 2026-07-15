@@ -1,0 +1,34 @@
+# Include essential documentation
+include README.md
+include LICENSE
+include DISTRIBUTION.md
+include MANIFEST.in
+include pyproject.toml
+include build_wheel.sh
+
+# Include documentation directory
+recursive-include docs *.md *.txt
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude *.dylib
+global-exclude .env
+global-exclude .env.*
+
+# Exclude build artifacts
+global-exclude *.egg-info
+prune build
+prune dist
+prune venv
+prune .git
+prune .bob
+
+# Exclude test files
+prune tests
+exclude test_*.py
+
+# Exclude large PDF files
+recursive-exclude docs *.pdf

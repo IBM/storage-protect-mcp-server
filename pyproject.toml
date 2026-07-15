@@ -1,6 +1,6 @@
 [project]
 name = "ibm-sp-mcp-server"
-version = "0.1.0"
+version = "1.0.0"
 description = "MCP Server for IBM Storage Protect - AI-powered administration and automation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -79,8 +79,11 @@ sse = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "build>=0.10.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+sp_mcp_server = ["py.typed"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
