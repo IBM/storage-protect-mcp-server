@@ -32,8 +32,8 @@ This guide explains how to build and distribute the IBM Storage Protect MCP Serv
 
 2. **Run the build script**:
    ```bash
-   chmod +x build_wheel.sh
-   ./build_wheel.sh
+   chmod +x build/build_wheel.sh
+   ./build/build_wheel.sh
    ```
 
    The script will:
@@ -308,7 +308,7 @@ Share the wheel file directly with users:
 
 ```bash
 # Build the wheel
-./build_wheel.sh
+./build/build_wheel.sh
 
 # Share the file
 scp dist/ibm_sp_mcp_server-1.0.0-py3-none-any.whl user@target:/tmp/
@@ -383,7 +383,7 @@ pip install --upgrade build wheel setuptools
 **Problem**: Permission denied when running build script
 ```bash
 # Solution: Make script executable
-chmod +x build_wheel.sh
+chmod +x build/build_wheel.sh
 ```
 
 ### Installation Issues

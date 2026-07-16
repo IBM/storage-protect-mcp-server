@@ -11,7 +11,7 @@ Get the latest wheel file:
 
 Download from:
 - GitHub Releases: https://github.com/IBM/ibm-storage-protect-mcp-server/releases
-- Or build locally: `./build_wheel.sh`
+- Or build locally: `./build/build_wheel.sh`
 
 ## Quick Install (Linux/Unix)
 
@@ -93,5 +93,5 @@ pip install --upgrade ibm_sp_mcp_server-1.1.0-py3-none-any.whl
 ## Documentation
 
 - Full installation guide: [README.md](README.md)
-- Distribution details: [DISTRIBUTION.md](DISTRIBUTION.md)
+- Distribution details: [distribution.md](build/distribution.md)
 - GitHub: https://github.com/IBM/ibm-storage-protect-mcp-server

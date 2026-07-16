@@ -10,15 +10,32 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}IBM Storage Protect MCP Server Builder${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 
-# Check if we're in the right directory
-if [ ! -f "pyproject.toml" ]; then
-    echo -e "${RED}Error: pyproject.toml not found. Please run this script from the project root.${NC}"
+# Check if project root is valid
+if [ ! -f "${PROJECT_ROOT}/pyproject.toml" ]; then
+    echo -e "${RED}Error: pyproject.toml not found in project root: ${PROJECT_ROOT}${NC}"
     exit 1
+fi
+
+cd "${PROJECT_ROOT}"
+
+clean_artifacts() {
+    echo ""
+    echo -e "${YELLOW}Cleaning generated build artifacts...${NC}"
+    rm -rf build/lib build/bdist.* dist/ *.egg-info src/*.egg-info
+    echo -e "${GREEN}✓ Cleanup completed${NC}"
+}
+
+if [ "${1:-}" = "clean" ]; then
+    clean_artifacts
+    exit 0
 fi
 
 # Check Python version
@@ -33,9 +50,7 @@ fi
 echo -e "${GREEN}✓ Python version check passed: $PYTHON_VERSION${NC}"
 
 # Clean previous builds
-echo ""
-echo -e "${YELLOW}Cleaning previous build artifacts...${NC}"
-rm -rf build/ dist/ *.egg-info src/*.egg-info
+clean_artifacts
 
 # Install/upgrade build tools
 echo ""

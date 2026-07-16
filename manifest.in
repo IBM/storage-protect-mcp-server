@@ -1,10 +1,10 @@
 # Include essential documentation
 include README.md
 include LICENSE
-include DISTRIBUTION.md
+include build/distribution.md
 include MANIFEST.in
 include pyproject.toml
-include build_wheel.sh
+include build/build_wheel.sh
 
 # Include documentation directory
 recursive-include docs *.md *.txt
