@@ -108,7 +108,7 @@ pip install ibm_sp_mcp_server-1.0.0-py3-none-any.whl
 
 **Step 5: Configure Environment Variables**
 
-Create `.env` file:
+Create a `.env` file:
 ```powershell
 @"
 SP_ADMIN_ID=tsmadmin
@@ -118,45 +118,8 @@ SP_SERVERMON_XML_DIR=C:\TSM\srvmon
 "@ | Out-File -FilePath .env -Encoding UTF8
 ```
 
-**Step 6: Configure SSH and MCP Client**
+**Step 6: Configure MCP Client**
 
-Follow the SSH setup instructions in `README.md` for Windows-specific remote configuration.
+For Linux and Windows MCP client configuration examples, see [`configure-guide.md`](configure-guide.md).
 
-## Developer Install (From Source)
-
-For developers who want to contribute or customize the code, install from source.
-
-**Step 1: Clone the Repository**
-
-```bash
-git clone https://github.com/IBM/ibm-storage-protect-mcp-server
-cd ibm-storage-protect-mcp-server
-git checkout dev
-```
-
-**Step 2: Create Virtual Environment**
-
-```bash
-python3.11 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-```
-
-**Step 3: Install in Development Mode**
-
-```bash
-pip install -e .
-```
-
-**Step 4: Verify Installation**
-
-```bash
-pip list | grep -E "mcp|ibm-sp"
-which sp-mcp-server
-```
-
-**Step 5: Configure Environment Variables**
-
-Follow the same `.env` configuration steps as the Quick Install method above.
-
-For detailed build and distribution instructions, see `build/distribution.md`.
+For detailed build and distribution instructions, see [`../../build/distribution.md`](../../build/distribution.md).
