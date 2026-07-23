@@ -237,8 +237,9 @@ ISP_OPS_MAINTENANCE = [
     ops.QueryRestoreJob
 ]
 
-# 12. mcp-server-ops-rules (~12 tools)
-# Focus: Automation rules and alerts.
+# 12. mcp-server-ops-rules (~18 tools)
+# Focus: Automation rules and alerts, subrules, retention rules, and holds.
+# NOTE: DeleteHold removed - IBM SP has no DELETE HOLD command (holds auto-deactivate when all retsets released)
 ISP_OPS_RULES = [
     ops.DefineAlertTrigger,
     ops.UpdateAlertTrigger,
@@ -254,7 +255,13 @@ ISP_OPS_RULES = [
     ops.DeleteSpaceTrigger,
     ops.DefineStatusThreshold,
     ops.UpdateStatusThreshold,
-    ops.DeleteStatusThreshold
+    ops.DeleteStatusThreshold,
+    ops.DefineSubRule,
+    ops.UpdateSubRule,
+    ops.DeleteSubRule,
+    pol_cmd.QuerySubRule,
+    ops.DefineHold,
+    ops.DefineRetentionRule
 ]
 
 

@@ -21,13 +21,13 @@ class DefineAlertTrigger(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "message_number": {"type": "integer", "description": "Message number to associate with the alert trigger. Max 8 characters."},
+                "message_number": {"type": "string", "description": "Message number(s) in ANRxxxxY format (e.g., ANR1067E, ANR1073E). Multiple numbers separated by commas, no spaces. Max 8 characters per number."},
                 "category": {
                     "type": "string", 
                     "description": "Category type for the alert. Default: SErver.",
                     "enum": ["APplication", "INventory", "CLient", "DEvice", "OBjectclient", "SErver", "STorage", "SYstems", "VMclient"]
                 },
-                "admin": {"type": "string", "description": "Administrator name to receive email notification of this alert."}
+                "admin": {"type": "string", "description": "Administrator name(s) to receive email notification. Multiple names separated by commas."}
             },
             "required": ["message_number"]
         }
@@ -58,7 +58,7 @@ class UpdateAlertTrigger(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "message_number": {"type": "integer", "description": "Message number of the alert trigger to update. Max 8 characters."},
+                "message_number": {"type": "string", "description": "Message number in ANRxxxxY format (e.g., ANR1067E). Max 8 characters."},
                 "category": {
                     "type": "string", 
                     "description": "New category type for the alert.",
@@ -121,7 +121,7 @@ class DeleteAlertTrigger(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "message_number": {"type": "integer", "description": "Message number."}
+                "message_number": {"type": "string", "description": "Message number in ANRxxxxY format (e.g., ANR1067E). Max 8 characters."}
             },
             "required": ["message_number"]
         }

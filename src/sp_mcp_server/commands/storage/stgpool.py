@@ -95,38 +95,7 @@ class DefineStoragePoolDirectory(BaseCommand):
         cmd = f"DEFINE STGPOOLDIRECTORY {arguments['pool_name']} \"{arguments['directory']}\""
         return self._execute_simple_query(cmd)
 
-class DeleteStoragePoolDirectory(BaseCommand):
-    @property
-    def name(self) -> str:
-        return "delete_storage_pool_directory"
-    
-    @property
-    def description(self) -> str:
-        return (
-            "- Description: Removes a filesystem directory from a **Container Storage Pool** (Storage Pool Directory).\n"
-            "**Input Parameters**:\n"
-            "- pool_name (Required): The name of the Container Storage Pool.\n"
-            "- directory (Required): The absolute filesystem path to remove.\n"
-            "**Output Parameters**:\n"
-            "- Result: Success message indicating the directory was removed."
-        )
-        
-    @property
-    def args_schema(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "pool_name": {"type": "string", "description": "Storage pool name."},
-                "directory": {"type": "string", "description": "Directory path."}
-            },
-            "required": ["pool_name", "directory"]
-        }
-        
-    def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = f"DELETE STGPOOLDIRECTORY {arguments['pool_name']} \"{arguments['directory']}\""
-        return self._execute_simple_query(cmd)
-
-
+class UpdateStorageTarget(BaseCommand):
     @property
     def name(self) -> str:
         return "update_storage_target"
@@ -332,6 +301,39 @@ class QueryContainerDirectory(BaseCommand):
         if arguments.get("container_name"):
             cmd += f" {arguments['container_name']}"
         return self._execute_simple_query(cmd)
+
+
+
+
+class DeleteStoragePoolDirectory(BaseCommand):
+    @property
+    def name(self) -> str:
+        return "delete_storage_pool_directory"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Delete a directory from a directory-container storage pool.\n\n"
+            "**Input Parameters**:\n"
+            "- pool_name (Required): Name of the storage pool.\n"
+            "- directory (Required): Directory path to remove from the pool.\n\n"
+            "**Output Parameters**:\n"
+            "- Result: Success message indicating the directory was deleted."
+        )
+
+    @property
+    def args_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "pool_name": {"type": "string", "description": "Name of the storage pool."},
+                "directory": {"type": "string", "description": "Directory path to remove from the pool."}
+            },
+            "required": ["pool_name", "directory"]
+        }
+
+    def execute(self, arguments: Dict[str, Any]) -> str:
+        return self._execute_simple_query(f"DELETE STGPOOLDIRECTORY {arguments['pool_name']} \"{arguments['directory']}\"")
 
 
 class QueryOccupancy(BaseCommand):

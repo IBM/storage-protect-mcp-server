@@ -100,6 +100,40 @@ class DeleteManagementClass(BaseCommand):
     def execute(self, arguments: Dict[str, Any]) -> str:
         return self._execute_simple_query(f"DELETE MGMTCLASS {arguments['domain_name']} {arguments['policy_set_name']} {arguments['class_name']}")
 
+class AssignDefMgmtClass(BaseCommand):
+    @property
+    def name(self) -> str:
+        return "assign_defmgmtclass"
+    
+    @property
+    def description(self) -> str:
+        return (
+            "Assigns a **Default Management Class** to a policy set. This is REQUIRED before a policy set can be validated or activated.\n"
+            "This is the PRIMARY command for setting the default management class (preferred over UPDATE POLICYSET with DEFMGMTCLASS parameter).\n"
+            "**Input Parameters**:\n"
+            "- domain_name (Required): The policy domain containing the policy set.\n"
+            "- policy_set_name (Required): The policy set to assign the default management class to. Note: Cannot assign to ACTIVE policy set.\n"
+            "- class_name (Required): The management class to set as default. Should contain both archive and backup copy groups.\n"
+            "**Output Parameters**:\n"
+            "- Result: Success message indicating the default management class was assigned."
+        )
+        
+    @property
+    def args_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "domain_name": {"type": "string", "description": "Policy domain name."},
+                "policy_set_name": {"type": "string", "description": "Policy set name (cannot be ACTIVE)."},
+                "class_name": {"type": "string", "description": "Management class name to set as default."}
+            },
+            "required": ["domain_name", "policy_set_name", "class_name"]
+        }
+        
+    def execute(self, arguments: Dict[str, Any]) -> str:
+        cmd = f"ASSIGN DEFMGMTCLASS {arguments['domain_name']} {arguments['policy_set_name']} {arguments['class_name']}"
+        return self._execute_simple_query(cmd)
+
 class QueryProtectionPolicy(BaseCommand):
     @property
     def name(self) -> str:

@@ -122,7 +122,7 @@ class RemoveClientFromGroup(BaseCommand):
             "required": ["group_name", "node_name"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query(f"REMOVE NODE {arguments['group_name']} {arguments['node_name']}")
+        return self._execute_simple_query(f"DELETE NODEGROUPMEMBER {arguments['group_name']} {arguments['node_name']}")
 
 class DeleteNodeGroup(BaseCommand):
     @property

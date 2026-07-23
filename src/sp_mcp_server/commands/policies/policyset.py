@@ -43,12 +43,12 @@ class UpdatePolicySet(BaseCommand):
     @property
     def description(self) -> str:
         return (
-            "Updates an existing **Policy Set** description or default management class.\n"
+            "Updates an existing **Policy Set** description.\n"
+            "**Note**: To set the default management class, use the 'assign_defmgmtclass' command (ASSIGN DEFMGMTCLASS) instead.\n"
             "**Input Parameters**:\n"
             "- domain_name (Required): The parent Policy Domain.\n"
             "- policy_set_name (Required): The name of the Policy Set to update.\n"
             "- description (Optional): The new description.\n"
-            "- defmgmtclass (Optional): Name of the default management class for this policy set.\n"
             "**Output Parameters**:\n"
             "- Result: Success message indicating the policy set was updated."
         )
@@ -59,15 +59,13 @@ class UpdatePolicySet(BaseCommand):
             "properties": {
                 "domain_name": {"type": "string", "description": "Domain name."},
                 "policy_set_name": {"type": "string", "description": "Policy set name."},
-                "description": {"type": "string", "description": "New description."},
-                "defmgmtclass": {"type": "string", "description": "Name of the default management class for this policy set."}
+                "description": {"type": "string", "description": "New description."}
             },
             "required": ["domain_name", "policy_set_name"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = f"UPDATE POLICYSET {arguments['domain_name']} {arguments['policy_set_name']}"
         if arguments.get("description"): cmd += f" DESCRIPTION=\"{arguments['description']}\""
-        if arguments.get("defmgmtclass"): cmd += f" DEFMGMTCLASS={arguments['defmgmtclass']}"
         return self._execute_simple_query(cmd)
 
 class ActivatePolicySet(BaseCommand):
