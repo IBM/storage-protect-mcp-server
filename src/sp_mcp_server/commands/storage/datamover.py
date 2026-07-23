@@ -41,7 +41,8 @@ class DefineDataMover(BaseCommand):
                 "type": {
                     "type": "string", 
                     "description": "Type of data mover: NAS (default), NASCLUSTER, or NASVSERVER.", 
-                    "enum": ["NAS", "NASCLUSTER", "NASVSERVER"]
+                    "enum": ["NAS", "NASCLUSTER", "NASVSERVER"],
+                    "default": "NAS"
                 },
                 "hl_address": {
                     "type": "string", 
@@ -76,9 +77,9 @@ class DefineDataMover(BaseCommand):
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = f"DEFINE DATAMOVER {arguments['name']}"
         
-        # Add optional TYPE parameter (default is NAS)
-        if arguments.get("type"):
-            cmd += f" TYPE={arguments['type']}"
+        # Add TYPE parameter (default is NAS if not specified)
+        data_mover_type = arguments.get("type", "NAS")
+        cmd += f" TYPE={data_mover_type}"
             
         # Add required HLADDRESS
         cmd += f" HLADDRESS={arguments['hl_address']}"
