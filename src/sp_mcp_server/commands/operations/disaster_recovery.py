@@ -69,7 +69,10 @@ class QueryRecoveryPlanFile(BaseCommand):
         return (
             "Query recovery plan file information stored on a target server.\n\n"
             "**Input Parameters**:\n"
-            "- date_param (Optional): Date filter.\n\n"
+            "- devclass (Optional): Device class used to create the plan files. Use when logged onto the server that created the plan.\n"
+            "- nodename (Optional): Node name of the source server. Use when logged onto the target server.\n"
+            "- source (Optional): DB backup type used when plan was prepared. Values: DBBackup, DBSnapshot. Default: DBBackup.\n"
+            "- format (Optional): Display format. Values: Standard, Detailed. Default: Standard.\n\n"
             "**Output Parameters**:\n"
             "- Date/Time: When the plan was saved.\n"
             "- Machine: Source machine."
@@ -80,14 +83,37 @@ class QueryRecoveryPlanFile(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                 "date_param": {"type": "string", "description": "Date filter."}
+                "devclass": {
+                    "type": "string",
+                    "description": "Device class used to create the recovery plan files. Wildcards supported. Use when logged onto the server that created the plan."
+                },
+                "nodename": {
+                    "type": "string",
+                    "description": "Node name on the target server of the source server that created the plan files. Wildcards supported."
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Type of DB backup used when plan was prepared. Default: DBBACKUP.",
+                    "enum": ["DBBackup", "DBSnapshot"]
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Display format. Default: STANDARD.",
+                    "enum": ["Standard", "Detailed"]
+                }
             }
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = "QUERY RPFILE"
-        if arguments.get("date_param"):
-             cmd += f" {arguments['date_param']}"
+        if arguments.get("devclass"):
+            cmd += f" DEVclass={arguments['devclass']}"
+        if arguments.get("nodename"):
+            cmd += f" NODEName={arguments['nodename']}"
+        if arguments.get("source"):
+            cmd += f" Source={arguments['source']}"
+        if arguments.get("format"):
+            cmd += f" Format={arguments['format']}"
         return self._execute_simple_query(cmd)
 
 class QueryRecoveryPlanFileContent(BaseCommand):
@@ -98,9 +124,11 @@ class QueryRecoveryPlanFileContent(BaseCommand):
     @property
     def description(self) -> str:
         return (
-            "Query the actual contents of a recovery plan file.\n\n"
+            "Display the contents of a recovery plan file stored on a target server.\n\n"
             "**Input Parameters**:\n"
-            "- None.\n\n"
+            "- plan_file_name (Required): Name of the recovery plan file. Format: servername.yyyymmdd.hhmmss. Use query_recovery_plan_file to list existing files.\n"
+            "- devclass (Optional): Device class used to create the file. Use when issuing from the source server.\n"
+            "- nodename (Optional): Node name of the source server registered on the target server. Use when issuing from the target server.\n\n"
             "**Output Parameters**:\n"
             "- Line Number: Line index.\n"
             "- Content: Plan instructions."
@@ -110,11 +138,30 @@ class QueryRecoveryPlanFileContent(BaseCommand):
     def args_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "plan_file_name": {
+                    "type": "string",
+                    "description": "Name of the recovery plan file to query. Format: servername.yyyymmdd.hhmmss. Use query_recovery_plan_file to get existing file names."
+                },
+                "devclass": {
+                    "type": "string",
+                    "description": "Device class used to create the recovery plan file. No wildcards. Use when issuing from the source server."
+                },
+                "nodename": {
+                    "type": "string",
+                    "description": "Node name of the source server registered on the target server. No wildcards. Use when issuing from the target server."
+                }
+            },
+            "required": ["plan_file_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query("QUERY RPFCONTENT")
+        cmd = f"QUERY RPFCONTENT {arguments['plan_file_name']}"
+        if arguments.get("devclass"):
+            cmd += f" DEVclass={arguments['devclass']}"
+        if arguments.get("nodename"):
+            cmd += f" NODEName={arguments['nodename']}"
+        return self._execute_simple_query(cmd)
 
 class BackupDB(BaseCommand):
     @property

@@ -176,7 +176,9 @@ class QuerySubRule(BaseCommand):
         return (
             "Display configuration for sub-file level frequency rules.\n\n"
             "**Input Parameters**:\n"
-            "- rule_name (Optional): Rule name.\n\n"
+            "- parent_rule_name (Required): Name of the parent storage rule.\n"
+            "- subrule_name (Optional): Name of the subrule to filter results (max 30 chars).\n"
+            "- format (Optional): Output format: Standard, Detailed.\n\n"
             "**Output Parameters**:\n"
             "- Rule Name: Name of the subrule."
         )
@@ -186,14 +188,19 @@ class QuerySubRule(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "rule_name": {"type": "string"}
-            }
+                "parent_rule_name": {"type": "string", "description": "Name of the parent storage rule (required)."},
+                "subrule_name": {"type": "string", "description": "Name of the subrule to filter results (optional, max 30 chars)."},
+                "format": {"type": "string", "description": "Output format.", "enum": ["Standard", "Detailed"]}
+            },
+            "required": ["parent_rule_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = "QUERY SUBRULE"
-        if arguments.get("rule_name"):
-             cmd += f" {arguments['rule_name']}"
+        cmd = f"QUERY SUBRULE {arguments['parent_rule_name']}"
+        if arguments.get("subrule_name"):
+            cmd += f" {arguments['subrule_name']}"
+        if arguments.get("format"):
+            cmd += f" Format={arguments['format']}"
         return self._execute_simple_query(cmd)
 
 class QueryRetentionRule(BaseCommand):
@@ -270,8 +277,15 @@ class QueryRetentionSetContents(BaseCommand):
     def description(self) -> str:
         return (
             "Query the detailed contents (files/objects) within a retention set.\n\n"
+            "**IMPORTANT**: At least one of retset_id, node_name, or retention_rule_name is required. "
+            "retset_id is mutually exclusive with node_name and retention_rule_name.\n\n"
             "**Input Parameters**:\n"
-            "- retset_id (Optional): Retention set ID.\n\n"
+            "- retset_id (Optional): Unique numeric retention set ID. Mutually exclusive with node_name and retention_rule_name.\n"
+            "- node_name (Optional): Node or node group name. Wildcards supported.\n"
+            "- filespace_name (Optional): File space or virtual machine name. Only valid with node_name.\n"
+            "- retention_rule_name (Optional): Retention rule name that triggered the set. Wildcards supported.\n"
+            "- count (Optional): Number of files to display.\n"
+            "- format (Optional): Output format: Standard, Detailed.\n\n"
             "**Output Parameters**:\n"
             "- File Name: Name of the file.\n"
             "- Size: File size."
@@ -281,13 +295,53 @@ class QueryRetentionSetContents(BaseCommand):
     def args_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
+            "description": (
+                "At least one of retset_id, node_name, or retention_rule_name is required. "
+                "retset_id is mutually exclusive with node_name and retention_rule_name."
+            ),
             "properties": {
-                "retset_id": {"type": "string", "description": "Retention set ID."}
+                "retset_id": {
+                    "type": "string",
+                    "description": "Unique numeric retention set ID. Mutually exclusive with node_name and retention_rule_name."
+                },
+                "node_name": {
+                    "type": "string",
+                    "description": "Node or node group name (NOdename=). Wildcards supported."
+                },
+                "filespace_name": {
+                    "type": "string",
+                    "description": "File space or virtual machine name (FIlespace=). Only valid with node_name."
+                },
+                "retention_rule_name": {
+                    "type": "string",
+                    "description": "Retention rule name that triggered the set (RETRulename=). Wildcards supported."
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Number of files to display (COUnt=)."
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Output format.",
+                    "enum": ["Standard", "Detailed"]
+                }
             }
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
+        if not any([arguments.get("retset_id"), arguments.get("node_name"), arguments.get("retention_rule_name")]):
+            return "Error: At least one of retset_id, node_name, or retention_rule_name is required."
         cmd = "QUERY RETSETCONTENTS"
         if arguments.get("retset_id"):
-             cmd += f" {arguments['retset_id']}"
+            cmd += f" {arguments['retset_id']}"
+        if arguments.get("node_name"):
+            cmd += f" NOdename={arguments['node_name']}"
+            if arguments.get("filespace_name"):
+                cmd += f" FIlespace={arguments['filespace_name']}"
+        if arguments.get("retention_rule_name"):
+            cmd += f" RETRulename={arguments['retention_rule_name']}"
+        if arguments.get("count"):
+            cmd += f" COUnt={arguments['count']}"
+        if arguments.get("format"):
+            cmd += f" Format={arguments['format']}"
         return self._execute_simple_query(cmd)

@@ -11,7 +11,9 @@ class QueryDamagedData(BaseCommand):
         return (
             "- Description: Query data marked as damaged within storage containers.\n\n"
             "**Input Parameters**:\n"
-            "- container_name (Optional): Storage container name to check.\n\n"
+            "- pool_name (Required): Directory-container or cloud storage pool name.\n"
+            "- type (Optional): Type of information to display. Values: Status, Node, INVentory, CONTAiner.\n"
+            "- node_name (Optional): Filter results to a single node.\n\n"
             "**Output Parameters**:\n"
             "- Storage Pool Name: The container.\n"
             "- Object ID: ID of the damaged object.\n"
@@ -23,14 +25,23 @@ class QueryDamagedData(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "container_name": {"type": "string", "description": "Storage container name to check."}
-            }
+                "pool_name": {"type": "string", "description": "Directory-container or cloud storage pool name (required)."},
+                "type": {
+                    "type": "string",
+                    "description": "Type of information to display.",
+                    "enum": ["Status", "Node", "INVentory", "CONTAiner"]
+                },
+                "node_name": {"type": "string", "description": "Filter results to a single node (NODENAME=)."}
+            },
+            "required": ["pool_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = "QUERY DAMAGED"
-        if arguments.get("container_name"):
-             cmd += f" {arguments['container_name']}"
+        cmd = f"QUERY DAMAGED {arguments['pool_name']}"
+        if arguments.get("type"):
+            cmd += f" TYPE={arguments['type']}"
+        if arguments.get("node_name"):
+            cmd += f" NODENAME={arguments['node_name']}"
         return self._execute_simple_query(cmd)
 
 class QueryContainerCleanup(BaseCommand):
@@ -43,7 +54,7 @@ class QueryContainerCleanup(BaseCommand):
         return (
             "- Description: Query the cleanup process status for source storage containers.\n\n"
             "**Input Parameters**:\n"
-            "- None.\n\n"
+            "- pool_name (Required): Storage pool name to query.\n\n"
             "**Output Parameters**:\n"
             "- Storage Pool Name: The container.\n"
             "- Phase: Cleanup phase.\n"
@@ -54,11 +65,14 @@ class QueryContainerCleanup(BaseCommand):
     def args_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "pool_name": {"type": "string", "description": "Storage pool name to query (required)."}
+            },
+            "required": ["pool_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query("QUERY CLEANUP")
+        return self._execute_simple_query(f"QUERY CLEANUP {arguments['pool_name']}")
 
 class QueryContainerConversion(BaseCommand):
     @property
@@ -129,7 +143,7 @@ class QueryExtentUpdates(BaseCommand):
         return (
             "- Description: Query information about updated data extents in the system.\n\n"
             "**Input Parameters**:\n"
-            "- None.\n\n"
+            "- pool_name (Required): Storage pool name to query.\n\n"
             "**Output Parameters**:\n"
             "- Extent ID: Identifier for the data chunk.\n"
             "- Status: Status of the update."
@@ -139,11 +153,14 @@ class QueryExtentUpdates(BaseCommand):
     def args_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "pool_name": {"type": "string", "description": "Storage pool name to query (required)."}
+            },
+            "required": ["pool_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query("QUERY EXTENTUPDATES")
+        return self._execute_simple_query(f"QUERY EXTENTUPDATES {arguments['pool_name']}")
 
 class QueryShreddingStatus(BaseCommand):
     @property

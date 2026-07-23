@@ -35,6 +35,38 @@ class DefineNodeGroup(BaseCommand):
             cmd += f" DESCRIPTION=\"{arguments['description']}\""
         return self._execute_simple_query(cmd)
 
+class DefineNodeGroupMember(BaseCommand):
+    @property
+    def name(self) -> str:
+        return "define_node_group_member"
+    
+    @property
+    def description(self) -> str:
+        return (
+            "Adds a **Node** to a **Node Group**.\n"
+            "**Input Parameters**:\n"
+            "- group_name (Required): The name of the Node Group.\n"
+            "- node_name (Required): The name of the Node to add to the group.\n"
+            "**Output Parameters**:\n"
+            "- Result: Success message indicating the Node was added to the group."
+        )
+        
+    @property
+    def args_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "group_name": {"type": "string", "description": "Node group name."},
+                "node_name": {"type": "string", "description": "Node name."}
+            },
+            "required": ["group_name", "node_name"]
+        }
+        
+    def execute(self, arguments: Dict[str, Any]) -> str:
+        return self._execute_simple_query(
+            f"DEFINE NODEGROUPMEMBER {arguments['group_name']} {arguments['node_name']}"
+        )
+
 class UpdateNodeGroup(BaseCommand):
     @property
     def name(self) -> str:
@@ -74,9 +106,8 @@ class RemoveClientFromGroup(BaseCommand):
         return (
             "Removes a **Node** from a **Node Group**.\n"
             "**Input Parameters**:\n"
-            "- isp_server_name (Optional): Target ISP Server name from registry.\n"
             "- group_name (Required): The name of the Node Group.\n"
-            "- client_name (Required): The name of the Node to remove from the group.\n"
+            "- node_name (Required): The name of the Node to remove from the group.\n"
             "**Output Parameters**:\n"
             "- Result: Success message indicating the Node was removed from the group."
         )

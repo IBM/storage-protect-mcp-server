@@ -49,7 +49,7 @@ class QueryEnabledEvents(BaseCommand):
         return (
             "- Description: Query which system events are currently enabled for logging or alerting.\n\n"
             "**Input Parameters**:\n"
-            "- None.\n\n"
+            "- event_type (Required): Event type to query. Valid values: SCHEDULE, ACCOUNTING, THRESHOLD, REPLICATION, ALL.\n\n"
             "**Output Parameters**:\n"
             "- Event Name: The type of event.\n"
             "- Enabled: Whether the event is active.\n"
@@ -60,11 +60,18 @@ class QueryEnabledEvents(BaseCommand):
     def args_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "event_type": {
+                    "type": "string",
+                    "description": "Event type to query (e.g., SCHEDULE, ACCOUNTING, THRESHOLD, REPLICATION, ALL).",
+                    "enum": ["SCHEDULE", "ACCOUNTING", "THRESHOLD", "REPLICATION", "ALL"]
+                }
+            },
+            "required": ["event_type"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query("QUERY ENABLED")
+        return self._execute_simple_query(f"QUERY ENABLED {arguments['event_type']}")
 
 class QueryEventRules(BaseCommand):
     @property

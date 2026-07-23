@@ -44,44 +44,6 @@ class DefinePath(BaseCommand):
             cmd += f" LIBRARY={arguments['library_name']}"
         return self._execute_simple_query(cmd)
 
-class UpdateDataPath(BaseCommand):
-    @property
-    def name(self) -> str:
-        return "update_data_path"
-    @property
-    def description(self) -> str:
-        return (
-            "- Description: Update the data path between a source (like a server or data mover) and a destination (drive, library) to allow data transfer.\n"
-            "**Input Parameters**:\n"
-            "- source_name (Required): Name of the source (e.g., server name).\n"
-            "- destination_name (Required): Name of the destination (e.g., drive name).\n"
-            "- source_type (Required): Type of source (e.g., SERVER, DATAMOVER).\n"
-            "- destination_type (Required): Type of destination (e.g., DRIVE, LIBRARY).\n"
-            "- library (Optional): Name of the library (required for drive paths).\n"
-            "- online (Optional): 'Yes' or 'No' to set path availability.\n"
-            "**Output Parameters**:\n"
-            "- Result: Success message indicating the path was updated."
-        )
-    @property
-    def args_schema(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "source_name": {"type": "string", "description": "Source name."},
-                "destination_name": {"type": "string", "description": "Destination name."},
-                "source_type": {"type": "string", "description": "Source type."},
-                "destination_type": {"type": "string", "description": "Destination type."},
-                "library": {"type": "string", "description": "Library name."},
-                "online": {"type": "string", "enum": ["Yes", "No"], "description": "Online status."}
-            },
-            "required": ["source_name", "destination_name", "source_type", "destination_type"]
-        }
-    def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = f"UPDATE PATH {arguments['source_name']} {arguments['destination_name']} SRCTYPE={arguments['source_type']} DESTTYPE={arguments['destination_type']}"
-        if arguments.get("library"): cmd += f" LIBRARY={arguments['library']}"
-        if arguments.get("online"): cmd += f" ONLINE={arguments['online']}"
-        return self._execute_simple_query(cmd)
-
 class UpdatePath(BaseCommand):
     @property
     def name(self) -> str:

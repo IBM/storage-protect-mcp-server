@@ -208,7 +208,8 @@ class DefineStorageRule(BaseCommand):
             "Define a **Storage Rule** for tiering or auditing. Automates data movement between tiers.\n"
             "**Input Parameters**:\n"
             "- rule_name (Required): The name of the new storage rule.\n"
-            "- action_type (Required): The action to perform (e.g., TIERBYGROUP).\n"
+            "- target_name (Required): Target container or pool name.\n"
+            "- action_type (Required): The action to perform. Valid: AUDit, GENdedupstats, REClaim, RETention, TIERBYAge, TIERBYState, NOTiering, COPY, NOCopying, REPLicate, NOREPLicating.\n"
             "**Output Parameters**:\n"
             "- Result: Success message indicating the rule was defined."
         )
@@ -217,13 +218,21 @@ class DefineStorageRule(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "rule_name": {"type": "string", "description": "Rule name."},
-                "action_type": {"type": "string", "description": "Action type (e.g. TIERBYGROUP)."}
+                "rule_name": {"type": "string", "description": "Storage rule name."},
+                "target_name": {"type": "string", "description": "Target container or pool name."},
+                "action_type": {
+                    "type": "string",
+                    "description": "Action type for the rule.",
+                    "enum": ["AUDit", "GENdedupstats", "REClaim", "RETention", "TIERBYAge",
+                             "TIERBYState", "NOTiering", "COPY", "NOCopying", "REPLicate", "NOREPLicating"]
+                }
             },
-            "required": ["rule_name", "action_type"]
+            "required": ["rule_name", "target_name", "action_type"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query(f"DEFINE STGRULE {arguments['rule_name']} ACTIONTYPE={arguments['action_type']}")
+        return self._execute_simple_query(
+            f"DEFINE STGRULE {arguments['rule_name']} {arguments['target_name']} ACTIONTYPE={arguments['action_type']}"
+        )
 
 class UpdateStorageRule(BaseCommand):
     @property

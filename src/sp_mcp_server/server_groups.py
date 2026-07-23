@@ -29,6 +29,8 @@ ISP_CLIENTS_CORE = [
     cli_cmd.UpdateNodeGroup,
     cli_cmd.DeleteNodeGroup,
     cli_cmd.QueryClientGroup,
+    cli_cmd.DefineNodeGroupMember,
+    cli_cmd.RemoveClientFromGroup,
     cli_cmd.QueryProxyClient,
     cli_cmd.QueryReplicationClient
 ]
@@ -60,6 +62,8 @@ ISP_STORAGE_POOLS = [
     stg_cmd.UpdateStoragePool,
     stg_cmd.DeleteStoragePool,
     stg_cmd.DefineStoragePoolDirectory,
+    stg_cmd.QueryContainerDirectory,
+    stg_cmd.DeleteStoragePoolDirectory,
     stg_cmd.QueryStorageContainer,
     stg_cmd.QueryOccupancy,
     stg_cmd.DefineVolume,

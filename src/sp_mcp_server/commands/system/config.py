@@ -153,4 +153,4 @@ class QueryMonitoringStatus(BaseCommand):
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        return self._execute_simple_query("QUERY MONITORS")
+        return self._execute_simple_query("QUERY STATUS")

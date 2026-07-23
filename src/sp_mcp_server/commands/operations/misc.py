@@ -187,9 +187,13 @@ class QueryProfile(BaseCommand):
     @property
     def description(self) -> str:
         return (
-            "Query a configuration profile subscribed to by other servers.\n\n"
+            "Display information about profiles and associated objects.\n\n"
+            "**⚠️ IMPORTANT**: This command must be issued from a **configuration manager** "
+            "or a **managed server** with a configuration manager defined. "
+            "It will fail with ANR3007E on standard standalone backup servers.\n\n"
             "**Input Parameters**:\n"
-            "- profile_name (Optional): Profile name.\n\n"
+            "- server_name (Required): Configuration manager server name (SERVER=).\n"
+            "- profile_name (Optional): Filter to a specific profile name.\n\n"
             "**Output Parameters**:\n"
             "- Profile Name: Name of the profile.\n"
             "- Description: Description of contents."
@@ -200,14 +204,17 @@ class QueryProfile(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "profile_name": {"type": "string", "description": "Profile name."}
-            }
+                "server_name": {"type": "string", "description": "Configuration manager server name (required). Passed as SERVER=<name>."},
+                "profile_name": {"type": "string", "description": "Profile name to filter results (optional)."}
+            },
+            "required": ["server_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = "QUERY PROFILE"
         if arguments.get("profile_name"):
             cmd += f" {arguments['profile_name']}"
+        cmd += f" SERVER={arguments['server_name']}"
         return self._execute_simple_query(cmd)
 
 class QueryUserRequest(BaseCommand):

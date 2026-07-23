@@ -219,7 +219,7 @@ class DeleteClientOpt(BaseCommand):
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = f"DELETE CLIENTOPT {arguments['option_set_name']} {arguments['option_name']}"
-        if arguments.get("seq_number"): cmd += f" {arguments['seq_number']}"
+        if arguments.get("seq_number"): cmd += f" SEQNUMBER={arguments['seq_number']}"
         return self._execute_simple_query(cmd)
 
 class QueryClientOptionSet(BaseCommand):

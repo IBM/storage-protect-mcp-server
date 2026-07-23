@@ -193,9 +193,11 @@ class QueryClientDataPlacement(BaseCommand):
         return (
             "Query distribution of node data across storage containers and volumes.\n\n"
             "**Input Parameters**:\n"
-            "- isp_server_name (Optional): Target ISP Server name from registry.\n"
-            "- client_name (Optional): Node name.\n"
-            "- storage_container (Optional): Storage container name.\n\n"
+            "- node_name (Required*): Client node name(s). Wildcards and comma-separated lists supported. Required if collocgroup not specified.\n"
+            "- collocgroup (Required*): Collocation group name. Required if node_name not specified. Cannot be used with node_name.\n"
+            "- stgpool (Optional): Sequential storage pool name to query. Wildcards supported.\n"
+            "- volume (Optional): Volume name containing the data. Wildcards supported.\n"
+            "- filespace (Optional): Filespace name on the client node. Only valid with node_name.\n\n"
             "**Output Parameters**:\n"
             "- Node Name: The node.\n"
             "- Storage Pool: The container.\n"
@@ -207,15 +209,41 @@ class QueryClientDataPlacement(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "client_name": {"type": "string", "description": "Client name."},
-                "storage_container": {"type": "string", "description": "Storage container name (stgpool)."}
+                "node_name": {
+                    "type": "string",
+                    "description": "Client node name(s). Wildcards and comma-separated lists supported. Required if collocgroup not specified."
+                },
+                "collocgroup": {
+                    "type": "string",
+                    "description": "Collocation group name. Required if node_name not specified. Cannot be used with node_name."
+                },
+                "stgpool": {
+                    "type": "string",
+                    "description": "Sequential storage pool name to query. Wildcards supported. Default: all sequential-access pools."
+                },
+                "volume": {
+                    "type": "string",
+                    "description": "Volume name containing the data. Wildcards supported."
+                },
+                "filespace": {
+                    "type": "string",
+                    "description": "Filespace name on the client node. Only valid with node_name."
+                }
             }
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
+        if not arguments.get("node_name") and not arguments.get("collocgroup"):
+            return "Error: Either node_name or collocgroup must be specified."
         cmd = "QUERY NODEDATA"
-        if arguments.get("client_name"):
-             cmd += f" {arguments['client_name']}"
-        if arguments.get("storage_container"):
-             cmd += f" STGPOOL={arguments['storage_container']}"
+        if arguments.get("node_name"):
+            cmd += f" {arguments['node_name']}"
+        if arguments.get("collocgroup"):
+            cmd += f" COLLOCGroup={arguments['collocgroup']}"
+        if arguments.get("stgpool"):
+            cmd += f" STGpool={arguments['stgpool']}"
+        if arguments.get("volume"):
+            cmd += f" VOLume={arguments['volume']}"
+        if arguments.get("filespace"):
+            cmd += f" FIlespace={arguments['filespace']}"
         return self._execute_simple_query(cmd)

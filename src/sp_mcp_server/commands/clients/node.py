@@ -266,14 +266,15 @@ class QueryReplicationClient(BaseCommand):
     @property
     def description(self) -> str:
         return (
-            "Display information about replication status for a node.\n\n"
+            "Display replication status for client node file spaces.\n\n"
             "**Input Parameters**:\n"
-            "- isp_server_name (Optional): Target ISP Server name from registry.\n"
-            "- client_name (Optional): Node name.\n\n"
+            "- node_name (Required): Client node name(s). Comma-separated, no spaces. Use * for all nodes.\n"
+            "- target_server_name (Optional): Target replication server to query. Default: all configured target servers.\n\n"
             "**Output Parameters**:\n"
-            "- Node Name: The executing node.\n"
-            "- State: Replication state (e.g., SYNC, SENDING).\n"
-            "- Target Server: Destination for replication."
+            "- Node Name: The client node.\n"
+            "- File Space: Replicated file space.\n"
+            "- Target Server: Destination replication server.\n"
+            "- Files Sent/Received: Replication counts."
         )
 
     @property
@@ -281,14 +282,22 @@ class QueryReplicationClient(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                 "client_name": {"type": "string", "description": "Client name."}
-            }
+                "node_name": {
+                    "type": "string",
+                    "description": "Client node name(s). Comma-separated, no spaces. Use * for all nodes."
+                },
+                "target_server_name": {
+                    "type": "string",
+                    "description": "Target replication server name (optional). If omitted, all configured target servers are listed."
+                }
+            },
+            "required": ["node_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = "QUERY REPLNODE"
-        if arguments.get("client_name"):
-            cmd += f" {arguments['client_name']}"
+        cmd = f"QUERY REPLNODE {arguments['node_name']}"
+        if arguments.get("target_server_name"):
+            cmd += f" {arguments['target_server_name']}"
         return self._execute_simple_query(cmd)
 
 class QueryPVUEstimate(BaseCommand):

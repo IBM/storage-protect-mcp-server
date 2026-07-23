@@ -49,7 +49,13 @@ class UpdateLibrary(BaseCommand):
             "- Description: Updates a **Library** definition.\n"
             "**Input Parameters**:\n"
             "- library_name (Required): The name of the library.\n"
-            "- shared (Optional): 'YES' or 'NO' to indicate if shared.\n"
+            "- shared (Optional): 'YES' or 'NO' to indicate if shared (MANUAL/SCSI/VTL/ACSLS/FILE).\n"
+            "- resetdrives (Optional): Whether server preempts drive reservation via persistent reserve on restart (MANUAL/SCSI/VTL/ACSLS).\n"
+            "- autolabel (Optional): Whether server automatically labels tape volumes (MANUAL/SCSI/VTL/ACSLS/EXTERNAL).\n"
+            "- libtype (Optional): Convert library type between SCSI and VTL (SCSI/VTL only).\n"
+            "- serial (Optional): Serial number or AUTODETECT (SCSI/VTL only).\n"
+            "- relabelscratch (Optional): Whether server relabels volumes deleted and returned to scratch (SCSI/VTL only).\n"
+            "- primarylibmanager (Optional): Name of the primary library manager server (SHARED type only).\n"
             "**Output Parameters**:\n"
             "- Result: Success message indicating the library was updated."
         )
@@ -59,13 +65,25 @@ class UpdateLibrary(BaseCommand):
             "type": "object",
             "properties": {
                 "library_name": {"type": "string", "description": "Library name."},
-                "shared": {"type": "string", "enum": ["YES", "NO"], "description": "Shared status."}
+                "shared": {"type": "string", "enum": ["YES", "NO"], "description": "Shared status."},
+                "resetdrives": {"type": "string", "enum": ["YES", "NO"], "description": "Whether server preempts drive reservation via persistent reserve on restart (MANUAL/SCSI/VTL/ACSLS)."},
+                "autolabel": {"type": "string", "enum": ["NO", "YES", "OVERWRITE"], "description": "Whether server automatically labels tape volumes (MANUAL/SCSI/VTL/ACSLS/EXTERNAL)."},
+                "libtype": {"type": "string", "enum": ["SCSI", "VTL"], "description": "Convert library type between SCSI and VTL (SCSI/VTL only)."},
+                "serial": {"type": "string", "description": "Serial number or AUTODETECT (SCSI/VTL only)."},
+                "relabelscratch": {"type": "string", "enum": ["YES", "NO"], "description": "Whether server relabels volumes deleted and returned to scratch (SCSI/VTL only)."},
+                "primarylibmanager": {"type": "string", "description": "Name of the primary library manager server (SHARED type only)."}
             },
             "required": ["library_name"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = f"UPDATE LIBRARY {arguments['library_name']}"
         if arguments.get("shared"): cmd += f" SHARED={arguments['shared']}"
+        if arguments.get("resetdrives"): cmd += f" RESETDRIVES={arguments['resetdrives']}"
+        if arguments.get("autolabel"): cmd += f" AUTOLABEL={arguments['autolabel']}"
+        if arguments.get("libtype"): cmd += f" LIBTYPE={arguments['libtype']}"
+        if arguments.get("serial"): cmd += f" SERIAL={arguments['serial']}"
+        if arguments.get("relabelscratch"): cmd += f" RELABELSCRATCH={arguments['relabelscratch']}"
+        if arguments.get("primarylibmanager"): cmd += f" PRIMARYLIBMANAGER={arguments['primarylibmanager']}"
         return self._execute_simple_query(cmd)
 
 class DeleteLibrary(BaseCommand):

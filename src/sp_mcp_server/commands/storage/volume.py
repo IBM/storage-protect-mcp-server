@@ -11,10 +11,12 @@ class DefineVolume(BaseCommand):
         return (
             "- Description: Defines a **Storage Unit** (known as a **Volume** in SP) within a Storage Pool. Represents a specific disk, file, or tape.\n"
             "**Input Parameters**:\n"
-            "- isp_server_name (Optional): Target ISP Server name from registry.\n"
             "- pool_name (Required): The name of the parent Storage Pool.\n"
             "- volume_name (Required): Unique identifier/path for the volume.\n"
             "- access (Optional): Availability mode (e.g., 'READWRITE', 'READONLY').\n"
+            "- formatsize (Optional): Size in MB to allocate for the new volume file. Required when the volume file does not already exist on disk (DISK/FILE device class pools). Max: 8000000 MB.\n"
+            "- numberofvolumes (Optional): Number of volumes to create in one step (1-256). If > 1, formatsize is also required.\n"
+            "- wait (Optional): YES = foreground operation, NO = background (default when formatsize is specified).\n"
             "**Output Parameters**:\n"
             "- Result: Success message indicating the volume was defined."
         )
@@ -30,6 +32,19 @@ class DefineVolume(BaseCommand):
                     "type": "string",
                     "enum": ["READWRITE", "READONLY", "UNAVAILABLE", "DESTROYED", "OFFSITE"],
                     "description": "Access mode."
+                },
+                "formatsize": {
+                    "type": "integer",
+                    "description": "Size in MB to allocate for the new volume file. Required when the volume file does not already exist on disk (DISK/FILE device class pools). Max: 8000000 MB."
+                },
+                "numberofvolumes": {
+                    "type": "integer",
+                    "description": "Number of volumes to create in one step (1-256). If > 1, formatsize is also required."
+                },
+                "wait": {
+                    "type": "string",
+                    "enum": ["YES", "NO"],
+                    "description": "YES = foreground operation, NO = background (default when formatsize is specified)."
                 }
             },
             "required": ["pool_name", "volume_name"]
@@ -39,6 +54,12 @@ class DefineVolume(BaseCommand):
         cmd = f"DEFINE VOLUME {arguments['pool_name']} {arguments['volume_name']}"
         if arguments.get("access"):
             cmd += f" ACCESS={arguments['access']}"
+        if arguments.get("formatsize"):
+            cmd += f" FORMATSIZE={arguments['formatsize']}"
+        if arguments.get("numberofvolumes"):
+            cmd += f" NUMBEROFVOLUMES={arguments['numberofvolumes']}"
+        if arguments.get("wait"):
+            cmd += f" WAIT={arguments['wait']}"
         return self._execute_simple_query(cmd)
 
 class UpdateVolume(BaseCommand):
@@ -212,10 +233,15 @@ class QuerySequentialMedia(BaseCommand):
     @property
     def description(self) -> str:
         return (
-            "- Description: Query sequential-access media associated with a storage container.\n"
+            "- Description: Query sequential-access media associated with a storage pool.\n"
             "**Input Parameters**:\n"
-            "- isp_server_name (Optional): Target ISP Server name from registry.\n"
-            "- container_name (Optional): Storage container name.\n"
+            "- stgpool_name (Required): Sequential-access storage pool name. Wildcards supported.\n"
+            "- volume_name (Optional): Volume name filter. Wildcards supported.\n"
+            "- days (Optional): Days elapsed since last read/write (0-9999, default 0).\n"
+            "- where_status (Optional): Filter by volume status: FULl, FILling, EMPty. Comma-separated.\n"
+            "- where_access (Optional): Filter by access mode: READWrite, READOnly.\n"
+            "- where_state (Optional): Filter by mount state: All, MOUNTABLEInlib, MOUNTABLENotinlib.\n"
+            "- format (Optional): Output format: Standard, Detailed.\n"
             "**Output Parameters**:\n"
             "- Volume Name: The media volume.\n"
             "- State: Mountable or not.\n"
@@ -227,14 +253,32 @@ class QuerySequentialMedia(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "container_name": {"type": "string", "description": "Storage container name (maps to pool name)."}
-            }
+                "stgpool_name": {"type": "string", "description": "Sequential-access storage pool name (required). Wildcards supported."},
+                "volume_name": {"type": "string", "description": "Volume name filter (optional). Wildcards supported."},
+                "days": {"type": "integer", "description": "Days elapsed since last read/write (optional, 0–9999, default 0)."},
+                "where_status": {"type": "string", "description": "Filter by volume status (optional): FULl, FILling, EMPty. Comma-separated."},
+                "where_access": {"type": "string", "description": "Filter by access mode (optional): READWrite, READOnly.", "enum": ["READWrite", "READOnly"]},
+                "where_state": {"type": "string", "description": "Filter by mount state (optional).", "enum": ["All", "MOUNTABLEInlib", "MOUNTABLENotinlib"]},
+                "format": {"type": "string", "description": "Output format (optional).", "enum": ["Standard", "Detailed"]}
+            },
+            "required": ["stgpool_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         cmd = "QUERY MEDIA"
-        if arguments.get("container_name"):
-            cmd += f" {arguments['container_name']}"
+        if arguments.get("volume_name"):
+            cmd += f" {arguments['volume_name']}"
+        cmd += f" STGPOOL={arguments['stgpool_name']}"
+        if arguments.get("days") is not None:
+            cmd += f" Days={arguments['days']}"
+        if arguments.get("where_status"):
+            cmd += f" WHERESTATUs={arguments['where_status']}"
+        if arguments.get("where_access"):
+            cmd += f" WHEREACCess={arguments['where_access']}"
+        if arguments.get("where_state"):
+            cmd += f" WHEREState={arguments['where_state']}"
+        if arguments.get("format"):
+            cmd += f" Format={arguments['format']}"
         return self._execute_simple_query(cmd)
 
 class QueryMountedVolumes(BaseCommand):
@@ -333,9 +377,11 @@ class QueryBackupTOC(BaseCommand):
         return (
             "- Description: Display the Table of Contents (TOC) for a backup image, listing files within it.\n"
             "**Input Parameters**:\n"
-            "- isp_server_name (Optional): Target ISP Server name from registry.\n"
-            "- client_name (Optional): Node name.\n"
-            "- backup_set_name (Optional): Backup set/File space name.\n"
+            "- client_name (Required): NAS node name. No wildcards.\n"
+            "- backup_set_name (Required): File space name. No wildcards.\n"
+            "- creation_date (Optional): Creation date of backup image (MM/DD/YYYY). Must be paired with creation_time.\n"
+            "- creation_time (Optional): Creation time of backup image (HH:MM:SS). Must be paired with creation_date.\n"
+            "- format (Optional): Output format: Standard, Detailed.\n"
             "**Output Parameters**:\n"
             "- File Name: Name of the file in the backup.\n"
             "- Size: Size of the file.\n"
@@ -347,15 +393,21 @@ class QueryBackupTOC(BaseCommand):
         return {
             "type": "object",
             "properties": {
-                "client_name": {"type": "string", "description": "Client name (maps to node_name)."},
-                "backup_set_name": {"type": "string", "description": "Backup set/File space name (maps to filespace)."}
-            }
+                "client_name": {"type": "string", "description": "NAS node name (required). No wildcards."},
+                "backup_set_name": {"type": "string", "description": "File space name (required). No wildcards."},
+                "creation_date": {"type": "string", "description": "Creation date of backup image (MM/DD/YYYY). Must be paired with creation_time."},
+                "creation_time": {"type": "string", "description": "Creation time of backup image (HH:MM:SS). Must be paired with creation_date."},
+                "format": {"type": "string", "description": "Output format.", "enum": ["Standard", "Detailed"]}
+            },
+            "required": ["client_name", "backup_set_name"]
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = "QUERY TOC"
-        if arguments.get("client_name"):
-            cmd += f" {arguments['client_name']}"
-        if arguments.get("backup_set_name"):
-            cmd += f" {arguments['backup_set_name']}"
+        cmd = f"QUERY TOC {arguments['client_name']} {arguments['backup_set_name']}"
+        if arguments.get("creation_date"):
+            cmd += f" CREATIONDate={arguments['creation_date']}"
+        if arguments.get("creation_time"):
+            cmd += f" CREATIONTime={arguments['creation_time']}"
+        if arguments.get("format"):
+            cmd += f" Format={arguments['format']}"
         return self._execute_simple_query(cmd)
