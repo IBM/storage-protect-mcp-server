@@ -1,8 +1,8 @@
 # Module Architecture: Operations
 
-**Revision**: 2025-07 (Post-Remediation Verification & Alignment)  
-**Cross-reference**: [`docs/architecture/architecture.md`](architecture.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)  
-**Source reference**: `src/sp_mcp_server/commands/operations/` · `src/sp_mcp_server/server_groups.py`
+* **Revision**: 2025-07 (Post-Remediation Verification & Alignment)
+* **Cross-reference**: [`docs/architecture/architecture.md`](architecture.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
+* **Source reference**: `src/sp_mcp_server/commands/operations/` · `src/sp_mcp_server/server_groups.py`
 
 ---
 

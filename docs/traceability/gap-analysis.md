@@ -1,8 +1,8 @@
 # IBM Storage Protect MCP Server — Gap Analysis
 
-**Revision**: 2025-07 (Post-Remediation Verification & Alignment)  
-**Cross-reference**: [`docs/traceability/traceability-matrix.md`](traceability-matrix.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)  
-**Source reference**: `src/sp_mcp_server/` · `tests/`
+* **Revision**: 2025-07 (Post-Remediation Verification & Alignment)
+* **Cross-reference**: [`docs/traceability/traceability-matrix.md`](traceability-matrix.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
+* **Source reference**: `src/sp_mcp_server/` · `tests/`
 
 ---
 

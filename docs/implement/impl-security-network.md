@@ -1,9 +1,9 @@
 # Implementation: Network Security
 
-**Domain**: Network Security
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 1`](../analysis/security-design-analysis.md)
-**Gaps addressed**: N1, N2, N3, RG-1
-**Files changed**: `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/config.py`, `docs/guides/configure-guide.md`, new `dsm.sys` deployment artifact
+* **Domain**: Network Security
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 1`](../analysis/security-design-analysis.md)
+* **Gaps addressed**: N1, N2, N3, RG-1
+* **Files changed**: `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/config.py`, `docs/guides/configure-guide.md`, new `dsm.sys` deployment artifact
 
 ---
 

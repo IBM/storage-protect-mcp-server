@@ -1,9 +1,9 @@
 # Implementation: Policy Management
 
-**Domain**: Policy Management & Non-Repudiation
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 4 & § 7`](../analysis/security-design-analysis.md)
-**Gaps addressed**: P1, P2, P3, P4, RG-4, NR-1, NR-4, NR-5
-**Files changed**: `src/sp_mcp_server/commands/system/admin.py`, `src/sp_mcp_server/commands/clients/node.py`, `src/sp_mcp_server/commands/operations/misc.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/server_groups.py`
+* **Domain**: Policy Management & Non-Repudiation
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 4 & § 7`](../analysis/security-design-analysis.md)
+* **Gaps addressed**: P1, P2, P3, P4, RG-4, NR-1, NR-4, NR-5
+* **Files changed**: `src/sp_mcp_server/commands/system/admin.py`, `src/sp_mcp_server/commands/clients/node.py`, `src/sp_mcp_server/commands/operations/misc.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/server_groups.py`
 
 ---
 

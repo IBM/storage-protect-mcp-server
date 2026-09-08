@@ -1,8 +1,8 @@
 # IBM Storage Protect MCP Server — Requirements Traceability Matrix
 
-**Revision**: 2025-07 (Post-Remediation Verification & Alignment)  
-**Generated from**: `docs/architecture/`, `docs/design/`, `docs/implement/`, `docs/guides/`, `src/`, `tests/`  
-**Cross-reference**: [`docs/traceability/gap-analysis.md`](gap-analysis.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
+* **Revision**: 2025-07 (Post-Remediation Verification & Alignment)
+* **Generated from**: `docs/architecture/`, `docs/design/`, `docs/implement/`, `docs/guides/`, `src/`, `tests/`
+* **Cross-reference**: [`docs/traceability/gap-analysis.md`](gap-analysis.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 
 ---
 

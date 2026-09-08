@@ -1,9 +1,9 @@
 # Security Design: Policy Management
 
-**Domain**: Policy Management & Non-Repudiation
-**Status**: Implemented (RG-4, NR-1, NR-4, NR-5 closed)
-**Implementation spec**: [`docs/implement/impl-security-policy.md`](../implement/impl-security-policy.md)
-**Gaps closed**: P1, P2, P3, P4, RG-4, NR-1, NR-2, NR-3, NR-4, NR-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
+* **Domain**: Policy Management & Non-Repudiation
+* **Status**: Implemented (RG-4, NR-1, NR-4, NR-5 closed)
+* **Implementation spec**: [`docs/implement/impl-security-policy.md`](../implement/impl-security-policy.md)
+* **Gaps closed**: P1, P2, P3, P4, RG-4, NR-1, NR-2, NR-3, NR-4, NR-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
 ---
 

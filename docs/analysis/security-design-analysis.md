@@ -1,9 +1,9 @@
 # IBM Storage Protect MCP Server — Security Design Analysis
 
-**Revision**: 2025-07 (Security Controls & Architecture Specification)
-**Cross-reference**: [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/traceability-matrix.md`](../traceability/traceability-matrix.md)
-**Source analysed**: `src/sp_mcp_server/` (current working tree)
-**IBM Storage Protect Reference**: [`docs/reference/b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf) (v8.1.26 Linux)
+* **Revision**: 2025-07 (Security Controls & Architecture Specification)
+* **Cross-reference**: [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/traceability-matrix.md`](../traceability/traceability-matrix.md)
+* **Source analysed**: `src/sp_mcp_server/` (current working tree)
+* **IBM Storage Protect Reference**: [`docs/reference/b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf) (v8.1.26 Linux)
 
 ---
 
@@ -320,30 +320,31 @@ Non-repudiation ensures that a party to an action or communication cannot deny t
 
 The codebase implements an enterprise dual-layer logging and forensic tracking model binding human identities to backend SP activity records:
 
-```
-+---------------------------------------------------------------------------------------------------+
-| 1. MCP Server Local Log (/var/log/ibm-sp-mcp-server/mcp-server.log via RotatingFileHandler)       |
-|    - Standardized ISO 8601 UTC Timestamp: '%Y-%m-%dT%H:%M:%SZ' (NR-5)                            |
-|    - Source module & line number: [%(filename)s:%(lineno)d]                                       |
-|    - Authenticated Subject / User Context: current_audit_user (NR-1)                              |
-|    - Tool name, privilege tier, and generated 12-char hex correlation ID (corr=<uuid>)            |
-|    - Outgoing dsmadmc CLI command string (unmasked for non-sensitive commands)                    |
-|    - Command return codes, output lengths, and stderr details                                     |
-|    - In HTTP transport: OIDC authenticated subject ('sub') injected into async context            |
-+---------------------------------------------------------------------------------------------------+
-                                                  |
-                         (Bidirectional Correlation ID: 'corr=<uuid>')
-                                                  |
-                                                  v
-+---------------------------------------------------------------------------------------------------+
-| 2. IBM Storage Protect Activity Log (ACTLOG via DEFINE SCRATCHPADENTRY MCP_AUDIT)                 |
-|    - Server-side timestamp & message sequence number (ANR2017I / ANR0406I)                        |
-|    - Associated SP administrator ID executing the dsmadmc session                                 |
-|    - Scratchpad description payload: "MCP_AUDIT user=<sub_or_id> tool=<name> priv=<p> corr=<id>"  |
-|    - Queryable via: QUERY ACTLOG SEARCH=MCP_AUDIT or SEARCH=corr=<id>                             |
-|    - Native server retention via SET SCRATCHPADRETENTION and ACTLOG retention settings            |
-|    - Strict Audit Mode: SP_MCP_STRICT_AUDIT=1 enforces fail-closed execution (NR-4)              |
-+---------------------------------------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph ClientLayer [1. Client & Authentication Layer]
+        A[Client / AI Agent Request] -->|HTTP Bearer JWT / stdio| B[OIDCBearerMiddleware / Context]
+        B -->|Inject 'sub' / SP_MCP_USER| C[current_audit_user ContextVar]
+    end
+
+    subgraph MCPLocalAudit [2. MCP Server Local Logging Layer]
+        C --> D[handle_call_tool Dispatcher]
+        D -->|Generate UUID| E[Correlation ID: corr=&lt;uuid&gt;]
+        E --> F[mcp-server.log\nRotatingFileHandler]
+        F -.-> F1["• ISO 8601 UTC Timestamp (NR-5)\n• Authenticated User ID (NR-1)\n• Tool Name & Parameters\n• dsmadmc Command & Return Codes\n• SIEM Syslog TLS Stream (NR-2)"]
+    end
+
+    subgraph SPAuditLog [3. IBM Storage Protect ACTLOG Layer]
+        D -->|Write Privileges: system, policy, storage, operator| G["DEFINE SCRATCHPADENTRY MCP_AUDIT\nDESCRIPTION='MCP_AUDIT user=&lt;id&gt; tool=&lt;name&gt; priv=&lt;priv&gt; corr=&lt;uuid&gt;'"]
+        G --> H[(Storage Protect Server ACTLOG)]
+        H -.-> H1["• Server Timestamp & Msg Sequence\n• SP Service Account Session ID\n• Retained via SET SCRATCHPADRETENTION (90d)\n• Searchable: QUERY ACTLOG SEARCH=corr=&lt;uuid&gt;"]
+    end
+
+    subgraph ExecutionControl [4. Execution & Strict Audit Mode]
+        G -->|Success| I[Execute dsmadmc Command]
+        G -->|Failure & SP_MCP_STRICT_AUDIT=1| J[Abort Execution / Raise RuntimeError]
+        G -->|Failure & Advisory Mode| K[Log ERROR & Proceed Execution]
+    end
 ```
 
 #### Forensic Dimensions Evaluation ("Who, What, When, Where, Outcome")

@@ -1,9 +1,9 @@
 # Security Design: Identity & Credentials Management
 
-**Domain**: Identity & Credentials Management
-**Status**: Implemented (RG-2, RG-3 closed)
-**Implementation spec**: [`docs/implement/impl-security-identity-credentials.md`](../implement/impl-security-identity-credentials.md)
-**Gaps closed**: I1, I2, I3, I4, I5, RG-2, RG-3 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
+* **Domain**: Identity & Credentials Management
+* **Status**: Implemented (RG-2, RG-3 closed)
+* **Implementation spec**: [`docs/implement/impl-security-identity-credentials.md`](../implement/impl-security-identity-credentials.md)
+* **Gaps closed**: I1, I2, I3, I4, I5, RG-2, RG-3 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
 ---
 

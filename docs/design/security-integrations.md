@@ -1,9 +1,9 @@
 # Security Design: Secure Integrations
 
-**Domain**: Secure Integrations
-**Status**: Implemented (RG-5 closed)
-**Implementation spec**: [`docs/implement/impl-security-integrations.md`](../implement/impl-security-integrations.md)
-**Gaps closed**: SI1, SI2, SI3, SI4, RG-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
+* **Domain**: Secure Integrations
+* **Status**: Implemented (RG-5 closed)
+* **Implementation spec**: [`docs/implement/impl-security-integrations.md`](../implement/impl-security-integrations.md)
+* **Gaps closed**: SI1, SI2, SI3, SI4, RG-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
 ---
 

@@ -1,10 +1,10 @@
 # Implementation: Non-Repudiation & Forensic Auditability
 
-**Domain**: Non-Repudiation & Forensic Auditability  
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)  
-**Design reference**: [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md)  
-**Gaps addressed**: NR-1, NR-2, NR-3, NR-4, NR-5  
-**Files changed**: `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/http_server.py`, `tests/test_security_controls.py`
+* **Domain**: Non-Repudiation & Forensic Auditability
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)
+* **Design reference**: [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md)
+* **Gaps addressed**: NR-1, NR-2, NR-3, NR-4, NR-5
+* **Files changed**: `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/http_server.py`, `tests/test_security_controls.py`
 
 ---
 

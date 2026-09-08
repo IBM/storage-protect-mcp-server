@@ -1,9 +1,9 @@
 # Implementation: Access Management
 
-**Domain**: Access Management  
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 3`](../analysis/security-design-analysis.md)  
-**Gaps addressed**: A1, A2, A3, A4  
-**Files changed**: `src/sp_mcp_server/commands/base.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/cli_wrapper.py`, all command files under `src/sp_mcp_server/commands/`
+* **Domain**: Access Management
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 3`](../analysis/security-design-analysis.md)
+* **Gaps addressed**: A1, A2, A3, A4
+* **Files changed**: `src/sp_mcp_server/commands/base.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/cli_wrapper.py`, all command files under `src/sp_mcp_server/commands/`
 
 ---
 

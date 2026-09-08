@@ -1,10 +1,10 @@
 # Security Design: Non-Repudiation & Forensic Auditability
 
-**Domain**: Non-Repudiation & Forensic Auditability  
-**Status**: Implemented (NR-1, NR-4, NR-5 closed; NR-2, NR-3 architectural controls defined)  
-**Implementation spec**: [`docs/implement/impl-security-non-repudiation.md`](../implement/impl-security-non-repudiation.md)  
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)  
-**Cross-reference**: [`docs/design/security-policy.md`](security-policy.md) · [`docs/design/security-integrations.md`](security-integrations.md)
+* **Domain**: Non-Repudiation & Forensic Auditability
+* **Status**: Implemented (NR-1, NR-4, NR-5 closed; NR-2, NR-3 architectural controls defined)
+* **Implementation spec**: [`docs/implement/impl-security-non-repudiation.md`](../implement/impl-security-non-repudiation.md)
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)
+* **Cross-reference**: [`docs/design/security-policy.md`](security-policy.md) · [`docs/design/security-integrations.md`](security-integrations.md)
 
 ---
 

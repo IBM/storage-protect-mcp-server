@@ -1,9 +1,9 @@
 # Implementation: Secure Integrations
 
-**Domain**: Secure Integrations
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 5 & § 7`](../analysis/security-design-analysis.md)
-**Gaps addressed**: SI1, SI2, SI3, SI4, RG-5, NR-1
-**Files changed**: `src/sp_mcp_server/config.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/commands/system/conn.py`, `src/sp_mcp_server/main.py`, new `src/sp_mcp_server/http_server.py`
+* **Domain**: Secure Integrations
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 5 & § 7`](../analysis/security-design-analysis.md)
+* **Gaps addressed**: SI1, SI2, SI3, SI4, RG-5, NR-1
+* **Files changed**: `src/sp_mcp_server/config.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/commands/system/conn.py`, `src/sp_mcp_server/main.py`, new `src/sp_mcp_server/http_server.py`
 
 ---
 

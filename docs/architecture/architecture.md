@@ -1,8 +1,8 @@
 # IBM Storage Protect MCP Server — System Architecture & Design
 
-**Revision**: 2025-07 (Post-Remediation Verification & Alignment)  
-**Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md)  
-**Source reference**: `src/sp_mcp_server/`
+* **Revision**: 2025-07 (Post-Remediation Verification & Alignment)
+* **Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md)
+* **Source reference**: `src/sp_mcp_server/`
 
 ---
 

@@ -1,9 +1,9 @@
 # Implementation: Identity & Credentials Management
 
-**Domain**: Identity & Credentials Management
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 2`](../analysis/security-design-analysis.md)
-**Gaps addressed**: I1, I2, I3, I4, I5, RG-2, RG-3
-**Files changed**: `src/sp_mcp_server/config.py`, `src/sp_mcp_server/cli_wrapper.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/commands/base.py`, `src/sp_mcp_server/commands/system/admin.py`, `src/sp_mcp_server/commands/clients/node.py`, all `main_*.py` entry points
+* **Domain**: Identity & Credentials Management
+* **Analysis reference**: [`docs/analysis/security-design-analysis.md § 2`](../analysis/security-design-analysis.md)
+* **Gaps addressed**: I1, I2, I3, I4, I5, RG-2, RG-3
+* **Files changed**: `src/sp_mcp_server/config.py`, `src/sp_mcp_server/cli_wrapper.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/commands/base.py`, `src/sp_mcp_server/commands/system/admin.py`, `src/sp_mcp_server/commands/clients/node.py`, all `main_*.py` entry points
 
 ---
 

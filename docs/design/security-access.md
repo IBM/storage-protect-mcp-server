@@ -1,9 +1,9 @@
 # Security Design: Access Management
 
-**Domain**: Access Management  
-**Status**: Implemented  
-**Implementation spec**: [`docs/implement/impl-security-access.md`](../implement/impl-security-access.md)  
-**Gaps closed**: A1, A2, A3, A4 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
+* **Domain**: Access Management
+* **Status**: Implemented
+* **Implementation spec**: [`docs/implement/impl-security-access.md`](../implement/impl-security-access.md)
+* **Gaps closed**: A1, A2, A3, A4 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
 ---
 

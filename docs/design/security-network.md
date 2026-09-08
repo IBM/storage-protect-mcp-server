@@ -1,9 +1,9 @@
 # Network Security Design
 
-**Domain**: Network Security  
-**Implemented in**: [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py), [`config/dsm.sys.template`](../../config/dsm.sys.template), [`docs/guides/configure-guide.md`](../guides/configure-guide.md)  
-**Analysis**: [`docs/analysis/security-design-analysis.md § 1`](../analysis/security-design-analysis.md)  
-**Implementation spec**: [`docs/implement/impl-security-network.md`](../implement/impl-security-network.md)
+* **Domain**: Network Security
+* **Implemented in**: [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py), [`config/dsm.sys.template`](../../config/dsm.sys.template), [`docs/guides/configure-guide.md`](../guides/configure-guide.md)
+* **Analysis**: [`docs/analysis/security-design-analysis.md § 1`](../analysis/security-design-analysis.md)
+* **Implementation spec**: [`docs/implement/impl-security-network.md`](../implement/impl-security-network.md)
 
 ---
 
