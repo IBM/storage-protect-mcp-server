@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-A comprehensive security analysis and audit was performed on the IBM Storage Protect (SP) MCP Server codebase (`src/sp_mcp_server`). All 20 historical security gaps across 5 security domains (Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations) and all 7 subsequent residual gaps (RG-1 through RG-7) have been completely resolved and validated.
+A comprehensive security analysis and audit was performed on the IBM Storage Protect (SP) MCP Server codebase (`src/sp_mcp_server`). All 20 historical security gaps across 5 security domains (Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations), all 7 subsequent residual gaps (RG-1 through RG-7), and all 5 Non-Repudiation & Forensic gaps (NR-1 through NR-5) have been completely resolved and validated.
 
 Currently, **0 open security gaps remain**.
 
@@ -23,8 +23,9 @@ Currently, **0 open security gaps remain**.
 | **3. Access Management** | 4 | 4 | **0** | ✅ Fully Compliant (Privilege Gate, Self-Narrowing Registry, Sudoers Execution) |
 | **4. Policy Management** | 4 | 4 | **0** | ✅ Fully Compliant (Command Approval, `MINPWLENGTH` Check, ACTLOG Audit Attribution) |
 | **5. Secure Integrations** | 4 | 4 | **0** | ✅ Fully Compliant (OAuth 2.1 / OIDC Bearer Auth, HTTP TLS, Keyring Secret Resolution) |
+| **6. Non-Repudiation & Forensics** | 5 | 5 | **0** | ✅ Fully Compliant (User Identity Binding, Fail-Closed Audit, ISO 8601 UTC) |
 | **Post-Implementation Residuals (RG)** | 7 | 7 | **0** | ✅ Fully Compliant (Production Guards, Silent Execution, Automated Tests) |
-| **Total** | **27** | **27** | **0** | **100% Resolved & Validated (56/56 Tests Passing)** |
+| **Total** | **32** | **32** | **0** | **100% Resolved & Validated (57/57 Tests Passing)** |
 
 ---
 
@@ -68,9 +69,18 @@ Currently, **0 open security gaps remain**.
   - Application-layer TLS verification enforces `SP_TLS_CERT` and `SP_TLS_KEY` presence before binding HTTP SSE endpoints.
   - Cloud storage connections (`commands/system/conn.py`) resolve access keys via secrets indirection (`keyring:`, `env:`), executing silently without exposing credentials in logs.
 
+### 3.6 Domain 6: Non-Repudiation & Forensic Auditability
+- **Status**: 0 Open Gaps.
+- **Implemented Controls**:
+  - `current_audit_user` ContextVar captures authenticated OIDC subject (`sub`) or `SP_MCP_USER` in [`mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) and [`http_server.py`](../../src/sp_mcp_server/http_server.py) (**NR-1**).
+  - Activity Log scratchpad entry embeds full identity: `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<id> tool=<name> priv=<priv> corr=<uuid>"` (**NR-1**).
+  - Strict audit fail-closed mode (`SP_MCP_STRICT_AUDIT=1`) aborts administrative write operations if ACTLOG audit recording fails (**NR-4**).
+  - Standardized ISO 8601 UTC timestamp format (`%Y-%m-%dT%H:%M:%SZ`) configured across all logging handlers via `time.gmtime` (**NR-5**).
+  - Storage Protect host hardening runbooks define tamper-resistant log attributes (`chattr +a`), restricted directories (`0700`), and 90-day retention (`SET SCRATCHPADRETENTION 90`, `SET ACTLOGRETENTION 90`) (**NR-2**, **NR-3**).
+
 ---
 
-## 4. Residual Gap Verification Summary
+## 4. Residual & Non-Repudiation Gap Verification Summary
 
 All 7 post-implementation residual gaps (RG-1 through RG-7) are closed and covered by automated regression tests in [`tests/test_security_controls.py`](../../tests/test_security_controls.py):
 
@@ -83,6 +93,11 @@ All 7 post-implementation residual gaps (RG-1 through RG-7) are closed and cover
 | **RG-5** | Application-layer HTTP TLS gate | [`main.py:115-146`](../../src/sp_mcp_server/main.py) | `TestHttpTransportTLS` | ✅ Validated |
 | **RG-6** | Automated regression test coverage | [`tests/test_security_controls.py`](../../tests/test_security_controls.py) | 36 dedicated security unit tests | ✅ Validated |
 | **RG-7** | Node group member tools confirmation | [`commands/clients/groups.py`](../../src/sp_mcp_server/commands/clients/groups.py) | Source verified | ✅ Validated |
+| **NR-1** | User identity binding in SP ACTLOG | [`mcp_factory.py:16,380`](../../src/sp_mcp_server/mcp_factory.py)<br>[`http_server.py:144`](../../src/sp_mcp_server/http_server.py) | `TestAuditTrail::test_scratchpad_entry_called_before_write` | ✅ Validated |
+| **NR-2** | Local log tamper resistance | Host runbooks & SIEM forwarding | Deployment & OS permissions | 📋 Hardened |
+| **NR-3** | Selective read auditability | Architecture design & `query_activity_log` | Validated in design | ✅ Validated |
+| **NR-4** | Strict audit fail-closed enforcement | [`mcp_factory.py:403`](../../src/sp_mcp_server/mcp_factory.py) | `TestAuditTrail::test_strict_audit_fail_closed_aborts_execution` | ✅ Validated |
+| **NR-5** | Standardized ISO 8601 UTC timestamps | [`mcp_factory.py:38`](../../src/sp_mcp_server/mcp_factory.py) | Formatter verified | ✅ Validated |
 
 ---
 

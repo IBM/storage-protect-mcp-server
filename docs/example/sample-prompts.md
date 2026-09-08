@@ -114,6 +114,47 @@ All prompts in this document are written against the following named environment
 
 ---
 
+## Multi-Server Deployment Topology
+
+The prompts in the [R-08 section](#r-08--multi-server-replication--data-management) below are written against the following extended three-server environment. SPSVR01 is the primary production server (also used for all single-server prompts above). SPSVR02 is an on-site DR replica that receives node replication from SPSVR01. SPSVR03 is a remote archive server at a second data-centre site.
+
+### SP Servers in the Multi-Server Topology
+
+| MCP server identifier | SP server name | Hostname | Role |
+|---|---|---|---|
+| `sp-mcp-spsvr01` | `SPSVR01` | `spsvr01.corp.example.com` | Primary production server |
+| `sp-mcp-spsvr02` | `SPSVR02` | `spsvr02.corp.example.com` | On-site DR replica (replication target from SPSVR01) |
+| `sp-mcp-spsvr03` | `SPSVR03` | `spsvr03.corp.example.com` | Remote archive server (replication target from SPSVR01 and SPSVR02) |
+
+Each server has an independent MCP server process registered in the MCP client configuration with a dedicated SSH Ed25519 key, its own `.env`, and its own five tiered service accounts (`mcp-svc-system`, `mcp-svc-policy`, `mcp-svc-storage`, `mcp-svc-operator`, `mcp-svc-readonly`). See [configure-guide.md — Part 5](../guides/configure-guide.md) for the full per-process architecture.
+
+### Replication Topology
+
+```
+SPSVR01 (primary)
+ ├── Replicates all production nodes ──▶  SPSVR02 (on-site DR replica)   [REPL_RULE_PRIMARY_DR]
+ └── Replicates DOM_DATABASE + DOM_SAP ──▶  SPSVR03 (remote archive)     [REPL_RULE_PRIMARY_ARCHIVE]
+
+SPSVR02 (DR replica)
+ └── Replicates DOM_DATABASE + DOM_SAP ──▶  SPSVR03 (remote archive)     [REPL_RULE_DR_ARCHIVE]
+```
+
+| Replication storage rule | Source server | Target server | Scope | Action type |
+|---|---|---|---|---|
+| `REPL_RULE_PRIMARY_DR` | SPSVR01 | SPSVR02 | All nodes (`REPLSTATE=ENABLED`) | `REPLICATE` |
+| `REPL_RULE_PRIMARY_ARCHIVE` | SPSVR01 | SPSVR03 | DOM_DATABASE + DOM_SAP nodes | `REPLICATE` |
+| `REPL_RULE_DR_ARCHIVE` | SPSVR02 | SPSVR03 | DOM_DATABASE + DOM_SAP nodes | `REPLICATE` |
+
+### Additional Storage Pools on Replica Servers
+
+| Pool name | Server | Type | Role |
+|---|---|---|---|
+| `POOL_DISK_REPLICA` | SPSVR02 | PRIMARY (container) | Replication target pool receiving from SPSVR01 |
+| `POOL_DISK_ARCHIVE` | SPSVR03 | PRIMARY (container) | Archive replication target from SPSVR01 and SPSVR02 |
+| `POOL_TAPE_ARCHIVE` | SPSVR03 | COPY | Long-term tape copy of archive data (LTO-8 library at remote site) |
+
+---
+
 ## R-01 · Data Protection Operator
 
 > Day-to-day operation and monitoring of the IBM Storage Protect environment: client deployment, backup policy, storage pools, scheduling, node lifecycle, and failure triage.
@@ -664,4 +705,272 @@ Constraints:
 - Query one schedule and one failed event at a time.
 - Do not include raw log dumps unless a single short message is essential as evidence.
 - Clearly distinguish Confirmed from Likely findings.
+```
+
+---
+
+## R-08 · Multi-Server Replication & Data Management
+
+> Cross-server replication topology management, DR readiness, archive data lifecycle across SPSVR01, SPSVR02, and SPSVR03, and multi-server backup compliance. Relevant to Data Protection Operators, Administrators, Resilience Operations Managers, Security & Compliance Officers, and Infrastructure Solution Architects working in an environment where multiple IBM SP servers replicate data between themselves.
+
+All prompts in this section address the [Multi-Server Deployment Topology](#multi-server-deployment-topology) above. The MCP client has three registered MCP server processes — `sp-mcp-spsvr01`, `sp-mcp-spsvr02`, and `sp-mcp-spsvr03` — each independently connected to its respective SP server.
+
+---
+
+### Replication topology discovery
+
+```text
+Query the replication server definitions on sp-mcp-spsvr01 using query_replication_server and on sp-mcp-spsvr02 using query_replication_server. List each server's configured replication partners, their network addresses, and the SSL setting. Confirm that SPSVR02 is registered as a target on SPSVR01 and that SPSVR03 is registered as a target on both SPSVR01 and SPSVR02.
+```
+
+```text
+On sp-mcp-spsvr01, retrieve all replication storage rules using query_replication_rule. List each rule name, action type, target server, and enabled status. Confirm that REPL_RULE_PRIMARY_DR and REPL_RULE_PRIMARY_ARCHIVE are active and their target servers match SPSVR02 and SPSVR03 respectively.
+```
+
+```text
+On sp-mcp-spsvr02, retrieve the replication storage rule REPL_RULE_DR_ARCHIVE using query_replication_rule. Confirm the action type is REPLICATE, the target server is SPSVR03, and the rule is enabled. Then repeat the check on sp-mcp-spsvr03 using query_replication_server to verify SPSVR02 is a registered source.
+```
+
+```text
+Give me a cross-server replication topology summary for the three-server environment. On sp-mcp-spsvr01, run query_replication_rule and query_replication_server. On sp-mcp-spsvr02, run query_replication_rule and query_replication_server. On sp-mcp-spsvr03, run query_replication_server. Summarise the full replication mesh — which server replicates what scope to which target — and flag any missing or disabled rules.
+```
+
+---
+
+### Replication health monitoring & failure triage
+
+```text
+Check replication health across all three servers simultaneously. On sp-mcp-spsvr01, run query_protection_status and query_replication_failures. On sp-mcp-spsvr02, run query_protection_status and query_replication_failures. On sp-mcp-spsvr03, run query_protection_status and query_replication_failures. Summarise the protection status for each server, list all replication failures with node name, file space, and failure date, and rate overall replication health as green, amber, or red per server.
+```
+
+```text
+On sp-mcp-spsvr01, DBORA01_NODE has not replicated to SPSVR02 in the last 6 hours. Use query_replication_status for DBORA01_NODE to check for an active replication process. Then use query_replication_failures on sp-mcp-spsvr01 to confirm whether a replication failure record exists. Cross-check POOL_DISK_PRIMARY utilisation on sp-mcp-spsvr01 using query_storage_container — a full source pool is the most common cause of stalled node replication.
+```
+
+```text
+A replication failure alert has fired for SAPHANA01_NODE on SPSVR01. Run query_replication_failures on sp-mcp-spsvr01 to retrieve the failure record. Then query the activity log on sp-mcp-spsvr01 using query_activity_log filtered to SAPHANA01_NODE for a ±60-minute window around the reported failure time. Cross-check that SAPHANA01_NODE has REPLSTATE=ENABLED using query_replication_client with node_name=SAPHANA01_NODE.
+```
+
+```text
+On sp-mcp-spsvr01, retrieve replication status for all DOM_DATABASE nodes — DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE — using query_replication_client with node_name=* and filter results to those three nodes. For each node, show the target server, file spaces, and files sent/received. Flag any node where replication to SPSVR02 or SPSVR03 has not completed in the last 24 hours.
+```
+
+```text
+Compare storage pool protection status between sp-mcp-spsvr01 and sp-mcp-spsvr02 using query_protection_status on each. Confirm that POOL_DISK_REPLICA on SPSVR02 is in sync with POOL_DISK_PRIMARY on SPSVR01. If protection status shows out-of-sync, retrieve the last replication failure records from query_replication_failures on sp-mcp-spsvr01 and recommend remediation steps.
+```
+
+---
+
+### Node replication enablement & configuration
+
+```text
+On sp-mcp-spsvr01, check which production nodes do NOT have replication enabled. Use query_replication_client with node_name=* to list all nodes and their REPLSTATE. List any node with REPLSTATE=DISABLED or where the target server column is empty. For each, show the node name, policy domain, and recommended UPDATE NODE command to set REPLSTATE=ENABLED.
+```
+
+```text
+A new node APPSVR10_NODE has been registered in DOM_GENERAL on SPSVR01. Enable replication for this node so it is covered by REPL_RULE_PRIMARY_DR. On sp-mcp-spsvr01, use update_node to set REPLSTATE=ENABLED for APPSVR10_NODE. Then confirm the node appears in query_replication_client output with the target server set to SPSVR02.
+```
+
+```text
+On sp-mcp-spsvr01, a decision has been made to include VMPROXY01_NODE in the remote archive replication to SPSVR03 under REPL_RULE_PRIMARY_ARCHIVE. The rule currently covers only DOM_DATABASE and DOM_SAP nodes. What IBM Storage Protect commands are needed to add VMPROXY01_NODE to the replication scope without disrupting the existing REPL_RULE_PRIMARY_DR coverage to SPSVR02? Show the UPDATE NODE and any required UPDATE REPLRULE or DEFINE SUBRULE commands before executing.
+```
+
+```text
+On sp-mcp-spsvr01, retrieve the current replication storage rules using query_storage_rule and query_replication_rule. I want to verify that REPL_RULE_PRIMARY_DR has ACTIONTYPE=REPLICATE and covers all nodes with REPLSTATE=ENABLED. Then on sp-mcp-spsvr02, run query_replication_client with node_name=* and confirm that all nodes present on SPSVR01 with REPLSTATE=ENABLED appear as replicated targets on SPSVR02.
+```
+
+---
+
+### Cross-server backup data consistency checks
+
+```text
+Verify that the DOM_DATABASE node backup data on SPSVR02 is consistent with SPSVR01. On sp-mcp-spsvr01, use query_data_occupancy for DBORA01_NODE, DBSQL01_NODE, and DBDB201_NODE to get the total backup objects and physical bytes per node. On sp-mcp-spsvr02, run query_data_occupancy for the same three nodes. Compare the object counts and flag any node where the replica on SPSVR02 is more than 5% below the primary on SPSVR01.
+```
+
+```text
+On sp-mcp-spsvr01, retrieve the backup file space list for SAPHANA01_NODE using query_client_backup_volume. On sp-mcp-spsvr02, run query_replication_client with node_name=SAPHANA01_NODE to confirm the same file spaces have been replicated. Report any file spaces present on SPSVR01 that are absent from the replication record on SPSVR02, with the last-modified date of each missing file space.
+```
+
+```text
+Run a cross-server occupancy audit for all SAP nodes (SAPHANA01_NODE, SAPABAP01_NODE) across the three servers. On sp-mcp-spsvr01, run query_data_occupancy for both nodes. On sp-mcp-spsvr02, run query_data_occupancy for both nodes. On sp-mcp-spsvr03, run query_data_occupancy for both nodes. Present results in a side-by-side comparison table. Flag any server where the occupancy deviates by more than 10% from the primary, and identify whether the gap is in backup objects, archive objects, or both.
+```
+
+---
+
+### Archive data lifecycle across servers
+
+```text
+On sp-mcp-spsvr03, I need to verify that the long-term archive objects for DOM_DATABASE nodes have replicated correctly from SPSVR01. Use query_data_occupancy on sp-mcp-spsvr03 for DBORA01_NODE and DBDB201_NODE. Compare the archive object counts against the archive copy group retention settings in MC_DB_90 on sp-mcp-spsvr01 using query_protection_policy. Flag any discrepancy that suggests archive objects were not replicated.
+```
+
+```text
+On sp-mcp-spsvr03, query the storage pool POOL_DISK_ARCHIVE using query_storage_container. Report current utilisation, available capacity, and whether deduplication is active. If utilisation exceeds 75%, estimate how many additional archive objects the pool can absorb before migration to POOL_TAPE_ARCHIVE is required, based on the average object size derived from query_data_occupancy for DOM_DATABASE and DOM_SAP nodes.
+```
+
+```text
+On sp-mcp-spsvr03, SAP archive log objects for SAPHANA01_NODE managed under MC_SAP_LOG are approaching the 90-day retention boundary. Use query_data_occupancy on sp-mcp-spsvr03 for SAPHANA01_NODE filtered to archive objects. Identify how many archive objects expire in the next 14 days, their collective size, and whether the automatic expiration process will free sufficient space in POOL_DISK_ARCHIVE before new archive replication from SPSVR01 arrives.
+```
+
+```text
+I need to implement a policy on SPSVR03 to move aged archive data from POOL_DISK_ARCHIVE to POOL_TAPE_ARCHIVE after 180 days. On sp-mcp-spsvr03, retrieve the current storage rules using query_storage_rule to confirm no conflicting tiering rule exists. Then show me the DEFINE STGRULE command with ACTIONTYPE=TIEBYAGE and TIERDAYS=180 that migrates data from POOL_DISK_ARCHIVE to POOL_TAPE_ARCHIVE. Show the command before executing.
+```
+
+---
+
+### Multi-server schedule compliance & RPO monitoring
+
+```text
+Produce a schedule compliance report across all three servers for the last 24 hours. On sp-mcp-spsvr01, query SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY using query_scheduled_event for DOM_DATABASE and DOM_SAP. On sp-mcp-spsvr02, verify that replication of the same nodes completed within 2 hours of each backup event using query_protection_status and query_replication_failures. On sp-mcp-spsvr03, run query_protection_status. Present a three-column compliance summary: backup status on SPSVR01, replication status to SPSVR02, and archive replication status to SPSVR03.
+```
+
+```text
+We have an RPO target of 4 hours for DOM_DATABASE nodes across the three-server topology. On sp-mcp-spsvr01, retrieve the last successful backup event for DBORA01_NODE under SCHED_DB_NIGHTLY using query_scheduled_event. On sp-mcp-spsvr02, confirm the last successful replication of DBORA01_NODE using query_replication_client. On sp-mcp-spsvr03, confirm the same. Calculate the end-to-end data age — from last backup on SPSVR01 to last replica on SPSVR03 — and flag if the chain exceeds 4 hours.
+```
+
+```text
+SAPHANA01_NODE on SPSVR01 has a 15-minute RPO for SAP HANA archive logs under SCHED_SAP_LOG_HOURLY. On sp-mcp-spsvr01, confirm the last five archive events completed within the schedule window using query_scheduled_event. On sp-mcp-spsvr02, run query_replication_client for SAPHANA01_NODE to confirm the archive file spaces are being replicated. Report whether the current replication lag between SPSVR01 and SPSVR02 for SAPHANA01_NODE could place the effective RPO above 15 minutes.
+```
+
+---
+
+### Disaster recovery failover readiness
+
+```text
+Assess DR readiness for a failover from SPSVR01 to SPSVR02. On sp-mcp-spsvr02, run the following checks: (1) query_protection_status to confirm POOL_DISK_REPLICA is in sync; (2) query_replication_client with node_name=* to verify all production nodes have replicated; (3) query_server_status to confirm SPSVR02 is running and not degraded; (4) query_recovery_log to confirm DB and log space are healthy. Produce a DR readiness scorecard with red/amber/green status per check.
+```
+
+```text
+A failover decision has been made — SPSVR01 is offline following a site incident. On sp-mcp-spsvr02, verify that DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE, SAPHANA01_NODE, and SAPABAP01_NODE are all present and have valid backup data using query_client and query_data_occupancy for each node. Identify the most recent backup version available for each node from query_client_backup_volume. Summarise recovery point and any nodes where data coverage on SPSVR02 may result in data loss exceeding the 4-hour RTO.
+```
+
+```text
+After a successful failover to SPSVR02, we need to re-register the three DOM_DATABASE nodes — DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE — to point to SPSVR02 as their primary server. What IBM Storage Protect commands are required to update the node definitions, re-bind them to the correct policy domain DOM_DATABASE, and ensure SCHED_DB_NIGHTLY runs against SPSVR02? Show the full sequence of commands on sp-mcp-spsvr02 before executing anything.
+```
+
+```text
+We want to test a planned DR drill from SPSVR01 to SPSVR02 this weekend. On sp-mcp-spsvr01, retrieve the current list of all nodes with REPLSTATE=ENABLED using query_replication_client. On sp-mcp-spsvr02, confirm each of those nodes has data present using query_data_occupancy. Identify any nodes that exist on SPSVR01 but are missing or have zero occupancy on SPSVR02 — these represent DR coverage gaps that must be resolved before the drill.
+```
+
+---
+
+### Multi-server security & audit
+
+```text
+Audit the MCP service account configuration across all three servers to confirm consistent security posture. On sp-mcp-spsvr01, run query_admin_user for mcp-svc-system, mcp-svc-policy, mcp-svc-storage, mcp-svc-operator, mcp-svc-readonly. Repeat on sp-mcp-spsvr02 and sp-mcp-spsvr03. For each server, verify that all five accounts exist, have SESSIONSECURITY=Strict, and carry the correct privilege class. Report any account that is missing, incorrectly configured, or has not been used in 30 days.
+```
+
+```text
+Retrieve the MCP audit trail from all three servers for write operations performed in the last 7 days. On sp-mcp-spsvr01, use query_activity_log with search term MCP_AUDIT and a 7-day window. Repeat on sp-mcp-spsvr02 and sp-mcp-spsvr03. Aggregate the results into a cross-server audit table showing the operation, tool, privilege class, correlation ID, server, and timestamp. Flag any write operations on SPSVR02 or SPSVR03 that do not have a corresponding originating operation on SPSVR01 — these may indicate out-of-band administrative changes.
+```
+
+```text
+Map the multi-server IBM Storage Protect topology (SPSVR01, SPSVR02, SPSVR03) to NIST SP 800-53 CP-9 (information system backup) and CP-6 (alternate storage site). For CP-9, reference the backup schedules on SPSVR01 (SCHED_DB_NIGHTLY, SCHED_SAP_LOG_HOURLY) and query_protection_status on all three servers. For CP-6, reference the geographic separation between SPSVR01/SPSVR02 (on-site) and SPSVR03 (remote site). Identify any control gaps and list the evidence artefacts needed to satisfy an auditor.
+```
+
+```text
+On sp-mcp-spsvr03, confirm that the long-term archive data for DOM_DATABASE nodes is protected from deletion for the required 7-year retention period. Retrieve the archive copy group settings for MC_DB_90 in DOM_DATABASE using query_protection_policy on sp-mcp-spsvr01. Then on sp-mcp-spsvr03, retrieve the replication rule REPL_RULE_PRIMARY_ARCHIVE using query_replication_rule to confirm archive objects are included in scope. Confirm whether POOL_TAPE_ARCHIVE has WORM volumes configured that would enforce immutability independent of the replication policy.
+```
+
+---
+
+### Multi-server capacity planning & storage management
+
+```text
+Produce a cross-server storage capacity report for the three-server topology. On sp-mcp-spsvr01, retrieve utilisation for POOL_DISK_PRIMARY and POOL_CLOUD_TIER using query_storage_container. On sp-mcp-spsvr02, retrieve utilisation for POOL_DISK_REPLICA using query_storage_container. On sp-mcp-spsvr03, retrieve utilisation for POOL_DISK_ARCHIVE and POOL_TAPE_ARCHIVE using query_storage_container. Present a unified capacity dashboard — pool name, server, total capacity, used, available, utilisation % — and flag any pool above 80%.
+```
+
+```text
+On sp-mcp-spsvr03, POOL_DISK_ARCHIVE is at 78% utilisation. We need to understand whether the growth rate from replication will push it above 90% within the next 30 days. Retrieve the current occupancy for DOM_DATABASE and DOM_SAP archive objects on sp-mcp-spsvr03 using query_data_occupancy. On sp-mcp-spsvr01, retrieve the archive schedule event history for SCHED_SAP_LOG_HOURLY and SCHED_DB_NIGHTLY over the last 7 days using query_scheduled_event to estimate the daily inflow. Project whether POOL_DISK_ARCHIVE will be exhausted within 30 days and recommend whether to add capacity or accelerate migration to POOL_TAPE_ARCHIVE.
+```
+
+```text
+I need to add a new storage pool directory to POOL_DISK_REPLICA on SPSVR02 to accommodate growing replication inflow from SPSVR01 as we add more DOM_DATABASE nodes. On sp-mcp-spsvr02, retrieve the current POOL_DISK_REPLICA configuration using query_storage_container. Show me the DEFINE STGPOOL DIRECTORY command to add /tsm/replica/ext01 to POOL_DISK_REPLICA on SPSVR02. What post-definition checks should I run on sp-mcp-spsvr02 to confirm the directory is active before the next replication cycle?
+```
+
+---
+
+### Multi-server replication rule management (operator / administrator)
+
+```text
+On sp-mcp-spsvr01, I need to temporarily suspend replication to SPSVR03 during a scheduled maintenance window on the remote archive site this Saturday 02:00–06:00. Retrieve REPL_RULE_PRIMARY_ARCHIVE using query_replication_rule to confirm its current enabled state. Show me the UPDATE REPLRULE command to disable it before the window and re-enable it after. Include the pre-window check to confirm no active replication is in progress using query_replication_status for DBORA01_NODE.
+```
+
+```text
+A new policy domain DOM_COMPLIANCE has been created on SPSVR01 for regulated workloads that require replication to both SPSVR02 and SPSVR03. On sp-mcp-spsvr01, retrieve the existing replication storage rules using query_replication_rule to understand the current rule structure. Show me the DEFINE STGRULE commands to create two new replication storage rules — REPL_RULE_COMPLIANCE_DR targeting SPSVR02 and REPL_RULE_COMPLIANCE_ARCHIVE targeting SPSVR03 — both scoped to DOM_COMPLIANCE nodes. Confirm these do not conflict with the existing rule limit of two active target replication servers from a single source.
+```
+
+```text
+On sp-mcp-spsvr01, retrieve all storage rules and replication rules using query_storage_rule and query_replication_rule. I need to verify that no replication storage rule has both SPSVR02 and SPSVR03 defined as the target in the same rule (IBM SP only supports one target server per replication storage rule). Flag any misconfiguration and show the corrective DEFINE STGRULE or UPDATE REPLRULE commands needed to separate them into independent rules.
+```
+
+---
+
+### Context-optimised multi-server replication investigation blueprint
+
+Replication health queries across multiple servers can exhaust context windows if run without scope constraints. Use the structured blueprint below when investigating a replication lag or failure across the three-server topology.
+
+```text
+You are assisting a Backup Engineer investigating an IBM Storage Protect replication health issue across a three-server topology: SPSVR01 (primary, sp-mcp-spsvr01), SPSVR02 (on-site DR replica, sp-mcp-spsvr02), SPSVR03 (remote archive, sp-mcp-spsvr03).
+
+Goal:
+Identify which nodes have failed or lagging replication on each replication leg (SPSVR01→SPSVR02, SPSVR01→SPSVR03, SPSVR02→SPSVR03), determine root cause for each failure, and classify the risk to DR and archive data coverage.
+
+Query Success Rules:
+1. Prefer the most constrained query possible before expanding scope.
+2. Never run query_replication_client with node_name=* unless targeted per-server.
+3. Never run query_activity_log without a specific node name and narrow time window (±60 minutes).
+4. Address each MCP server separately and in order: SPSVR01, then SPSVR02, then SPSVR03.
+5. If a query returns no match, retry once with a simpler parameter set before moving on.
+
+Required Execution Sequence:
+
+Step 1 — Source Server Health (sp-mcp-spsvr01)
+- Run query_protection_status to get POOL_DISK_PRIMARY protection state.
+- Run query_replication_failures to retrieve all failure records.
+- Run query_replication_rule to confirm REPL_RULE_PRIMARY_DR and REPL_RULE_PRIMARY_ARCHIVE are active.
+- Run query_storage_container for POOL_DISK_PRIMARY — a pool above 80% is a common replication stall cause.
+
+Step 2 — DR Replica Health (sp-mcp-spsvr02)
+- Run query_protection_status to confirm POOL_DISK_REPLICA is in sync.
+- Run query_replication_failures to retrieve any inbound failure records.
+- Run query_replication_rule to confirm REPL_RULE_DR_ARCHIVE is active.
+- Run query_server_status to confirm SPSVR02 is operational.
+
+Step 3 — Remote Archive Health (sp-mcp-spsvr03)
+- Run query_protection_status to confirm POOL_DISK_ARCHIVE is in sync.
+- Run query_replication_failures to retrieve any inbound failure records.
+- Run query_storage_container for POOL_DISK_ARCHIVE — a full archive pool will reject new replication.
+
+Step 4 — Per-Node Replication Validation (sp-mcp-spsvr01)
+- For each node flagged in failure records from Steps 1–3, run query_replication_client with the specific node name.
+- Confirm REPLSTATE=ENABLED and review the target server and files-sent count.
+- For each failed node, run query_activity_log with a ±60-minute window around the failure timestamp.
+
+Step 5 — Root Cause Classification
+Classify each replication failure as one of:
+- Source pool full (POOL_DISK_PRIMARY > 80%)
+- Target pool full (POOL_DISK_REPLICA or POOL_DISK_ARCHIVE > 80%)
+- Network / connectivity error between servers
+- Node REPLSTATE=DISABLED
+- Replication rule disabled or misconfigured
+- Concurrent replication conflict (>2 active target servers from same source)
+- Other / unknown
+
+Step 6 — If query_replication_failures Returns No Results
+- Treat absence of failure records as a potential false-negative.
+- Run query_replication_client with node_name=* on sp-mcp-spsvr01 and manually inspect files-sent versus files-received for key nodes.
+- Mark findings as Likely instead of Confirmed.
+
+Output Format:
+- Executive Summary: replication health status per server leg (green / amber / red); total failure records; nodes at risk.
+- Replication Failure Table: Node · Source Server · Target Server · Failure Date · File Space · Root Cause · Recommended Action.
+- Lagging Nodes Table: Node · Source Server · Target Server · Files Sent · Files Received · Estimated Lag · Risk to RPO.
+- Pool Capacity Risk: server, pool, utilisation %, and whether the pool is a blocker.
+- Immediate Actions Required.
+- Limitations.
+
+Constraints:
+- Address one MCP server at a time.
+- Do not run broad unbounded queries against all nodes simultaneously.
+- Clearly distinguish Confirmed failures (from query_replication_failures) from Likely failures (inferred from query_replication_client).
 ```

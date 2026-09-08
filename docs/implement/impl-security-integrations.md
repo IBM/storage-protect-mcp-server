@@ -1,8 +1,8 @@
 # Implementation: Secure Integrations
 
 **Domain**: Secure Integrations
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 5`](../analysis/security-design-analysis.md)
-**Gaps addressed**: SI1, SI2, SI3, SI4, RG-5
+**Analysis reference**: [`docs/analysis/security-design-analysis.md § 5 & § 7`](../analysis/security-design-analysis.md)
+**Gaps addressed**: SI1, SI2, SI3, SI4, RG-5, NR-1
 **Files changed**: `src/sp_mcp_server/config.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/commands/system/conn.py`, `src/sp_mcp_server/main.py`, new `src/sp_mcp_server/http_server.py`
 
 ---
@@ -14,7 +14,7 @@ Four changes close all secure integration gaps:
 | ID | Change | Gaps closed |
 |----|--------|-------------|
 | INT-1 | LDAP authentication for SP service accounts | SI1 |
-| INT-2 | OAuth 2.1 / OIDC bearer-token HTTP transport (opt-in) | SI2 |
+| INT-2 | OAuth 2.1 / OIDC bearer-token HTTP transport (opt-in) + user context propagation | SI2, NR-1 |
 | INT-3 | Secrets-reference pattern for cloud credentials in `define_connection` | SI3 |
 | INT-4 | `keyring` integration in `config.py` as primary credential source | SI4 |
 | RG-5 | TLS cert/key presence enforced in `main.py` before HTTP transport binds | RG-5 |

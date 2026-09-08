@@ -1,8 +1,8 @@
 # Implementation: Policy Management
 
-**Domain**: Policy Management
-**Analysis reference**: [`docs/analysis/security-design-analysis.md § 4`](../analysis/security-design-analysis.md)
-**Gaps addressed**: P1, P2, P3, P4, RG-4
+**Domain**: Policy Management & Non-Repudiation
+**Analysis reference**: [`docs/analysis/security-design-analysis.md § 4 & § 7`](../analysis/security-design-analysis.md)
+**Gaps addressed**: P1, P2, P3, P4, RG-4, NR-1, NR-4, NR-5
 **Files changed**: `src/sp_mcp_server/commands/system/admin.py`, `src/sp_mcp_server/commands/clients/node.py`, `src/sp_mcp_server/commands/operations/misc.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/server_groups.py`
 
 ---
@@ -18,6 +18,9 @@ Four changes close all policy management gaps:
 | POL-3 | Startup lockout threshold check in `mcp_factory.py` | P3 |
 | POL-4 | Session-level attribution — `CONTACT` branding + `DEFINE SCRATCHPADENTRY` correlation | P4 |
 | RG-4 | Audit write failure promoted from `WARNING` to `ERROR`; non-zero return code also raises `ERROR` | RG-4 |
+| NR-1 | Identity-enriched audit payload (`user=<sub_or_id>`) in scratchpad entries | NR-1 |
+| NR-4 | Strict audit fail-closed mode via `SP_MCP_STRICT_AUDIT=1` | NR-4 |
+| NR-5 | Standardized ISO 8601 UTC timestamp format in local logging | NR-5 |
 
 ---
 
@@ -517,11 +520,11 @@ The MCP server log (`/var/log/ibm-sp-mcp-server/mcp-server.log`) records the sam
 
 ```
 SP ACTLOG entry (via DEFINE SCRATCHPADENTRY):
-  MCP_AUDIT tool=delete_admin priv=system corr=a3f8b2c19d44
+  MCP_AUDIT user=admin@example.com tool=delete_admin priv=system corr=a3f8b2c19d44
 
 MCP server log (mcp-server.log):
-  2025-01-15 10:23:44 - INFO - [mcp_factory.py:180] - POL-4: Emitting audit correlation: MCP_AUDIT tool=delete_admin priv=system corr=a3f8b2c19d44
-  2025-01-15 10:23:44 - INFO - [mcp_factory.py:191] - POL-4: Tool 'delete_admin' completed. SP ACTLOG correlation key: a3f8b2c19d44
+  2025-01-15T10:23:44Z - INFO - [mcp_factory.py:380] - POL-4: Emitting audit correlation: MCP_AUDIT user=admin@example.com tool=delete_admin priv=system corr=a3f8b2c19d44
+  2025-01-15T10:23:44Z - INFO - [mcp_factory.py:415] - POL-4: Tool 'delete_admin' completed. SP ACTLOG correlation key: a3f8b2c19d44
 ```
 
 ---

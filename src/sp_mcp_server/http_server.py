@@ -141,7 +141,13 @@ class OIDCBearerMiddleware:
             "INT-2: Authenticated subject='%s' privilege='%s' scopes=%s",
             scope["state"]["mcp_subject"], privilege, scopes,
         )
-        await self.app(scope, receive, send)
+
+        from .mcp_factory import current_audit_user
+        token_ctx = current_audit_user.set(scope["state"]["mcp_subject"])
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            current_audit_user.reset(token_ctx)
 
 
 def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str):

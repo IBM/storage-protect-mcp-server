@@ -1,9 +1,9 @@
 # Security Design: Policy Management
 
-**Domain**: Policy Management
-**Status**: Implemented (RG-4 closed)
+**Domain**: Policy Management & Non-Repudiation
+**Status**: Implemented (RG-4, NR-1, NR-4, NR-5 closed)
 **Implementation spec**: [`docs/implement/impl-security-policy.md`](../implement/impl-security-policy.md)
-**Gaps closed**: P1, P2, P3, P4, RG-4 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
+**Gaps closed**: P1, P2, P3, P4, RG-4, NR-1, NR-2, NR-3, NR-4, NR-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
 ---
 
@@ -18,6 +18,9 @@ The original codebase had no mechanism to interact with IBM SP's Command Approva
 | Startup lockout threshold check `_check_lockout_policy()` in `mcp_factory.py` | POL-3 | P3 |
 | `DEFINE SCRATCHPADENTRY` audit correlation for write operations in `handle_call_tool` | POL-4 | P4 |
 | Audit write failure logged at `ERROR` (not `WARNING`); non-zero return code also logged | RG-4 | RG-4 |
+| Identity-enriched audit payload (`user=<sub_or_id>`) in scratchpad entries | NR-1 | NR-1 |
+| Strict audit fail-closed enforcement via `SP_MCP_STRICT_AUDIT=1` | NR-4 | NR-4 |
+| Standardized ISO 8601 UTC timestamp format (`%Y-%m-%dT%H:%M:%SZ`) in logging | NR-5 | NR-5 |
 
 ---
 
@@ -99,26 +102,39 @@ flowchart LR
 
 POL-3 is a **warning**, not a hard failure. The server starts regardless — the check is advisory because the operator may have a valid reason for not enabling lockout in a test environment.
 
-### Audit Trail Correlation (POL-4 / RG-4)
+### Audit Trail Correlation & Non-Repudiation (POL-4 / RG-4 / NR-1 / NR-4 / NR-5)
 
 For every tool call whose `required_privilege` is `system`, `policy`, `storage`, or `operator` (all write operations), the `handle_call_tool` closure emits a `DEFINE SCRATCHPADENTRY` to the IBM SP activity log **before** executing the actual command.
 
-**RG-4 (closed)**: Audit write failures are now logged at `ERROR` level (previously `WARNING`) so that SIEM/log aggregators can detect audit trail gaps. Both exception-based failures and SP non-zero return codes produce an `ERROR` with the marker `SECURITY [POL-4 / RG-4]`. The write operation proceeds regardless (advisory audit mode).
+**Non-Repudiation & Audit Enhancements**:
+- **NR-1 (closed)**: The audit payload binds the authenticated user/subject identity via `contextvars.ContextVar` (`user=<sub_or_id>`), recording `MCP_AUDIT user=<user> tool=<name> priv=<priv> corr=<id>` directly into SP ACTLOG.
+- **NR-4 (closed)**: When `SP_MCP_STRICT_AUDIT=1` is configured, if `DEFINE SCRATCHPADENTRY` fails or returns non-zero, tool execution is aborted immediately with a security exception (fail-closed mode).
+- **NR-5 (closed)**: Local loggers output ISO 8601 UTC timestamps (`%Y-%m-%dT%H:%M:%SZ`) across all handlers using `time.gmtime`.
+- **RG-4 (closed)**: In advisory audit mode, audit write failures are logged at `ERROR` level with `SECURITY [POL-4 / RG-4]`.
 
 ```mermaid
 sequenceDiagram
+    participant Client as MCP Client / OIDC User
     participant MCP as handle_call_tool
     participant SP as IBM SP Server
-    participant Log as mcp-server.log
+    participant Log as mcp-server.log / SIEM
 
-    Note over MCP: tool=delete_admin, priv=system
+    Client->>MCP: call_tool("delete_admin", {"admin_name": "testadmin"}) [subject: user@corp.com]
+    Note over MCP: tool=delete_admin, priv=system, user=user@corp.com
     MCP->>MCP: correlation_id = uuid4().hex[:12] = "a3f8b2c19d44"
-    MCP->>Log: INFO POL-4: Emitting MCP_AUDIT tool=delete_admin priv=system corr=a3f8b2c19d44
-    MCP->>SP: DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT tool=delete_admin priv=system corr=a3f8b2c19d44"
-    SP-->>MCP: ANR0000I OK
-    MCP->>SP: REMOVE ADMIN testadmin (actual command)
-    SP-->>MCP: result
-    MCP->>Log: INFO POL-4: Tool 'delete_admin' completed. SP ACTLOG correlation key: a3f8b2c19d44
+    MCP->>Log: INFO POL-4: Emitting MCP_AUDIT user=user@corp.com tool=delete_admin priv=system corr=a3f8b2c19d44
+    MCP->>SP: DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=user@corp.com tool=delete_admin priv=system corr=a3f8b2c19d44"
+    alt Audit write OK
+        SP-->>MCP: ANR0000I OK
+        MCP->>SP: REMOVE ADMIN testadmin (actual command)
+        SP-->>MCP: result
+        MCP->>Log: INFO POL-4: Tool 'delete_admin' completed. SP ACTLOG correlation key: a3f8b2c19d44
+        MCP-->>Client: result
+    else Audit write Failed & SP_MCP_STRICT_AUDIT=1
+        SP-->>MCP: ANR9999E Error
+        MCP->>Log: ERROR SECURITY [NR-4]: Strict audit write failed
+        MCP-->>Client: Error: Strict audit failure — operation blocked
+    end
 ```
 
 **Querying the audit trail from SP:**
@@ -144,7 +160,8 @@ The MCP server log records the same `corr=` value, creating a bidirectional cros
 | [`src/sp_mcp_server/commands/base.py`](../../src/sp_mcp_server/commands/base.py) | POL-2: `_get_pw_min_length()` and `_validate_password_policy()` helpers on `BaseCommand` |
 | [`src/sp_mcp_server/commands/system/admin.py`](../../src/sp_mcp_server/commands/system/admin.py) | POL-2: `DefineAdmin.execute()` and `UpdateUser.execute()` pre-validate password |
 | [`src/sp_mcp_server/commands/clients/node.py`](../../src/sp_mcp_server/commands/clients/node.py) | POL-2: `RegisterNode.execute()` and `UpdateNode.execute()` pre-validate password |
-| [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) | POL-3: `_check_lockout_policy()` called at startup; POL-4: `_WRITE_PRIVILEGES`, `DEFINE SCRATCHPADENTRY` in `handle_call_tool` |
+| [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) | POL-3: `_check_lockout_policy()` called at startup; POL-4 / NR-1 / NR-4 / NR-5: `current_audit_user` context, `_WRITE_PRIVILEGES`, ISO 8601 UTC format, strict audit fail-closed support |
+| [`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | NR-1: Sets `current_audit_user` context variable from OIDC `sub` claim |
 
 ---
 

@@ -2,25 +2,33 @@
 
 This guide covers every error condition the IBM Storage Protect MCP Server can produce, organized from startup failures through runtime issues. Each section includes the exact log message, root cause, and the remediation steps grounded in IBM SP's own security controls.
 
-**Log file location**: `/var/log/ibm-sp-mcp-server/mcp-server.log` (override with `SP_MCP_LOG_DIR`).
+> **Before troubleshooting:** If you have not yet completed [`planning-guide.md`](planning-guide.md), do so first. Many issues arise from skipping planning steps — wrong `SERVERNAME` labels, missing TCP 1500 access, or offline tools configured in Topology B.
+
+**Log file location:**
+- **Topology A (co-located):** `/var/log/ibm-sp-mcp-server/mcp-server.log` on each SP server host (override with `SP_MCP_LOG_DIR`)
+- **Topology B (centralised):** `/var/log/ibm-sp-mcp-server/mcp-server.log` on the control host — all processes write here; filter by process or timestamp to isolate a specific SP server entry
 
 ---
 
 ## Quick Reference — Error Markers
 
-| Log marker | Exit? | Section |
-|-----------|-------|---------|
-| `SECURITY [CRED-3]` | Yes — `sys.exit(1)` | [§1 `.env` permissions](#1-env-file-permission-errors-cred-3) |
-| `SECURITY [RG-1]` | Yes — `sys.exit(1)` | [§2 Production bypass guard](#2-production-bypass-guard-rg-1) |
-| `SECURITY [NET-1]` | Yes — `sys.exit(1)` | [§3 Session security check](#3-session-security-check-net-1) |
-| `SECURITY [RG-5]` | Varies | [§4 HTTP transport TLS](#4-http-transport-tls-rg-5) |
-| `SECURITY [POL-3]` | No — warning only | [§5 Account lockout advisory](#5-account-lockout-advisory-pol-3) |
-| `SECURITY [POL-4 / RG-4]` | No — advisory | [§6 Audit write failure](#6-audit-write-failure-pol-4--rg-4) |
-| `dsmadmc executable not found` | Tool error | [§7 dsmadmc not found](#7-dsmadmc-not-found) |
-| `No credential available` | Tool error | [§8 Missing credentials](#8-missing-credentials) |
-| `ACC-2: Skipping tool` | No | [§9 Tool not registered](#9-tool-not-registered--privilege-errors) |
-| `sudo:` in stderr | Offline error | [§10 Offline command failures](#10-offline-command-failures-dsmserv--servermon) |
-| `ImportError` / `ModuleNotFoundError` | Immediate | [§11 Python import errors](#11-python-and-import-errors) |
+| Log marker | Exit? | Topology | Section |
+|-----------|-------|---------|---------|
+| `SECURITY [CRED-3]` | Yes — `sys.exit(1)` | Both | [§1 `.env` permissions](#1-env-file-permission-errors-cred-3) |
+| `SECURITY [RG-1]` | Yes — `sys.exit(1)` | Both | [§2 Production bypass guard](#2-production-bypass-guard-rg-1) |
+| `SECURITY [NET-1]` | Yes — `sys.exit(1)` | Both | [§3 Session security check](#3-session-security-check-net-1) |
+| `SECURITY [RG-5]` | Varies | Both | [§4 HTTP transport TLS](#4-http-transport-tls-rg-5) |
+| `SECURITY [POL-3]` | No — warning only | Both | [§5 Account lockout advisory](#5-account-lockout-advisory-pol-3) |
+| `SECURITY [POL-4 / RG-4]` | No — advisory | Both | [§6 Audit write failure](#6-audit-write-failure-pol-4--rg-4) |
+| `dsmadmc executable not found` | Tool error | Both | [§7 dsmadmc not found](#7-dsmadmc-not-found) |
+| `No credential available` | Tool error | Both | [§8 Missing credentials](#8-missing-credentials) |
+| `ACC-2: Skipping tool` | No | Both | [§9 Tool not registered](#9-tool-not-registered--privilege-errors) |
+| `sudo:` in stderr | Offline error | **A only** | [§10 Offline command failures](#10-offline-command-failures-dsmserv--servermon) |
+| `ImportError` / `ModuleNotFoundError` | Immediate | Both | [§11 Python import errors](#11-python-and-import-errors) |
+| Stash not populated / `ANR2034E` | Tool error | Both | [§12 Password stash issues](#12-password-stash-issues) |
+| `ANR0521W` / connection refused | Startup / tool | Both | [§13 Connection to IBM SP Server Fails](#13-connection-to-ibm-sp-server-fails) |
+| `Permission denied (publickey)` | Startup | Both | [§14 SSH connection issues](#14-ssh-connection-issues-stdio-transport) |
+| One process fails; stash collision; wrong key | Startup | Both | [§15 Multi-server issues](#15-multi-server-deployment-issues) |
 
 ---
 
@@ -41,6 +49,8 @@ The `.env` file has group-readable or world-readable bits set. The server aborts
 
 ### Remediation
 
+**Topology A** — fix on each SP server host:
+
 ```bash
 chmod 600 /opt/sp-mcp-server/.env
 chown mcp-runner:mcp-runner /opt/sp-mcp-server/.env
@@ -50,7 +60,19 @@ ls -la /opt/sp-mcp-server/.env
 # Expected: -rw------- 1 mcp-runner mcp-runner
 ```
 
-> If you use a custom path, pass it via `secure_startup(env_path="/path/to/.env")` in your entry point.
+**Topology B** — fix the affected per-server `.env` on the control host:
+
+```bash
+# Replace spsvr01 with the subdirectory name for the failing process
+chmod 600 /opt/sp-mcp/spsvr01/.env
+chown mcp-runner:mcp-runner /opt/sp-mcp/spsvr01/.env
+
+# Verify all per-server .env files at once
+ls -la /opt/sp-mcp/*/.env
+# Expected: -rw------- 1 mcp-runner mcp-runner  (each)
+```
+
+> The CRED-3 check applies to each process's own `.env`, resolved relative to the working directory (`cwd`) at process launch. In Topology B each MCP client config entry uses `cd /opt/sp-mcp/<servername>` before starting Python — the check fires against that subdirectory's `.env`.
 
 ---
 
@@ -111,7 +133,7 @@ Verify credentials and SP server connectivity. stderr: ANR2034E ...
 
 ```bash
 # 1. Test connectivity directly
-dsmadmc -id=mcp-svc-system -pa=<password> -se=SP_SERVER_1 "QUERY STATUS"
+dsmadmc -id=mcp-svc-system -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
 
 # 2. If connectivity fails, check the port
 nc -zv your-sp-server.example.com 1500
@@ -121,6 +143,8 @@ REGISTER ADMIN mcp-svc-system PASSWORD=<strong-password>
 GRANT AUTHORITY mcp-svc-system CLASSES=SYSTEM
 UPDATE ADMIN mcp-svc-system SESSIONSECURITY=STRICT MFAREQUIRED=NO
 ```
+
+> **Multi-server deployments:** Each MCP server process runs independently with its own log file on its own host. When a NET-1 failure occurs, check the log on the specific host whose process failed — a failure on one server does not affect the others. Use `SP_MCP_LOG_DIR` consistently across all hosts to make log collection uniform.
 
 ---
 
@@ -147,6 +171,8 @@ UPDATE ADMIN mcp-svc-policy   SESSIONSECURITY=STRICT
 UPDATE ADMIN mcp-svc-operator SESSIONSECURITY=STRICT
 UPDATE ADMIN mcp-svc-readonly SESSIONSECURITY=STRICT
 ```
+
+> **Multi-server deployments:** Run these `UPDATE ADMIN` commands on **each SP server independently**. The accounts are distinct SP objects per server — updating them on SPSVR01 has no effect on SPSVR02.
 
 Verify:
 
@@ -189,7 +215,7 @@ cat /opt/sp-mcp-server/config/dsm.sys | grep -i ssl
 
 # If dsm.sys is missing, create it from the template
 cat > /opt/sp-mcp-server/config/dsm.sys << 'EOF'
-SERVERNAME          SP_SERVER_1
+SERVERNAME          SP_SPSVR01
 TCPSERVERADDRESS    your-sp-server.example.com
 TCPPORT             1500
 COMMMETHOD          TCPIP
@@ -202,6 +228,8 @@ chmod 600 /opt/sp-mcp-server/config/dsm.sys
 # Add to .env
 echo "DSM_CONFIG=/opt/sp-mcp-server/config/dsm.sys" >> /opt/sp-mcp-server/.env
 ```
+
+> **Multi-server deployments:** The `SERVERNAME` value (e.g. `SP_SPSVR01`) must be unique per SP server host. Sharing the same `SERVERNAME` across hosts causes password stash key collisions — see [§12 Password Stash Issues](#12-password-stash-issues) for details.
 
 ---
 
@@ -300,6 +328,8 @@ QUERY STATUS
 
 Expected: `Invalid Sign-on Attempt Limit: 5`
 
+> **Multi-server deployments:** `SET INVALIDPWLIMIT` must be applied on **each SP server independently**. Each server maintains its own lockout counter — an account locked on SPSVR01 is not affected on SPSVR02 and vice versa.
+
 > If a service account is subsequently locked out after too many failed attempts, unlock it with:
 > ```
 > UNLOCK ADMIN mcp-svc-system
@@ -347,6 +377,8 @@ QUERY ACTLOG SEARCH=MCP_AUDIT
 ```
 
 If no entries appear and the server has been running with write operations, the audit write has been failing silently and the gap should be investigated.
+
+> **Multi-server deployments:** Audit records are distributed — each SP server's ACTLOG holds only the records for MCP operations that targeted it. Run `QUERY ACTLOG SEARCH=MCP_AUDIT` on **each SP server individually** to retrieve its own audit trail. There is no aggregated cross-server ACTLOG view.
 
 ---
 
@@ -497,7 +529,9 @@ Disconnect and reconnect the MCP client to force a fresh tool list query (`list_
 
 ---
 
-## 10. Offline Command Failures (`dsmserv` / `servermon`)
+## 10. Offline Command Failures (`dsmserv` / `servermon`) — Topology A only
+
+> **Topology B:** Offline tools (`dsmserv` / `servermon`) are **not supported** in the centralised topology. The SP server binaries are not present on the control host. If you receive errors from these tools in Topology B, the MCP client configuration entry is incorrectly attempting to use them. See [`planning-guide.md`](planning-guide.md) for the topology comparison and the offline tools limitation.
 
 ### Symptom A — `sudo` fails
 
@@ -644,26 +678,44 @@ or `dsmadmc` hangs waiting for interactive input.
 
 ### Cause
 
-The password stash for this service account has not been populated, or was populated under a different `DSM_CONFIG` path.
+The password stash for this service account has not been populated, or was populated under a different `DSM_CONFIG` path or `SERVERNAME`.
 
-### Remediation
+### Remediation — Topology A
+
+On the affected SP server host:
 
 ```bash
 # Confirm DSM_CONFIG points to a file with PASSWORDACCESS GENERATE
 cat $DSM_CONFIG | grep PASSWORDACCESS
 # Expected: PASSWORDACCESS      GENERATE
 
-# Populate the stash interactively (one-time per account)
+# Populate the stash (use the SERVERNAME from this host's dsm.sys)
 export DSM_CONFIG=/opt/sp-mcp-server/config/dsm.sys
-dsmadmc -id=mcp-svc-system -pa=<password> -se=SP_SERVER_1 "QUERY STATUS"
-# The password is now stored in ~/.tsm/
+dsmadmc -id=mcp-svc-system -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
 
 # Verify stash works without -PA=
-dsmadmc -id=mcp-svc-system -se=SP_SERVER_1 "QUERY STATUS"
-# If this prompts for a password, the stash was not populated correctly
+dsmadmc -id=mcp-svc-system -se=SP_SPSVR01 "QUERY STATUS"
 ```
 
-If the stash was populated under a different `DSM_CONFIG`, the stash file location may differ. The stash is stored in `~mcp-runner/.tsm/` by default.
+### Remediation — Topology B
+
+On the control host. The stash for all SP servers lives in `~mcp-runner/.tsm/` keyed by `SERVERNAME` + account ID. The shared `dsm.sys` at `/opt/sp-mcp/config/dsm.sys` must have one stanza per SP server with a unique `SERVERNAME`:
+
+```bash
+export DSM_CONFIG=/opt/sp-mcp/config/dsm.sys
+
+# Populate for the affected SP server stanza (e.g. SP_SPSVR01)
+dsmadmc -id=mcp-svc-readonly  -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-operator  -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-storage   -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-policy    -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-system    -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+
+# Verify stash works without -PA=
+dsmadmc -id=mcp-svc-system -se=SP_SPSVR01 "QUERY STATUS"
+```
+
+> **Stash collision (both topologies):** If two SP servers share the same `SERVERNAME` in `dsm.sys`, their stash entries collide and authentication fails on one or both. To recover, delete `~mcp-runner/.tsm/` and repopulate all accounts with the corrected unique `SERVERNAME` values. See [`planning-guide.md` — Step 5](planning-guide.md) for the naming convention.
 
 ---
 
@@ -677,23 +729,38 @@ If the stash was populated under a different `DSM_CONFIG`, the stash file locati
 SECURITY [NET-1]: Cannot query service account 'mcp-svc-system'.
 ```
 
-### Diagnosis
+### Diagnosis — Topology A
 
 ```bash
-# 1. Test raw TCP connectivity to SP admin port
-nc -zv your-sp-server.example.com 1500
-# Expected: Connection to your-sp-server.example.com 1500 port [tcp] succeeded
+# 1. Check which SP server this process is targeting
+grep TCPSERVERADDRESS /opt/sp-mcp-server/.env
 
-# 2. Test dsmadmc directly with explicit credentials
+# 2. Test raw TCP connectivity (local — SP server is on this host)
+nc -zv localhost 1500
+
+# 3. Test dsmadmc directly
 dsmadmc -id=mcp-svc-system -pa=<password> \
-        -tcpserveraddress=your-sp-server.example.com \
+        -tcpserveraddress=localhost -tcpport=1500 "QUERY STATUS"
+```
+
+### Diagnosis — Topology B
+
+```bash
+# 1. Check which SP server the failing process targets
+grep TCPSERVERADDRESS /opt/sp-mcp/spsvr01/.env   # replace subdirectory as appropriate
+
+# 2. Test TCP reachability from the control host to the remote SP server
+nc -zv spsvr01.corp.example.com 1500
+# Expected: succeeded
+# If this fails: open TCP 1500 from the control host to that SP server
+
+# 3. Test dsmadmc from the control host explicitly
+dsmadmc -id=mcp-svc-system -pa=<password> \
+        -tcpserveraddress=spsvr01.corp.example.com \
         -tcpport=1500 "QUERY STATUS"
 
-# 3. Check server-side firewall
-# On the SP server host:
+# 4. Check firewall on the SP server host (run on the SP host, not the control host)
 sudo firewall-cmd --list-all | grep 1500
-# Or:
-sudo iptables -L -n | grep 1500
 ```
 
 ### Common causes and fixes
@@ -713,29 +780,145 @@ sudo iptables -L -n | grep 1500
 
 MCP client reports the server is not available or times out during startup.
 
-### Diagnosis
+### Diagnosis — Topology A
+
+Test the exact SSH command the MCP client would use. In Topology A each entry targets a different host with a dedicated key:
 
 ```bash
-# Test the exact SSH command the MCP client would use
-ssh -i ~/.ssh/id_ed25519_sp_mcp \
+ssh -i ~/.ssh/id_ed25519_spsvr01 \
     -o StrictHostKeyChecking=yes \
     -o BatchMode=yes \
-    mcp-runner@your-sp-server \
+    mcp-runner@spsvr01.corp.example.com \
     "cd /opt/sp-mcp-server && source .venv/bin/activate && python3 -m sp_mcp_server.main --help"
+```
+
+### Diagnosis — Topology B
+
+In Topology B all entries SSH to the **same control host** but use `cd` to change the working directory. A failure on one entry while others succeed almost always means the `cd` path or `.env` for that entry is wrong:
+
+```bash
+# Test the exact command the failing MCP client entry would run
+ssh -i ~/.ssh/id_ed25519_ctrl \
+    -o StrictHostKeyChecking=yes \
+    -o BatchMode=yes \
+    mcp-runner@ctrl.corp.example.com \
+    "cd /opt/sp-mcp/spsvr01 && source /opt/sp-mcp/shared/.venv/bin/activate && python3 -m sp_mcp_server.main --help"
+# Adjust the cd path for the specific failing entry
 ```
 
 ### Common causes
 
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Permission denied (publickey)` | SSH key not deployed or wrong key path | Re-run `ssh-copy-id -i ~/.ssh/id_ed25519_sp_mcp.pub mcp-runner@your-sp-server` |
-| `Host key verification failed` | Host key changed or not in `known_hosts` | Run `ssh-keyscan -H your-sp-server >> ~/.ssh/known_hosts` |
-| `Connection refused` | `sshd` not running or port not open | `systemctl status sshd` on SP server |
-| Server starts but exits immediately | `.env` permission error or missing credential | Check `mcp-server.log` on the SP host for `SECURITY [CRED-3]` or missing credentials |
+| Error | Cause | Topology A fix | Topology B fix |
+|-------|-------|----------------|----------------|
+| `Permission denied (publickey)` | Key not deployed or wrong key path | Re-run `ssh-copy-id -i ~/.ssh/id_ed25519_spsvr01.pub mcp-runner@spsvr01` | Re-run `ssh-copy-id -i ~/.ssh/id_ed25519_ctrl.pub mcp-runner@ctrl` |
+| `Host key verification failed` | Host key changed or not in `known_hosts` | `ssh-keyscan -H spsvr01 >> ~/.ssh/known_hosts` | `ssh-keyscan -H ctrl >> ~/.ssh/known_hosts` |
+| `Connection refused` | `sshd` not running or port blocked | `systemctl status sshd` on the SP server host | `systemctl status sshd` on the control host |
+| Server exits immediately | `.env` permission error or missing credential | Check `mcp-server.log` on the SP host for `SECURITY [CRED-3]` | Check log on control host; confirm `cd /opt/sp-mcp/<servername>` path is correct and its `.env` exists with `chmod 600` |
+| `Permission denied` on wrong server | Wrong key in MCP client config entry | Each entry must use its own `-i ~/.ssh/id_ed25519_<hostname>` | All entries share `-i ~/.ssh/id_ed25519_ctrl`; wrong-server errors from incorrect `cd` path, not key |
 
 ---
 
-## 15. Log File Access
+## 15. Multi-Server Deployment Issues
+
+This section covers failure modes specific to multi-server deployments where multiple MCP server processes are registered in the MCP client configuration.
+
+### Symptom A — One process fails to start; others remain up
+
+One SP server entry in the MCP client config is unavailable while others connect successfully.
+
+**Cause:** Each MCP server process starts, runs NET-1, and registers tools independently. A failure on one entry prevents only that process from starting — it does not affect others.
+
+**Diagnosis — Topology A** (SSH to the failing SP server host):
+```bash
+ssh -i ~/.ssh/id_ed25519_<failing-host> mcp-runner@<failing-host> \
+  "cd /opt/sp-mcp-server && source .venv/bin/activate && \
+   python3 -m sp_mcp_server.main --mode read-only 2>&1 | head -30"
+```
+
+**Diagnosis — Topology B** (all processes on the control host; use `cd` to the failing entry's subdirectory):
+```bash
+ssh -i ~/.ssh/id_ed25519_ctrl mcp-runner@ctrl.corp.example.com \
+  "cd /opt/sp-mcp/spsvr01 && source /opt/sp-mcp/shared/.venv/bin/activate && \
+   python3 -m sp_mcp_server.main --mode read-only 2>&1 | head -30"
+# Replace spsvr01 with the subdirectory for the failing entry
+```
+
+Check the output for `SECURITY [CRED-3]`, `SECURITY [NET-1]`, or `SECURITY [RG-1]` markers and follow the corresponding section in this guide.
+
+---
+
+### Symptom B — Password stash collisions (`SERVERNAME` not unique)
+
+`dsmadmc` authenticates correctly for one SP server but fails with `ANR2034E` or hangs for another, despite `SP_MCP_USE_PASSWORD_STASH=1` being set.
+
+**Cause:** Two SP server stanzas share the same `SERVERNAME` in `dsm.sys`. The stash key is `SERVERNAME` + account ID — duplicates cause entries to overwrite each other.
+- **Topology A:** Two hosts each have their own `dsm.sys` but both used the same stanza name (e.g. `SP_SERVER_1`).
+- **Topology B:** The shared `dsm.sys` on the control host has two stanzas with the same `SERVERNAME`.
+
+**Remediation — Topology A:**
+1. Assign a unique `SERVERNAME` in each host's `/opt/sp-mcp-server/config/dsm.sys`.
+2. Update `DSM_CONFIG` in each host's `/opt/sp-mcp-server/.env`.
+3. Delete the stale stash on each affected host and repopulate:
+```bash
+rm -rf ~mcp-runner/.tsm/
+export DSM_CONFIG=/opt/sp-mcp-server/config/dsm.sys
+dsmadmc -id=mcp-svc-readonly  -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-operator  -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-storage   -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-policy    -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-system    -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+```
+
+**Remediation — Topology B:**
+1. Edit `/opt/sp-mcp/config/dsm.sys` on the control host and ensure every `SERVERNAME` is unique.
+2. Delete the stash on the control host and repopulate for all SP server stanzas:
+```bash
+rm -rf ~mcp-runner/.tsm/
+export DSM_CONFIG=/opt/sp-mcp/config/dsm.sys
+# Repopulate for each stanza
+dsmadmc -id=mcp-svc-system -pa=<password> -se=SP_SPSVR01 "QUERY STATUS"
+dsmadmc -id=mcp-svc-system -pa=<password> -se=SP_SPSVR02 "QUERY STATUS"
+# Repeat for all five accounts × all SP server stanzas
+```
+
+See [`planning-guide.md` — Step 5](planning-guide.md) for the recommended `SERVERNAME` naming convention.
+
+---
+
+### Symptom C — SSH key or working directory mismatch
+
+**Topology A:** MCP client connects to the wrong SP server, or `Permission denied (publickey)` is returned for an entry that appears correctly configured.
+
+**Cause (Topology A):** The `-i <keyfile>` in one MCP client config entry references the key for a different host. Using the wrong key fails authentication or silently targets the wrong server.
+
+**Remediation (Topology A):**
+1. Confirm each entry uses the correct per-host key: `sp-mcp-spsvr01` → `-i ~/.ssh/id_ed25519_spsvr01`.
+2. Verify authorised keys on each host:
+```bash
+cat ~mcp-runner/.ssh/authorized_keys
+```
+3. Remove any incorrectly deployed key from `authorized_keys` and re-run `ssh-copy-id`.
+
+---
+
+**Topology B:** One MCP client config entry starts the correct process on the control host but talks to the wrong SP server, or fails immediately after SSH connects.
+
+**Cause (Topology B):** The `cd /opt/sp-mcp/<servername>` path in the MCP client config entry is wrong (typo, wrong subdirectory name), so the process loads the `.env` for a different SP server, or fails if the directory does not exist.
+
+**Remediation (Topology B):**
+1. Confirm each entry's `cd` path matches its subdirectory:
+   - `sp-mcp-spsvr01` → `cd /opt/sp-mcp/spsvr01`
+   - `sp-mcp-spsvr02` → `cd /opt/sp-mcp/spsvr02`
+2. Confirm the subdirectory and its `.env` exist on the control host:
+```bash
+ls -la /opt/sp-mcp/spsvr01/.env
+# Expected: -rw------- 1 mcp-runner mcp-runner
+```
+3. Confirm `TCPSERVERADDRESS` in each `.env` matches the intended SP server.
+
+---
+
+## 16. Log File Access
 
 ```bash
 # View the live log
@@ -758,6 +941,7 @@ ls /tmp/ibm-sp-mcp-server/mcp-server.log 2>/dev/null
 
 ## Related Documentation
 
+- Deployment planning: [`planning-guide.md`](planning-guide.md)
 - Installation: [`install-guide.md`](install-guide.md)
 - MCP client configuration: [`configure-guide.md`](configure-guide.md)
 - User guide: [`user-guide.md`](user-guide.md)

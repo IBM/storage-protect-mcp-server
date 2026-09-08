@@ -13,6 +13,7 @@ Implementation specifications for each security domain of the IBM Storage Protec
 | [`impl-security-access.md`](impl-security-access.md) | Access Management | `commands/base.py`, `mcp_factory.py`, all `commands/**/*.py` |
 | [`impl-security-policy.md`](impl-security-policy.md) | Policy Management | `mcp_factory.py`, `commands/operations/approval.py`, `commands/operations/misc.py` |
 | [`impl-security-integrations.md`](impl-security-integrations.md) | Secure Integrations | `http_server.py`, `system/conn.py`, `config.py` |
+| [`impl-security-non-repudiation.md`](impl-security-non-repudiation.md) | Non-Repudiation & Forensics | `mcp_factory.py`, `http_server.py`, `tests/test_security_controls.py` |
 
 ---
 

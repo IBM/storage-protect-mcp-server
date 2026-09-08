@@ -3,13 +3,18 @@ import asyncio
 import sys
 import os
 import uuid
+import time
 import logging
 from logging.handlers import RotatingFileHandler
 import inspect
+import contextvars
 from typing import Any, Sequence, List, Dict, Optional, Set
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
+
+# NR-1: Context variable holding the authenticated end-user identity / subject
+current_audit_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_audit_user", default=None)
 
 from .config import load_config
 from .cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
@@ -31,11 +36,12 @@ def setup_logging():
         log_file = os.path.join(log_dir, "mcp-server.log")
         os.makedirs(log_dir, exist_ok=True)
     
-    # Create formatters
+    # Create formatters (NR-5: ISO 8601 UTC timestamping)
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        datefmt='%Y-%m-%dT%H:%M:%SZ'
     )
+    detailed_formatter.converter = time.gmtime
     simple_formatter = logging.Formatter('%(levelname)s: %(message)s')
     
     # File handler with rotation (10MB max, keep 5 backups)
@@ -252,7 +258,15 @@ def _check_lockout_policy(admc_cli: DsmAdmcWrapper) -> None:
     )
 
 
-def create_mcp_server(server_name: str, tool_classes: List[Any], allowed_modes: Optional[List[str]] = None):
+def create_mcp_server(
+    server_name: str,
+    tool_classes: List[Any],
+    allowed_modes: Optional[List[str]] = None,
+    admc_cli: Optional[DsmAdmcWrapper] = None,
+    serv_cli: Optional[DsmServWrapper] = None,
+    mon_cli: Optional[ServermonWrapper] = None,
+    config: Optional[Any] = None,
+):
     """
     Creates an MCP Server instance populated with the provided tool command classes.
 
@@ -261,15 +275,23 @@ def create_mcp_server(server_name: str, tool_classes: List[Any], allowed_modes: 
         tool_classes: A list of command classes to instantiate and register.
         allowed_modes: List of allowed modes (e.g. ["read-only", "destructive"]).
                        If None, all modes are allowed.
+        admc_cli: Optional pre-configured DsmAdmcWrapper instance (injected in tests).
+        serv_cli: Optional pre-configured DsmServWrapper instance (injected in tests).
+        mon_cli: Optional pre-configured ServermonWrapper instance (injected in tests).
+        config: Optional pre-loaded ServerConfig instance (injected in tests).
     """
 
     # Load configuration
-    config = load_config()
+    if config is None:
+        config = load_config()
 
     # Initialize CLI wrappers
-    admc_cli = DsmAdmcWrapper(config)
-    serv_cli = DsmServWrapper(config)
-    mon_cli = ServermonWrapper(config)
+    if admc_cli is None:
+        admc_cli = DsmAdmcWrapper(config)
+    if serv_cli is None:
+        serv_cli = DsmServWrapper(config)
+    if mon_cli is None:
+        mon_cli = ServermonWrapper(config)
 
     # ── NET-1: validate SP session security before registering any tools ──────
     _validate_session_security(admc_cli, config)
@@ -371,34 +393,53 @@ def create_mcp_server(server_name: str, tool_classes: List[Any], allowed_modes: 
         correlation_id = None
         if tool_privilege in _WRITE_PRIVILEGES:
             correlation_id = uuid.uuid4().hex[:12]
+            # NR-1: Bind authenticated end-user / subject or fallback to local account
+            user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
             audit_msg = (
-                f"MCP_AUDIT tool={name} "
+                f"MCP_AUDIT user={user_id} "
+                f"tool={name} "
                 f"priv={tool_privilege} "
                 f"corr={correlation_id}"
             )
             logger.info("POL-4: Emitting audit correlation: %s", audit_msg)
+            strict_audit = os.environ.get("SP_MCP_STRICT_AUDIT", "0") == "1"
             try:
                 _stdout, _stderr, _code = await asyncio.to_thread(
                     admc_cli.execute,
                     f'DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="{audit_msg}"',
                 )
                 if _code != 0:
-                    # RG-4: Explicit ERROR so SIEM/log aggregators can detect audit gaps.
+                    # RG-4 / NR-4: Explicit ERROR so SIEM/log aggregators can detect audit gaps.
                     logger.error(
-                        "SECURITY [POL-4 / RG-4]: Audit write FAILED for tool='%s' "
+                        "SECURITY [POL-4 / RG-4 / NR-4]: Audit write FAILED for tool='%s' "
                         "corr=%s (SP returned code %d: %s). "
-                        "Write operation will proceed but this event has no ACTLOG record. "
+                        "%s"
                         "Verify SCRATCHPADENTRY write permission for the service account.",
                         name, correlation_id, _code, (_stderr or "no detail").strip(),
+                        "Execution ABORTED due to SP_MCP_STRICT_AUDIT=1. " if strict_audit else "Write operation will proceed but this event has no ACTLOG record. ",
                     )
+                    if strict_audit:
+                        raise RuntimeError(
+                            f"Strict audit failure: unable to record ACTLOG entry ({_stderr or 'code ' + str(_code)})"
+                        )
             except Exception as audit_exc:
-                # RG-4: Promoted from WARNING to ERROR for SIEM detectability.
-                logger.error(
-                    "SECURITY [POL-4 / RG-4]: Audit write raised exception for "
-                    "tool='%s' corr=%s: %s. "
-                    "Write operation will proceed but this event has no ACTLOG record.",
-                    name, correlation_id, audit_exc,
-                )
+                if strict_audit and not isinstance(audit_exc, RuntimeError):
+                    logger.error(
+                        "SECURITY [POL-4 / RG-4 / NR-4]: Audit write raised exception for "
+                        "tool='%s' corr=%s: %s. Execution ABORTED due to SP_MCP_STRICT_AUDIT=1.",
+                        name, correlation_id, audit_exc,
+                    )
+                    raise RuntimeError(f"Strict audit failure: {audit_exc}") from audit_exc
+                elif not strict_audit:
+                    # RG-4: Promoted from WARNING to ERROR for SIEM detectability.
+                    logger.error(
+                        "SECURITY [POL-4 / RG-4]: Audit write raised exception for "
+                        "tool='%s' corr=%s: %s. "
+                        "Write operation will proceed but this event has no ACTLOG record.",
+                        name, correlation_id, audit_exc,
+                    )
+                else:
+                    raise
 
         try:
             result = await asyncio.to_thread(cmd.execute, arguments or {})

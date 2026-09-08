@@ -81,6 +81,18 @@
 
 ---
 
+### 2.6 Non-Repudiation & Forensic Auditability (NR)
+
+| Req ID | Requirement Description | Architecture & Design Docs | Implementation Spec | Source File(s) | Test Verification | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :---: |
+| **NR-1** | Bind authenticated end-user identity (`user=<id>`) into `DEFINE SCRATCHPADENTRY` | [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) | `impl-security-non-repudiation.md § 2.1` | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) (`current_audit_user`)<br>[`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | `tests/test_security_controls.py::TestAuditTrail::test_scratchpad_entry_called_before_write` | ✅ Implemented & Tested |
+| **NR-2** | Protect local log files against tampering via append-only flags (`chattr +a`) and SIEM TLS streaming | [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) | `impl-security-non-repudiation.md § 3.2` | [`docs/implement/impl-security-non-repudiation.md`](../implement/impl-security-non-repudiation.md) | Host deployment verification | 📋 Deployment Configuration |
+| **NR-3** | Selective read auditability via targeted Activity Log query tool (`query_activity_log`) | [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) | `impl-security-non-repudiation.md § 3.1` | [`src/sp_mcp_server/commands/operations/misc.py`](../../src/sp_mcp_server/commands/operations/misc.py) | `tests/test_commands.py` | ✅ Implemented & Tested |
+| **NR-4** | Strict audit fail-closed mode (`SP_MCP_STRICT_AUDIT=1` aborts command if ACTLOG write fails) | [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) | `impl-security-non-repudiation.md § 2.2` | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) (`handle_call_tool`) | `tests/test_security_controls.py::TestAuditTrail::test_strict_audit_fail_closed_aborts_execution` | ✅ Implemented & Tested |
+| **NR-5** | Standardize ISO 8601 UTC timestamp formatting (`%Y-%m-%dT%H:%M:%SZ`) in logging | [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) | `impl-security-non-repudiation.md § 2.3` | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) (`setup_logging`) | Automated log format validation | ✅ Implemented & Tested |
+
+---
+
 ## 3. Functional Command Modules Traceability
 
 ### 3.1 System Module (`ISP_SYSTEM_ADMIN`, `ISP_SYSTEM_CONFIG`)
@@ -167,7 +179,7 @@
 
 | Category | Total Count | ✅ Implemented & Tested | 📋 Deployment Configuration |
 | :--- | :---: | :---: | :---: |
-| **Security Controls (NET, CRED, ACC, POL, INT, RG)** | 33 | 29 | 4 |
+| **Security Controls (NET, CRED, ACC, POL, INT, NR, RG)** | 38 | 33 | 5 |
 | **Functional Commands (System, Clients, Storage, Policy, Ops)** | 55+ | 55+ | 0 |
-| **Test Suites (`tests/`)** | 5 Test Files (56 tests) | 56/56 Passing | 0 |
+| **Test Suites (`tests/`)** | 5 Test Files (57 tests) | 57/57 Passing | 0 |
 | **Total Requirements Status** | **100% Traceability Coverage** | **100% Verified** | **0 Open Gaps** |

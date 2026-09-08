@@ -361,72 +361,130 @@ class TestAuditTrail:
         return cmd
 
     def test_scratchpad_entry_called_before_write(self):
-        """POL-4: DEFINE SCRATCHPADENTRY is called for write-privileged tools."""
+        """POL-4 / NR-1: DEFINE SCRATCHPADENTRY includes user identity and correlation."""
+        from sp_mcp_server.mcp_factory import create_mcp_server, current_audit_user
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        cfg = _make_config_with_cred(admin_id="mcp-svc-system")
         admc = MagicMock()
-        admc.execute.return_value = ("OK", "", 0)
+        admc.config = cfg
+        # Provide QUERY ADMIN output with System authority so DeleteAdmin is registered
+        admc.execute.return_value = (
+            "Session Security: Strict\nTransport Method: TLS 1.3\nSystem Privilege: Yes",
+            "",
+            0,
+        )
 
-        # Directly test the mcp_factory handle_call_tool logic by inspecting
-        # what commands get issued to admc.
-        # We use a simplified integration path through create_mcp_server's
-        # internal closure by inspecting admc calls.
-        # The simplest unit test: verify that admc.execute is called with
-        # a DEFINE SCRATCHPADENTRY string when handle_call_tool runs a
-        # write-privileged command.
+        server = create_mcp_server(
+            server_name="test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
 
-        async def run():
-            from sp_mcp_server.mcp_factory import _WRITE_PRIVILEGES
-            import uuid
+        handler = server.request_handlers[CallToolRequest]
+        assert handler is not None
 
-            # Simulate what handle_call_tool does
-            tool_privilege = "system"
-            name = "delete_admin"
-            assert tool_privilege in _WRITE_PRIVILEGES
+        # Set user context for NR-1
+        tok = current_audit_user.set("audited-admin@corp.com")
+        try:
+            with patch.object(DeleteAdmin, "execute", return_value="Admin deleted"):
+                admc.execute.return_value = ("ANR0000I OK", "", 0)
+                req = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="delete_admin", arguments={"admin_name": "oldadmin"}),
+                )
+                asyncio.run(handler(req))
+        finally:
+            current_audit_user.reset(tok)
 
-            correlation_id = uuid.uuid4().hex[:12]
-            audit_msg = (
-                f"MCP_AUDIT tool={name} "
-                f"priv={tool_privilege} "
-                f"corr={correlation_id}"
-            )
-            result = await asyncio.to_thread(
-                admc.execute,
-                f'DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="{audit_msg}"',
-            )
-            assert result == ("OK", "", 0)
-
-        asyncio.run(run())
-        assert admc.execute.called
-        call_arg = admc.execute.call_args[0][0]
-        assert "DEFINE SCRATCHPADENTRY" in call_arg
-        assert "MCP_AUDIT" in call_arg
+        # Check admc calls for DEFINE SCRATCHPADENTRY with user identity
+        scratchpad_calls = [
+            c[0][0] for c in admc.execute.call_args_list
+            if "DEFINE SCRATCHPADENTRY" in str(c[0][0])
+        ]
+        assert len(scratchpad_calls) >= 1
+        audit_call = scratchpad_calls[0]
+        assert "user=audited-admin@corp.com" in audit_call
+        assert "tool=delete_admin" in audit_call
+        assert "priv=system" in audit_call
+        assert "corr=" in audit_call
 
     def test_audit_write_failure_logs_error(self, caplog):
-        """RG-4: When DEFINE SCRATCHPADENTRY returns non-zero, an ERROR is logged."""
-        admc = _mock_admc(stdout="", stderr="permission denied", code=12)
+        """RG-4: When DEFINE SCRATCHPADENTRY returns non-zero in advisory mode, an ERROR is logged and execution proceeds."""
+        from sp_mcp_server.mcp_factory import create_mcp_server
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from mcp.types import CallToolRequest, CallToolRequestParams
 
-        async def run():
-            try:
-                _stdout, _stderr, _code = await asyncio.to_thread(
-                    admc.execute,
-                    'DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="test"',
-                )
-                if _code != 0:
-                    logging.getLogger("test").error(
-                        "SECURITY [POL-4 / RG-4]: Audit write FAILED corr=abc123 "
-                        "(SP returned code %d: %s).",
-                        _code, _stderr,
-                    )
-            except Exception as e:
-                logging.getLogger("test").error(
-                    "SECURITY [POL-4 / RG-4]: Audit write raised exception: %s", e
-                )
+        cfg = _make_config_with_cred(admin_id="mcp-svc-system")
+        admc = MagicMock()
+        admc.config = cfg
+        admc.execute.return_value = (
+            "Session Security: Strict\nTransport Method: TLS 1.3\nSystem Privilege: Yes",
+            "",
+            0,
+        )
+
+        server = create_mcp_server(
+            server_name="test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+
+        handler = server.request_handlers[CallToolRequest]
+        # When SCRATCHPADENTRY fails with non-zero
+        admc.execute.return_value = ("", "Database locked", 12)
 
         with caplog.at_level(logging.ERROR):
-            asyncio.run(run())
+            with patch.object(DeleteAdmin, "execute", return_value="Admin deleted"):
+                req = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="delete_admin", arguments={"admin_name": "oldadmin"}),
+                )
+                res = asyncio.run(handler(req))
 
+        assert len(res.root.content) == 1
+        assert res.root.content[0].text == "Admin deleted"
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-        assert len(errors) >= 1
-        assert "RG-4" in errors[0].message or "FAILED" in errors[0].message
+        assert any("POL-4" in r.message or "RG-4" in r.message for r in errors)
+
+    def test_strict_audit_fail_closed_aborts_execution(self, monkeypatch):
+        """NR-4: When SP_MCP_STRICT_AUDIT=1 and audit write fails, tool execution is blocked."""
+        from sp_mcp_server.mcp_factory import create_mcp_server
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("SP_MCP_STRICT_AUDIT", "1")
+        cfg = _make_config_with_cred(admin_id="mcp-svc-system")
+        admc = MagicMock()
+        admc.config = cfg
+        admc.execute.return_value = (
+            "Session Security: Strict\nTransport Method: TLS 1.3\nSystem Privilege: Yes",
+            "",
+            0,
+        )
+
+        server = create_mcp_server(
+            server_name="test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+
+        handler = server.request_handlers[CallToolRequest]
+        admc.execute.return_value = ("", "Permission Denied", 1)
+
+        with patch.object(DeleteAdmin, "execute", return_value="Admin deleted") as mock_exec:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="delete_admin", arguments={"admin_name": "oldadmin"}),
+            )
+            res = asyncio.run(handler(req))
+            # Command should NOT be executed
+            assert not mock_exec.called
+            assert "Strict audit failure" in res.root.content[0].text or "Error" in res.root.content[0].text
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -58,9 +58,9 @@ flowchart TD
     E -->|mcp:read| F[privilege = any]
     E -->|mcp:system| G[privilege = system]
     E -->|mcp:storage| H[privilege = storage]
-    F & G & H --> I[inject request.state.mcp_privilege]
+    F & G & H --> I[inject request.state.mcp_privilege & current_audit_user]
     I --> J[SSE handler /mcp/sse]
-    J --> K[MCP Server]
+    J --> K[MCP Server (POL-4 / NR-1)]
 ```
 
 ### Token scope → privilege mapping
@@ -196,7 +196,7 @@ EOF
 
 | File | Change |
 |------|--------|
-| [`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | INT-2: New file — `OIDCBearerMiddleware`, `create_http_app()`, `SCOPE_PRIVILEGE_MAP` |
+| [`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | INT-2 / NR-1: `OIDCBearerMiddleware`, `create_http_app()`, `SCOPE_PRIVILEGE_MAP`, sets `current_audit_user` ContextVar |
 | [`src/sp_mcp_server/main.py`](../../src/sp_mcp_server/main.py) | INT-2: `--transport` and `--port` arguments; uvicorn HTTP startup branch; **RG-5**: TLS cert/key validation |
 | [`src/sp_mcp_server/commands/system/conn.py`](../../src/sp_mcp_server/commands/system/conn.py) | INT-3: `_resolve_secret()`, updated `DefineConnection`/`UpdateConnection` |
 | [`src/sp_mcp_server/cli_wrapper.py`](../../src/sp_mcp_server/cli_wrapper.py) | INT-3: `DsmAdmcWrapper.execute_silent()` |

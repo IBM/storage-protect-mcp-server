@@ -1,17 +1,17 @@
 # IBM Storage Protect MCP Server — Security Design Analysis
 
-**Revision**: 2025-07 (Post-Remediation Verification & Alignment)  
-**Cross-reference**: [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/traceability-matrix.md`](../traceability/traceability-matrix.md)  
-**Source analysed**: `src/sp_mcp_server/` (current working tree)  
+**Revision**: 2025-07 (Security Controls & Architecture Specification)
+**Cross-reference**: [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/traceability-matrix.md`](../traceability/traceability-matrix.md)
+**Source analysed**: `src/sp_mcp_server/` (current working tree)
 **IBM Storage Protect Reference**: [`docs/reference/b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf) (v8.1.26 Linux)
 
 ---
 
 ## Executive Summary
 
-This document presents a comprehensive security design analysis of the IBM Storage Protect (SP) MCP Server codebase (`src/sp_mcp_server`). All 20 initial security gaps and 7 subsequent residual gaps (RG-1 through RG-7) have been completely resolved and validated with automated regression test suites (56/56 passing tests).
+This document presents the security architecture and active design controls of the IBM Storage Protect (SP) MCP Server codebase (`src/sp_mcp_server`). The MCP Server establishes an enterprise-grade security perimeter across six primary domains: Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations, and Non-Repudiation & Forensics.
 
-The analysis and operational recommendations leverage native IBM Storage Protect Server security controls documented in the *Administrator's Reference for Linux* ([`b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf)), including:
+The architecture and operational configurations leverage native IBM Storage Protect Server security controls documented in the *Administrator's Reference for Linux* ([`b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf)), including:
 - **Administrative Privilege Classes** (`GRANT AUTHORITY` / `REVOKE AUTHORITY` for `SYSTEM`, `POLICY`, `STORAGE`, `OPERATOR`, and `ANY`)
 - **Session-Level Transport Security** (`SESSIONSECURITY=STRICT`, TLS 1.2/1.3)
 - **Two-Person Integrity & Command Approval** (`SET COMMANDAPPROVAL ON`, `APPROVE PENDINGCMD`, `REJECT PENDINGCMD`, `WITHDRAW PENDINGCMD`)
@@ -19,12 +19,13 @@ The analysis and operational recommendations leverage native IBM Storage Protect
 - **Server Audit & Activity Log Correlation** (`DEFINE SCRATCHPADENTRY`, `QUERY ACTLOG SEARCH=MCP_AUDIT`)
 - **Encrypted Credential Stashing** (`dsm.sys PASSWORDACCESS GENERATE`)
 - **Enterprise Identity Anchoring** (`UPDATE ADMIN AUTHENTICATION=LDAP`)
+- **Non-Repudiation & Forensic Audit Trail** (Dual-layer audit logging, request correlation, end-user subject binding, and fail-closed audit strategies)
 
 ---
 
 ## 1. Network Security
 
-### 1.1 Current State & Implemented Controls
+### 1.1 Implemented Controls & Specifications
 
 The MCP server connects to IBM Storage Protect via the `dsmadmc` CLI over TCP (default port 1500). Communications and remote access are secured via the following mechanisms:
 
@@ -78,7 +79,7 @@ To maintain compliance with the MCP server network security controls, configure 
 
 ## 2. Identity & Credentials Management
 
-### 2.1 Current State & Implemented Controls
+### 2.1 Implemented Controls & Specifications
 
 1. **Privilege-Tiered Service Accounts (CRED-1)**:
    - [`config.ServerConfig`](../../src/sp_mcp_server/config.py:33) maintains an isolated `credentials` map indexed by SP privilege class: `system`, `policy`, `storage`, `operator`, and `readonly` (`any`).
@@ -144,7 +145,7 @@ To maintain compliance with the MCP server network security controls, configure 
 
 ## 3. Access Management
 
-### 3.1 Current State & Implemented Controls
+### 3.1 Implemented Controls & Specifications
 
 1. **Privilege-Gated Tool Registration (ACC-1, ACC-2)**:
    - Every tool command derives from [`BaseCommand`](../../src/sp_mcp_server/commands/base.py:15), [`BaseOfflineCommand`](../../src/sp_mcp_server/commands/base.py:147), or [`BaseServermonCommand`](../../src/sp_mcp_server/commands/base.py:200), specifying its required privilege (`system`, `policy`, `storage`, `operator`, `any`).
@@ -182,7 +183,7 @@ To maintain compliance with the MCP server network security controls, configure 
 
 ## 4. Policy Management
 
-### 4.1 Current State & Implemented Controls
+### 4.1 Implemented Controls & Specifications
 
 1. **Command Approval Lifecycle (POL-1)**:
    - Destructive operations protected by IBM Storage Protect's command approval feature are integrated via [`commands/operations/approval.py`](../../src/sp_mcp_server/commands/operations/approval.py):
@@ -199,7 +200,7 @@ To maintain compliance with the MCP server network security controls, configure 
 
 4. **Activity Log Correlation & Audit Trail (POL-4)**:
    - Before executing write operations (`system`, `policy`, `storage`, `operator`), [`handle_call_tool()`](../../src/sp_mcp_server/mcp_factory.py:361) records an audit entry to the SP Activity Log using `DEFINE SCRATCHPADENTRY`:
-     `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT tool=<name> priv=<priv> corr=<uuid>"`
+     `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<user_id> tool=<name> priv=<priv> corr=<uuid>"`
    - If writing the audit record fails, the failure is immediately logged at `ERROR` level (`SECURITY [POL-4 / RG-4]`) with correlation metadata for SIEM detection.
 
 ### 4.2 IBM Storage Protect Native Controls & Recommendations
@@ -239,13 +240,13 @@ To maintain compliance with the MCP server network security controls, configure 
 
 ## 5. Secure Integrations
 
-### 5.1 Current State & Implemented Controls
+### 5.1 Implemented Controls & Specifications
 
 1. **OAuth 2.1 / OIDC Bearer Token Authentication (INT-2)**:
    - When deployed over HTTP SSE (`--transport http`), [`http_server.OIDCBearerMiddleware`](../../src/sp_mcp_server/http_server.py:43) validates JWT access tokens against identity provider JWKS endpoints (`SP_OIDC_ISSUER`).
    - Token scopes (`mcp:read`, `mcp:operator`, `mcp:storage`, `mcp:policy`, `mcp:system`) map directly to server privilege tiers.
 
-2. **Transport Layer Security Enforcement for HTTP**:
+2. **Transport Layer Security Enforcement for HTTP (RG-5)**:
    - [`main.py`](../../src/sp_mcp_server/main.py:104) validates certificate and key file presence (`SP_TLS_CERT`, `SP_TLS_KEY`) when `--transport http` is selected.
    - Startup fails with `sys.exit(1)` unless `SP_MCP_ALLOW_HTTP_PLAINTEXT=1` is explicitly set for local non-production testing.
 
@@ -306,7 +307,85 @@ flowchart TD
 
 ---
 
-## 7. Comprehensive Control & Reference Matrix
+## 7. Non-Repudiation & Forensic Auditability Analysis
+
+Non-repudiation ensures that a party to an action or communication cannot deny the authenticity of their signature on a document or the sending of a message that they originated. In the context of the IBM Storage Protect MCP Server, non-repudiation requires the ability to prove with cryptographic or high-integrity forensic assurance:
+1. **Who** initiated the operation (the human end-user, service principal, or automated agent).
+2. **What** specific tool, parameters, and downstream SP command were requested and executed.
+3. **When** the operation was received, dispatched, and completed (accurate UTC timestamps).
+4. **Where** the request originated (client IP, HTTP transport context, target SP server instance) and where the effects landed.
+5. **Outcome** of the operation (success, SP return code, stderr/stdout, error details).
+
+### 7.1 Implemented Non-Repudiation Architecture & Dual-Layer Audit Model
+
+The codebase implements an enterprise dual-layer logging and forensic tracking model binding human identities to backend SP activity records:
+
+```
++---------------------------------------------------------------------------------------------------+
+| 1. MCP Server Local Log (/var/log/ibm-sp-mcp-server/mcp-server.log via RotatingFileHandler)       |
+|    - Standardized ISO 8601 UTC Timestamp: '%Y-%m-%dT%H:%M:%SZ' (NR-5)                            |
+|    - Source module & line number: [%(filename)s:%(lineno)d]                                       |
+|    - Authenticated Subject / User Context: current_audit_user (NR-1)                              |
+|    - Tool name, privilege tier, and generated 12-char hex correlation ID (corr=<uuid>)            |
+|    - Outgoing dsmadmc CLI command string (unmasked for non-sensitive commands)                    |
+|    - Command return codes, output lengths, and stderr details                                     |
+|    - In HTTP transport: OIDC authenticated subject ('sub') injected into async context            |
++---------------------------------------------------------------------------------------------------+
+                                                  |
+                         (Bidirectional Correlation ID: 'corr=<uuid>')
+                                                  |
+                                                  v
++---------------------------------------------------------------------------------------------------+
+| 2. IBM Storage Protect Activity Log (ACTLOG via DEFINE SCRATCHPADENTRY MCP_AUDIT)                 |
+|    - Server-side timestamp & message sequence number (ANR2017I / ANR0406I)                        |
+|    - Associated SP administrator ID executing the dsmadmc session                                 |
+|    - Scratchpad description payload: "MCP_AUDIT user=<sub_or_id> tool=<name> priv=<p> corr=<id>"  |
+|    - Queryable via: QUERY ACTLOG SEARCH=MCP_AUDIT or SEARCH=corr=<id>                             |
+|    - Native server retention via SET SCRATCHPADRETENTION and ACTLOG retention settings            |
+|    - Strict Audit Mode: SP_MCP_STRICT_AUDIT=1 enforces fail-closed execution (NR-4)              |
++---------------------------------------------------------------------------------------------------+
+```
+
+#### Forensic Dimensions Evaluation ("Who, What, When, Where, Outcome")
+
+| Forensic Dimension | Implemented Mechanism | Source File & Lines | Forensic Capability & Status |
+|:---|:---|:---|:---|
+| **Who** (Identity) | **HTTP/SSE Mode**: `OIDCBearerMiddleware` extracts `sub` claim and binds it to `current_audit_user` ContextVar.<br>**Audit Payload**: `handle_call_tool()` reads `current_audit_user` (or `SP_MCP_USER`/`local`) and writes `user=<user_id>` into SP `DEFINE SCRATCHPADENTRY`. | [`http_server.py:144`](../../src/sp_mcp_server/http_server.py:144)<br>[`mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py:16)<br>[`mcp_factory.py:380`](../../src/sp_mcp_server/mcp_factory.py:380) | ✅ **Full Identity Binding (NR-1)**: End-user identity is irrevocably bound to the SP ACTLOG scratchpad entry, eliminating shared service account ambiguity. |
+| **What** (Action & Arguments) | MCP tool name, required privilege, user identity, and CLI command string logged in `mcp-server.log`. Write operations emit `MCP_AUDIT user=<id> tool=<name> priv=<priv> corr=<id>` to SP ACTLOG. Sensitive commands execute via `execute_silent()`. | [`mcp_factory.py:380-395`](../../src/sp_mcp_server/mcp_factory.py:380-395)<br>[`cli_wrapper.py:74`](../../src/sp_mcp_server/cli_wrapper.py:74)<br>[`cli_wrapper.py:153`](../../src/sp_mcp_server/cli_wrapper.py:153) | ✅ **Strong**: Complete tool name, arguments, and downstream command strings are logged locally, with correlation markers in ACTLOG. |
+| **When** (Time) | Local log formatted with standardized ISO 8601 UTC timestamp format (`%Y-%m-%dT%H:%M:%SZ`) using `time.gmtime`. SP server records microsecond timestamps on ACTLOG messages. | [`mcp_factory.py:38-42`](../../src/sp_mcp_server/mcp_factory.py:38-42) | ✅ **Standardized UTC (NR-5)**: Timezone ambiguity and skew eliminated across multi-region server correlations. |
+| **Where** (Source & Target) | Hostname/IP in `config.ServerConfig`. Remote execution logs SSH targets. Process PID and file/line logged in `mcp-server.log`. HTTP client remote IP available in ASGI scope. | [`config.py:33`](../../src/sp_mcp_server/config.py:33)<br>[`cli_wrapper.py:220`](../../src/sp_mcp_server/cli_wrapper.py:220) | ✅ **Good**: Target SP server instance, client transport, and host context are recorded. |
+| **Outcome** (Result & Code) | Return code, execution duration/timeout, stdout length, and stderr error messages logged in `mcp-server.log`. In strict mode (`SP_MCP_STRICT_AUDIT=1`), audit write failures abort execution immediately. | [`mcp_factory.py:397-425`](../../src/sp_mcp_server/mcp_factory.py:397-425)<br>[`cli_wrapper.py:97-110`](../../src/sp_mcp_server/cli_wrapper.py:97-110) | ✅ **Fail-Closed Audit Option (NR-4)**: Comprehensive diagnostics with optional strict non-repudiation enforcement. |
+
+---
+
+### 7.2 Storage Protect Native Controls & Forensic Runbooks
+
+To operationalize high-assurance non-repudiation on the IBM Storage Protect Server:
+
+- **Configure Scratchpad Entry Retention (90 Days Minimum)**:
+  ```
+  SET SCRATCHPADRETENTION 90
+  ```
+  *Reference*: [`b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf) — `SET SCRATCHPADRETENTION`
+
+- **Configure Server Activity Log Retention & Event Logging**:
+  ```
+  SET ACTLOGRETENTION 90
+  ENABLE EVENTS FILE ALL
+  ENABLE EVENTS CONSOLE ALL
+  ```
+  *Reference*: [`b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf) — `SET ACTLOGRETENTION`, `ENABLE EVENTS`
+
+- **Correlate MCP Incident in Forensics**:
+  ```
+  QUERY ACTLOG SEARCH=MCP_AUDIT BEGINDATE=TODAY-30
+  QUERY ACTLOG SEARCH=corr=a3f8b2c19d44
+  QUERY ACTLOG SEARCH=user=admin@example.com
+  ```
+
+---
+
+## 8. Comprehensive Control & Reference Matrix
 
 The following table summarizes all implemented controls and their alignment with IBM Storage Protect Server capabilities:
 
@@ -324,5 +403,6 @@ The following table summarizes all implemented controls and their alignment with
 | **Password Complexity** | `commands.base._validate_password_policy()` checks length | `QUERY OPTION MINPWLENGTH`, `SET MINPWLENGTH` | **Active** | b_srv_admin_ref_linux.pdf (`SET MINPWLENGTH`) |
 | **Account Lockout** | `mcp_factory._check_lockout_policy()` validates signon limit | `SET INVALIDPWLIMIT <n>` | **Active** | b_srv_admin_ref_linux.pdf (`SET INVALIDPWLIMIT`) |
 | **Audit Attribution** | `mcp_factory.handle_call_tool()` writes `DEFINE SCRATCHPADENTRY` | `QUERY ACTLOG SEARCH=MCP_AUDIT` | **Active** | b_srv_admin_ref_linux.pdf (`DEFINE SCRATCHPADENTRY`) |
+| **Non-Repudiation & Forensics** | Dual-layer logging, identity binding (`user=<id>`), UTC timestamps, strict fail-closed audit mode | `SET SCRATCHPADRETENTION`, `SET ACTLOGRETENTION` | **Active** (NR-1 to NR-5) | b_srv_admin_ref_linux.pdf (`SET SCRATCHPADRETENTION`) |
 | **API Authentication** | `http_server.OIDCBearerMiddleware` validates JWT bearer tokens | OAuth 2.1 / OIDC standard | **Active** | RFC 9068 / OIDC Core |
 | **Identity Federation** | Service accounts support directory authentication | `UPDATE ADMIN AUTHENTICATION=LDAP` | **Active** | b_srv_admin_ref_linux.pdf (`UPDATE ADMIN`) |
