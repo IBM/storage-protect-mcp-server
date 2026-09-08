@@ -7,6 +7,9 @@ class DefineClientOptSet(BaseCommand):
         return "define_client_opt_set"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Defines a **Client Option Set** in SP. This profile contains a set of rules (like include/exclude filters) that can be applied to Nodes.\n"
@@ -39,6 +42,9 @@ class DefineClientOpt(BaseCommand):
     def name(self) -> str:
         return "define_client_opt"
     
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -80,6 +86,9 @@ class UpdateClientOptSet(BaseCommand):
     def name(self) -> str:
         return "update_client_opt_set"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates the description of a **Client Option Set**.\n"
@@ -108,6 +117,9 @@ class UpdateClientOpt(BaseCommand):
     @property
     def name(self) -> str:
         return "update_client_opt"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -142,6 +154,9 @@ class UpdateProfile(BaseCommand):
     def name(self) -> str:
         return "update_profile"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates a **Profile** description. Profiles are used to subscribing to configuration info.\n"
@@ -171,6 +186,9 @@ class DeleteClientOptSet(BaseCommand):
     def name(self) -> str:
         return "delete_client_opt_set"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Client Option Set**.\n"
@@ -195,6 +213,9 @@ class DeleteClientOpt(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_client_opt"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -227,6 +248,9 @@ class QueryClientOptionSet(BaseCommand):
     def name(self) -> str:
         return "query_client_option_set"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

@@ -67,3 +67,11 @@ Thumbs.db
 .env
 .env.*
 
+
+# IBM SP dsmadmc client config — never commit populated/deployed files
+# The template (config/dsm.sys.template) IS tracked; the deployed file is not.
+config/dsm.sys
+config/*.kdb
+config/*.sth
+config/*.crl
+config/*.arm

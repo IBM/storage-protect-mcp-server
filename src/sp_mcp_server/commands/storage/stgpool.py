@@ -7,6 +7,9 @@ class DefineStoragePool(BaseCommand):
         return "define_storage_pool"
 
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a new **Storage Pool** (also referred to as a Container for certain pool types). This is a named resource consisting of multiple storage units (volumes) where backup data is stored.\n"
@@ -69,6 +72,9 @@ class DefineStoragePoolDirectory(BaseCommand):
         return "define_storage_pool_directory"
     
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Adds a filesystem directory to a **Container Storage Pool** (Storage Pool Directory) for deduplicated data storage.\n"
@@ -99,6 +105,9 @@ class UpdateStorageTarget(BaseCommand):
     @property
     def name(self) -> str:
         return "update_storage_target"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -139,6 +148,9 @@ class UpdateStoragePool(BaseCommand):
     def name(self) -> str:
         return "update_storage_pool"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Update a storage pool.\n"
@@ -177,6 +189,9 @@ class DeleteStorageTarget(BaseCommand):
     def name(self) -> str:
         return "delete_storage_target"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Removes a Storage Pool. This deletes the pool definition.\n"
@@ -203,6 +218,9 @@ class DeleteStoragePool(BaseCommand):
     def name(self) -> str:
         return "delete_storage_pool"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Storage Pool**. Ensure the pool is empty before deleting.\n"
@@ -228,6 +246,9 @@ class QueryStorageContainer(BaseCommand):
     def name(self) -> str:
         return "query_storage_container"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -276,6 +297,9 @@ class QueryContainerDirectory(BaseCommand):
         return "query_container_directory"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query directories used for storage by directory-container storage pools.\n\n"
@@ -311,6 +335,9 @@ class DeleteStoragePoolDirectory(BaseCommand):
         return "delete_storage_pool_directory"
 
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Delete a directory from a directory-container storage pool.\n\n"
@@ -341,6 +368,9 @@ class QueryOccupancy(BaseCommand):
     def name(self) -> str:
         return "query_occupancy"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

@@ -7,6 +7,9 @@ class DefineDataMover(BaseCommand):
         return "define_data_mover"
         
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Data Mover** in IBM Storage Protect. Used for NDMP backup operations with NAS file servers.\n"
@@ -106,6 +109,9 @@ class UpdateDataMover(BaseCommand):
         return "update_data_mover"
     
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates a **Data Mover** configuration in IBM Storage Protect.\n"
@@ -191,6 +197,9 @@ class DeleteDataMover(BaseCommand):
     def name(self) -> str:
         return "delete_data_mover"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Data Mover** definition.\n"
@@ -217,6 +226,9 @@ class QueryDataMover(BaseCommand):
     def name(self) -> str:
         return "query_data_mover"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

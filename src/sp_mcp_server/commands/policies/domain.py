@@ -7,6 +7,9 @@ class DefinePolicyDomain(BaseCommand):
         return "define_policy_domain"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Defines a new **Policy Domain** (SLA). a logical grouping of clients with similar backup requirements.\n"
@@ -39,6 +42,9 @@ class UpdatePolicyDomain(BaseCommand):
     def name(self) -> str:
         return "update_policy_domain"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates the description of an existing **Policy Domain** (SLA).\n"
@@ -67,6 +73,9 @@ class UpdateObjectDomain(BaseCommand):
     @property
     def name(self) -> str:
         return "update_object_domain"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -97,6 +106,9 @@ class DeletePolicyDomain(BaseCommand):
     def name(self) -> str:
         return "delete_policy_domain"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Policy Domain** (SLA). Use carefully as it can impact all assigned clients.\n"
@@ -122,6 +134,9 @@ class QueryPolicyGroup(BaseCommand):
     def name(self) -> str:
         return "query_policy_group"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -158,6 +173,9 @@ class QueryLegalHold(BaseCommand):
         return "query_legal_hold"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query active legal holds prevents deletion of data regardless of retention rules.\n\n"
@@ -188,6 +206,9 @@ class QueryLegalHoldLog(BaseCommand):
     def name(self) -> str:
         return "query_legal_hold_log"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

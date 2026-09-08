@@ -7,6 +7,9 @@ class DefinePolicySet(BaseCommand):
         return "define_policy_set"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Defines a **Policy Set** within a domain. Contains a collection of management classes that can be activated together.\n"
@@ -41,6 +44,9 @@ class UpdatePolicySet(BaseCommand):
     def name(self) -> str:
         return "update_policy_set"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates an existing **Policy Set** description.\n"
@@ -73,6 +79,9 @@ class ActivatePolicySet(BaseCommand):
     def name(self) -> str:
         return "activate_policy_set"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Activates a **Policy Set**. This makes the policy set the effective policy for the domain, applying retention and management rules.\n"
@@ -99,6 +108,9 @@ class ValidatePolicySet(BaseCommand):
     @property
     def name(self) -> str:
         return "validate_policy_set"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -127,6 +139,9 @@ class DeletePolicySet(BaseCommand):
     def name(self) -> str:
         return "delete_policy_set"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Policy Set**.\n"
@@ -154,6 +169,9 @@ class QueryPolicySet(BaseCommand):
     def name(self) -> str:
         return "query_policy_set"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

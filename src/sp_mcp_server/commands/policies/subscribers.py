@@ -7,6 +7,9 @@ class QuerySubscriber(BaseCommand):
         return "query_subscriber"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Display information about subscribers and their profile subscriptions.\n\n"
@@ -43,6 +46,9 @@ class QuerySubscription(BaseCommand):
     def name(self) -> str:
         return "query_subscription"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

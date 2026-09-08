@@ -7,6 +7,9 @@ class DefineNodeGroup(BaseCommand):
         return "define_node_group"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Defines a **Node Group** in SP. Groups allow you to manage multiple Nodes collectively.\n"
@@ -41,6 +44,9 @@ class DefineNodeGroupMember(BaseCommand):
         return "define_node_group_member"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Adds a **Node** to a **Node Group**.\n"
@@ -72,6 +78,9 @@ class UpdateNodeGroup(BaseCommand):
     def name(self) -> str:
         return "update_node_group"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates an existing **Node Group**.\n"
@@ -102,6 +111,9 @@ class RemoveClientFromGroup(BaseCommand):
     def name(self) -> str:
         return "remove_client_from_group"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Removes a **Node** from a **Node Group**.\n"
@@ -129,6 +141,9 @@ class DeleteNodeGroup(BaseCommand):
     def name(self) -> str:
         return "delete_node_group"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Node Group**.\n"
@@ -154,6 +169,9 @@ class QueryClientGroup(BaseCommand):
     def name(self) -> str:
         return "query_client_group"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

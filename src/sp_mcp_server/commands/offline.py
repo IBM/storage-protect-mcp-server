@@ -7,6 +7,9 @@ class QueryOfflineDBSpace(BaseOfflineCommand):
         return "query_offline_db_space"
 
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "Displays **Catalog** (Database) storage space information strictly in offline mode. The Catalog tracks all system metadata.\n"
@@ -33,6 +36,9 @@ class QueryOfflineLog(BaseOfflineCommand):
     def name(self) -> str:
         return "query_offline_log"
 
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (

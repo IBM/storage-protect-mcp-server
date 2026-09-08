@@ -1,15 +1,17 @@
 import asyncio
 import sys
 import logging
+from dotenv import load_dotenv
+from .config import check_env_file_permissions
 from .mcp_factory import create_mcp_server, run_server
 from .server_groups import (
-from dotenv import load_dotenv
+    ISP_SYSTEM_ADMIN, ISP_SYSTEM_CONFIG,
+)
 
+# ── CRED-3: check .env permissions before any secrets are loaded ──────────────
+check_env_file_permissions()
 # Load environment variables from .env file
 load_dotenv()
-
-    ISP_SYSTEM_BASIC, ISP_ADMIN, ISP_SCRIPTS, ISP_DIAG
-)
 
 # Configure logging
 logger = logging.getLogger("ibm-sp-system")
@@ -18,7 +20,7 @@ async def main():
     logger.info("Starting ISP System Server...")
     
     # Combine all system-related commands
-    all_system_commands = ISP_SYSTEM_BASIC + ISP_ADMIN + ISP_SCRIPTS + ISP_DIAG
+    all_system_commands = ISP_SYSTEM_ADMIN + ISP_SYSTEM_CONFIG
     
     server = create_mcp_server("ibm-sp-system", all_system_commands)
     await run_server(server)

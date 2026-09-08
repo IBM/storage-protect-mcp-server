@@ -7,6 +7,9 @@ class RunServerMon(BaseServermonCommand):
         return "run_servermon"
     
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Runs the **Server Diagnostic Tool** (Servermon). This utility collects comprehensive system performance metrics, configuration data, and environment details for troubleshooting.\n"

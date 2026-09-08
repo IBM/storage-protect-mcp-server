@@ -6,6 +6,9 @@ class DefineSpaceTrigger(BaseCommand):
     def name(self) -> str:
         return "define_space_trigger"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Define a **Space Trigger** for a storage pool. Automatically expands the pool when space runs low.\n"
@@ -41,6 +44,9 @@ class UpdateSpaceTrigger(BaseCommand):
     @property
     def name(self) -> str:
         return "update_space_trigger"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -78,6 +84,9 @@ class DeleteSpaceTrigger(BaseCommand):
     def name(self) -> str:
         return "delete_space_trigger"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Space Trigger** from a storage pool.\n"
@@ -105,6 +114,9 @@ class DefineStatusThreshold(BaseCommand):
     @property
     def name(self) -> str:
         return "define_status_threshold"
+    @property
+    def required_privilege(self) -> str:
+        return "operator"
     @property
     def description(self) -> str:
         return (
@@ -146,6 +158,9 @@ class UpdateStatusThreshold(BaseCommand):
     def name(self) -> str:
         return "update_status_threshold"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Updates a **Status Threshold** definition for system monitoring.\n"
@@ -178,6 +193,9 @@ class DeleteStatusThreshold(BaseCommand):
     def name(self) -> str:
         return "delete_status_threshold"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Status Threshold** definition.\n"
@@ -202,6 +220,9 @@ class DefineStorageRule(BaseCommand):
     @property
     def name(self) -> str:
         return "define_storage_rule"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -239,6 +260,9 @@ class UpdateStorageRule(BaseCommand):
     def name(self) -> str:
         return "update_storage_rule"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Updates a **Storage Rule** (e.g., enable/disable).\n"
@@ -268,6 +292,9 @@ class DeleteStorageRule(BaseCommand):
     def name(self) -> str:
         return "delete_storage_rule"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Storage Rule**.\n"
@@ -292,6 +319,9 @@ class DefineSubRule(BaseCommand):
     @property
     def name(self) -> str:
         return "define_sub_rule"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -324,6 +354,9 @@ class UpdateSubRule(BaseCommand):
     def name(self) -> str:
         return "update_sub_rule"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates a **Subrule** within a storage rule.\n"
@@ -355,6 +388,9 @@ class DeleteSubRule(BaseCommand):
     def name(self) -> str:
         return "delete_sub_rule"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Subrule** from a storage rule.\n"
@@ -382,6 +418,9 @@ class QueryStorageRule(BaseCommand):
     def name(self) -> str:
         return "query_storage_rule"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

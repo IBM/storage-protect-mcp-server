@@ -18,6 +18,9 @@ class DefineScratchPadEntry(BaseCommand):
     def name(self) -> str:
         return "define_scratch_pad_entry"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Define a **Scratch Pad Entry** (administrator note) for a specific object or purpose.\n"
@@ -44,6 +47,9 @@ class UpdateScratchPadEntry(BaseCommand):
     @property
     def name(self) -> str:
         return "update_scratch_pad_entry"
+    @property
+    def required_privilege(self) -> str:
+        return "operator"
     @property
     def description(self) -> str:
         return (
@@ -72,6 +78,9 @@ class DeleteScratchPadEntry(BaseCommand):
     def name(self) -> str:
         return "delete_scratch_pad_entry"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Scratch Pad** entry.\n"
@@ -97,6 +106,9 @@ class QueryActivityLog(BaseCommand):
     def name(self) -> str:
         return "query_activity_log"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -158,6 +170,9 @@ class QueryPendingCommand(BaseCommand):
         return "query_pending_command"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Display a list of administrative commands that are pending approval.\n\n"
@@ -184,6 +199,9 @@ class QueryProfile(BaseCommand):
     def name(self) -> str:
         return "query_profile"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -223,6 +241,9 @@ class QueryUserRequest(BaseCommand):
         return "query_user_request"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query one or more pending manual mount requests (e.g., for tape).\n\n"
@@ -253,6 +274,9 @@ class UpdateCollocationGroup(BaseCommand):
     @property
     def name(self) -> str:
         return "update_collocation_group"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (

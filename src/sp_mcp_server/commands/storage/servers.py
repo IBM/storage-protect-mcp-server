@@ -7,6 +7,9 @@ class QueryTargetServer(BaseCommand):
         return "query_target_server"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query the definitions of other backup servers known to this system.\n\n"
@@ -38,6 +41,9 @@ class QueryServerGroup(BaseCommand):
     def name(self) -> str:
         return "query_server_group"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

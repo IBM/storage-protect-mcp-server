@@ -7,6 +7,9 @@ class DefineCopyGroup(BaseCommand):
         return "define_copy_group"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Copy Group** that specifies exact retention parameters (e.g., how many versions to keep).\n"
@@ -55,6 +58,9 @@ class UpdateCopyGroup(BaseCommand):
     def name(self) -> str:
         return "update_copy_group"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates a **Copy Group** to modify retention parameters.\n"
@@ -98,6 +104,9 @@ class DeleteCopyGroup(BaseCommand):
     def name(self) -> str:
         return "delete_copy_group"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Copy Group**. This removes specific retention settings from a management class.\n"
@@ -128,6 +137,9 @@ class QueryRetentionRuleConfig(BaseCommand):
     def name(self) -> str:
         return "query_retention_rule_config"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -172,6 +184,9 @@ class QuerySubRule(BaseCommand):
         return "query_subrule"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Display configuration for sub-file level frequency rules.\n\n"
@@ -209,6 +224,9 @@ class QueryRetentionRule(BaseCommand):
         return "query_retention_rule"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query Copy Groups that define how long retention sets are kept.\n\n"
@@ -240,6 +258,9 @@ class QueryRetentionSet(BaseCommand):
     def name(self) -> str:
         return "query_retention_set"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -273,6 +294,9 @@ class QueryRetentionSetContents(BaseCommand):
     def name(self) -> str:
         return "query_retention_set_contents"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

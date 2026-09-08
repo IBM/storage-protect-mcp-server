@@ -6,6 +6,9 @@ class MoveDataContainer(BaseCommand):
     def name(self) -> str:
         return "move_data_container"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Moves data from one volume to another within the same or different storage pool. Useful for emptying volumes.\n"
@@ -34,6 +37,9 @@ class MoveClientData(BaseCommand):
     @property
     def name(self) -> str:
         return "move_client_data"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -64,6 +70,9 @@ class MigrateStorageTarget(BaseCommand):
     def name(self) -> str:
         return "migrate_storage_target"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "Manually triggers data migration for a storage pool. Moves data from higher-level pool (disk) to lower-level pool (tape/cloud).\n"
@@ -92,6 +101,9 @@ class ReclaimStorageSpace(BaseCommand):
     @property
     def name(self) -> str:
         return "reclaim_storage_space"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -122,6 +134,9 @@ class QueryBackgroundJob(BaseCommand):
     def name(self) -> str:
         return "query_background_job"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -156,6 +171,9 @@ class QueryExportJob(BaseCommand):
         return "query_export_job"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query for active or suspended export operations (data movement out of system).\n\n"
@@ -189,6 +207,9 @@ class QueryMaintenanceJob(BaseCommand):
         return "query_maintenance_job"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query a specific maintenance job.\n\n"
@@ -220,6 +241,9 @@ class QueryRestoreJob(BaseCommand):
     def name(self) -> str:
         return "query_restore_job"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

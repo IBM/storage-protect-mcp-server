@@ -7,6 +7,9 @@ class QueryActiveSession(BaseCommand):
         return "query_active_session"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Display information about currently active administrative and node sessions.\n\n"
@@ -40,6 +43,9 @@ class QueryDataOccupancy(BaseCommand):
     def name(self) -> str:
         return "query_data_occupancy"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -80,6 +86,9 @@ class QueryAuditDataOccupancy(BaseCommand):
         return "query_audit_data_occupancy"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query calculated total storage utilization for a node for audit purposes.\n\n"
@@ -113,6 +122,9 @@ class QueryClientBackupVolume(BaseCommand):
     def name(self) -> str:
         return "query_client_backup_volume"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -152,6 +164,9 @@ class QueryVirtualMountPoint(BaseCommand):
         return "query_virtual_mount_point"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query virtual mount point mappings for nodes, which map local paths to virtual filespaces.\n\n"
@@ -188,6 +203,9 @@ class QueryClientDataPlacement(BaseCommand):
     def name(self) -> str:
         return "query_client_data_placement"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

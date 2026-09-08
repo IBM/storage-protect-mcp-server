@@ -6,6 +6,9 @@ class RegisterNode(BaseCommand):
     def name(self) -> str:
         return "register_node"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Registers a new **Node** (also commonly called a Client) in SP for data protection. A Node represents a source system (like a server, laptop, or VM) that contains data to be backed up.\n"
@@ -29,13 +32,27 @@ class RegisterNode(BaseCommand):
             "required": ["client_name", "password", "domain_name"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = f"REGISTER NODE {arguments['client_name']} {arguments['password']} DOMAIN={arguments['domain_name']}"
-        return self._execute_simple_query(cmd)
+        password = arguments.get("password", "")
+
+        # POL-2: pre-validate password length against server's MINPWLENGTH policy
+        pw_error = self._validate_password_policy(password)
+        if pw_error:
+            return f"Error registering node: {pw_error}"
+
+        cmd = (
+            f"REGISTER NODE {arguments['client_name']} {password} "
+            f"DOMAIN={arguments['domain_name']}"
+        )
+        # RG-3: password is embedded in the command string — use silent execution
+        return self._execute_silent_query(cmd)
 
 class RenameClient(BaseCommand):
     @property
     def name(self) -> str:
         return "rename_client"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -64,6 +81,9 @@ class SetClientLock(BaseCommand):
     @property
     def name(self) -> str:
         return "set_client_lock"
+    @property
+    def required_privilege(self) -> str:
+        return "operator"
     @property
     def description(self) -> str:
         return (
@@ -94,6 +114,9 @@ class UpdateNode(BaseCommand):
     def name(self) -> str:
         return "update_node"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates properties of an existing **Node** (Client).\n"
@@ -121,17 +144,29 @@ class UpdateNode(BaseCommand):
             "required": ["node_name"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
+        # POL-2: if a new password is supplied, validate it before sending
+        if arguments.get("password"):
+            pw_error = self._validate_password_policy(arguments["password"])
+            if pw_error:
+                return f"Error updating node: {pw_error}"
+
         cmd = f"UPDATE NODE {arguments['node_name']}"
         if arguments.get("password"): cmd += f" {arguments['password']}"
         if arguments.get("domain_name"): cmd += f" DOMAIN={arguments['domain_name']}"
         if arguments.get("contact"): cmd += f" CONTACT=\"{arguments['contact']}\""
         if arguments.get("cloptset"): cmd += f" CLOPTSET={arguments['cloptset']}"
+        # RG-3: password may be in the command string — use silent execution
+        if arguments.get("password"):
+            return self._execute_silent_query(cmd)
         return self._execute_simple_query(cmd)
 
 class DeleteClient(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_client"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -159,6 +194,9 @@ class DeleteNode(BaseCommand):
     def name(self) -> str:
         return "delete_node"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Client** (Node). Similar to delete_client but using 'node' terminology.\n"
@@ -184,6 +222,9 @@ class QueryClient(BaseCommand):
     def name(self) -> str:
         return "query_client"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -228,6 +269,9 @@ class QueryProxyClient(BaseCommand):
         return "query_proxy_client"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query relationships where one node (agent) is authorized to act on behalf of another (target).\n\n"
@@ -263,6 +307,9 @@ class QueryReplicationClient(BaseCommand):
     def name(self) -> str:
         return "query_replication_client"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -305,6 +352,9 @@ class QueryPVUEstimate(BaseCommand):
     def name(self) -> str:
         return "query_pvu_estimate"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

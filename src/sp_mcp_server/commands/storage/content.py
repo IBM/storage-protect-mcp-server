@@ -7,6 +7,9 @@ class QueryDamagedData(BaseCommand):
         return "query_damaged_data"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query data marked as damaged within storage containers.\n\n"
@@ -50,6 +53,9 @@ class QueryContainerCleanup(BaseCommand):
         return "query_container_cleanup"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query the cleanup process status for source storage containers.\n\n"
@@ -80,6 +86,9 @@ class QueryContainerConversion(BaseCommand):
         return "query_container_conversion"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query the status of storage container conversion (e.g., changing format).\n\n"
@@ -105,6 +114,9 @@ class QueryDeduplicationStats(BaseCommand):
     def name(self) -> str:
         return "query_deduplication_stats"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -139,6 +151,9 @@ class QueryExtentUpdates(BaseCommand):
         return "query_extent_updates"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query information about updated data extents in the system.\n\n"
@@ -167,6 +182,9 @@ class QueryShreddingStatus(BaseCommand):
     def name(self) -> str:
         return "query_shredding_status"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

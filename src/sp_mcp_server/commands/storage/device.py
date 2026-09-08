@@ -7,6 +7,9 @@ class DefineDeviceClass(BaseCommand):
         return "define_device_class"
 
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Device Class** in SP. Specifies the hardware type and management policies for storage devices.\n"
@@ -45,6 +48,9 @@ class UpdateDeviceClass(BaseCommand):
     def name(self) -> str:
         return "update_device_class"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates a **Device Class** definition.\n"
@@ -75,6 +81,9 @@ class DeleteDeviceClass(BaseCommand):
     def name(self) -> str:
         return "delete_device_class"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Device Class** definition.\n"
@@ -101,6 +110,9 @@ class QueryDeviceType(BaseCommand):
     def name(self) -> str:
         return "query_device_type"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -134,6 +146,9 @@ class QuerySanDevices(BaseCommand):
     def name(self) -> str:
         return "query_san_devices"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

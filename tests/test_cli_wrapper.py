@@ -107,8 +107,10 @@ def test_servermon_execute_runs_command(monkeypatch):
     assert stdout == "servermon ok"
     assert stderr == ""
     assert code == 0
-    assert captured["args"][0:3] == ["su", "-", "tsminst1"]
-    assert "/bin/servermon -standard" in captured["args"][4]
+    # ACC-4: sudo -u <user> -- used instead of su - <user> -c <cmd>
+    assert captured["args"][0:4] == ["sudo", "-u", "tsminst1", "--"]
+    assert captured["args"][4] == "/bin/servermon"
+    assert "-standard" in captured["args"]
 
 
 def test_servermon_returns_busy_error_when_no_existing_output(monkeypatch):

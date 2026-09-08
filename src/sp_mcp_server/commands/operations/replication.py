@@ -7,6 +7,9 @@ class QueryProtectionStatus(BaseCommand):
         return "query_protection_status"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query the status of storage pool protection operations (e.g., replication to target).\n\n"
@@ -32,6 +35,9 @@ class QueryReplicationFailures(BaseCommand):
     def name(self) -> str:
         return "query_replication_failures"
     
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -59,6 +65,9 @@ class QueryReplicationStatus(BaseCommand):
     def name(self) -> str:
         return "query_replication_status"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -98,6 +107,9 @@ class QueryReplicationRule(BaseCommand):
         return "query_replication_rule"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query rules governing replication behavior.\n\n"
@@ -128,6 +140,9 @@ class QueryReplicationServer(BaseCommand):
     def name(self) -> str:
         return "query_replication_server"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

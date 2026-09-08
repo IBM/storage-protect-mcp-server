@@ -1,7 +1,7 @@
 import asyncio
 import sys
 import logging
-from dotenv import load_dotenv
+from .config import secure_startup
 from .mcp_factory import create_mcp_server, run_server
 from .server_groups import (
     ISP_LOGS, ISP_JOBS, ISP_ALERTS,
@@ -10,8 +10,8 @@ from .server_groups import (
     ISP_REPLICATION, ISP_RULES, ISP_MISC_OPS
 )
 
-# Load environment variables from .env file
-load_dotenv()
+# CRED-3 / RG-2: permission check + dotenv in one atomic call
+secure_startup()
 
 # Configure logging
 logger = logging.getLogger("ibm-sp-mcp-server-ops")

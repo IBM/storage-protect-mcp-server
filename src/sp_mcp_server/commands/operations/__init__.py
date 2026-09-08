@@ -81,6 +81,11 @@ from .rules import (
     DeleteSubRule,
     QueryStorageRule
 )
+from .approval import (
+    ApprovePendingCmd,
+    RejectPendingCmd,
+    WithdrawPendingCmd,
+)
 from .schedules import (
     DefineClientAction
 )

@@ -6,6 +6,9 @@ class ProtectCatalog(BaseCommand):
     def name(self) -> str:
         return "protect_catalog"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Initiates a backup of the system metadata catalog (Database). The catalog is critical for recovering the system.\n"
@@ -34,6 +37,9 @@ class RestoreCatalog(BaseCommand):
     @property
     def name(self) -> str:
         return "restore_catalog"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (

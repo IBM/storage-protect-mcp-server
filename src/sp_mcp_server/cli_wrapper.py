@@ -9,299 +9,395 @@ from .config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
+
 class DsmAdmcWrapper:
-    def __init__(self, config: ServerConfig):
+    """Wrapper around dsmadmc for online IBM SP administration commands."""
+
+    # Default privilege tier used when the wrapper is not given a specific one.
+    DEFAULT_PRIVILEGE = "system"
+
+    def __init__(self, config: ServerConfig, privilege: str = DEFAULT_PRIVILEGE):
         self.config = config
-        self.executable = shutil.which("dsmadmc")
-        
-        if not self.executable:
-            # Fallback for common paths or assume it's in path even if which fails
-            self.executable = "dsmadmc"
+        self._privilege = privilege
+        self.executable = shutil.which("dsmadmc") or "dsmadmc"
 
     def execute(self, command: str) -> Tuple[str, str, int]:
         """
         Execute a dsmadmc command.
+
+        CRED-1: Selects the narrowest available credential that satisfies
+                self._privilege.
+        CRED-2: Omits -PA= from the subprocess arguments when
+                SP_MCP_USE_PASSWORD_STASH=1, so the password never appears
+                in /proc/<pid>/cmdline.  The password is then supplied by
+                the encrypted PASSWORDACCESS=GENERATE stash in dsm.sys.
+
         Returns (stdout, stderr, return_code).
         """
         if not self.config.validate():
-            return "", "Configuration incomplete. Missing required environment variables.", 1
+            return "", "Configuration incomplete. Missing required credentials.", 1
 
-        # Base arguments for non-interactive authentication and formatting
+        cred = self.config.credential_for(self._privilege)
+        if cred is None:
+            return (
+                "",
+                f"No credential available for privilege tier '{self._privilege}'. "
+                "Configure SP_ADMIN_ID_SYSTEM (or another tier) in the environment.",
+                1,
+            )
+
+        # ── CRED-2: password stash mode ───────────────────────────────────────
+        use_stash = os.environ.get("SP_MCP_USE_PASSWORD_STASH", "0") == "1"
+
         args = [
             self.executable,
             "-NOConfirm",
             "-DATAONLY=YES",
-            f"-ID={self.config.admin_id}",
-            f"-PA={self.config.admin_password}",
-            "-COMMAdelimited" # Use comma delimited for easier parsing
+            f"-ID={cred.admin_id}",
+            "-COMMAdelimited",
         ]
-        
-        # Note: We don't add -SE parameter here because dsmadmc will use
-        # the default server from dsm.sys or environment. The TCPSERVERADDRESS
-        # environment variable is used by the TSM client to find the server.
 
-        # Append the actual query command
-        # command should be something like "QUERY SESSION" or "QUERY STATUS"
-        # We split it into parts to pass as separate arguments
+        if not use_stash:
+            # Legacy mode: pass password on the CLI.
+            # WARNING: this exposes the password via /proc/<pid>/cmdline.
+            # Set SP_MCP_USE_PASSWORD_STASH=1 once dsm.sys stash is populated.
+            args.insert(4, f"-PA={cred.admin_password}")
+            logger.debug(
+                "CRED-2: Password passed via -PA= argument. "
+                "Set SP_MCP_USE_PASSWORD_STASH=1 and configure "
+                "PASSWORDACCESS=GENERATE in dsm.sys to eliminate this exposure."
+            )
+
         cmd_parts = command.split()
         args.extend(cmd_parts)
 
+        logger.info("Executing dsmadmc command: %s", command)
+        logger.debug(
+            "Full command args: %s [credentials hidden] %s",
+            " ".join(a for a in args if not a.startswith("-PA=")),
+            " ".join(cmd_parts),
+        )
+
         try:
-            logger.info(f"Executing dsmadmc command: {command}")
-            logger.debug(f"Full command args: {' '.join(args[:6])} [credentials hidden] {' '.join(cmd_parts)}")
-            
-            # Run the command with a timeout to prevent MCP protocol timeout
-            # IBM Storage Protect commands should complete within 30 seconds
-            # If they don't, we'll get a TimeoutExpired exception with partial output
             try:
                 process = subprocess.run(
                     args,
                     capture_output=True,
                     text=True,
-                    check=False,  # We don't want to raise on non-zero exit, we handle it
-                    timeout=30  # 30 second timeout to fail fast with actual errors
+                    check=False,
+                    timeout=30,
                 )
             except subprocess.TimeoutExpired as e:
-                # Command timed out - return partial output if available
                 stdout = e.stdout.decode() if e.stdout else ""
                 stderr = e.stderr.decode() if e.stderr else ""
-                logger.error(f"Command timed out after 30 seconds")
-                logger.error(f"Partial stdout: {stdout}")
-                logger.error(f"Partial stderr: {stderr}")
+                logger.error("Command timed out after 30 seconds")
                 return stdout, stderr or "Command execution timed out after 30 seconds", 124
-            
-            # Log execution results
+
             if process.returncode == 0:
-                logger.info(f"Command executed successfully. Output length: {len(process.stdout)} chars")
-                logger.debug(f"Command output: {process.stdout[:500]}...")  # Log first 500 chars
+                logger.info(
+                    "Command executed successfully. Output length: %d chars",
+                    len(process.stdout),
+                )
+                logger.debug("Command output: %s...", process.stdout[:500])
             else:
-                logger.error(f"Command failed with return code {process.returncode}")
-                logger.error(f"Error output: {process.stderr}")
+                logger.error(
+                    "Command failed with return code %d", process.returncode
+                )
+                logger.error("Error output: %s", process.stderr)
                 if process.stdout:
-                    logger.debug(f"Stdout: {process.stdout}")
-            
+                    logger.debug("Stdout: %s", process.stdout)
+
             return process.stdout, process.stderr, process.returncode
-            
+
         except FileNotFoundError:
             logger.error("dsmadmc executable not found in PATH")
             return "", "dsmadmc executable not found. Please ensure it is in your PATH.", 127
         except Exception as e:
-            logger.exception(f"Unexpected error executing command: {e}")
+            logger.exception("Unexpected error executing command: %s", e)
             return "", str(e), 1
+
+    def execute_silent(self, command: str) -> tuple:
+        """
+        INT-3: Execute a dsmadmc command without logging the command string.
+        Use for commands that contain resolved secrets (e.g. DEFINE CONNECTION).
+        The command string is never written to any log handler.
+
+        Returns (stdout, stderr, return_code).
+        """
+        if not self.config.validate():
+            return "", "Configuration incomplete. Missing required credentials.", 1
+
+        cred = self.config.credential_for(self._privilege)
+        if cred is None:
+            return (
+                "",
+                f"No credential available for privilege tier '{self._privilege}'.",
+                1,
+            )
+
+        use_stash = os.environ.get("SP_MCP_USE_PASSWORD_STASH", "0") == "1"
+
+        args = [
+            self.executable,
+            "-NOConfirm",
+            "-DATAONLY=YES",
+            f"-ID={cred.admin_id}",
+            "-COMMAdelimited",
+        ]
+        if not use_stash:
+            args.insert(4, f"-PA={cred.admin_password}")
+
+        args.extend(command.split())
+
+        # Intentionally NO logging of the command string — it may contain credentials
+        logger.info(
+            "Executing silent dsmadmc command (content not logged for security)"
+        )
+        try:
+            try:
+                process = subprocess.run(
+                    args,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as e:
+                stdout = e.stdout.decode() if e.stdout else ""
+                stderr = e.stderr.decode() if e.stderr else ""
+                return stdout, stderr or "Command execution timed out after 30 seconds", 124
+
+            return process.stdout, process.stderr, process.returncode
+
+        except FileNotFoundError:
+            return "", "dsmadmc executable not found in PATH.", 127
+        except Exception as e:
+            return "", str(e), 1
+
 
 class DsmServWrapper:
     """Wrapper for the offline dsmserv server utility."""
+
     def __init__(self, config: ServerConfig):
         self.config = config
         self.executable = self.config.dsmserv_path or shutil.which("dsmserv") or "dsmserv"
 
     def execute(self, command: str) -> Tuple[str, str, int]:
         """
-        Execute a dsmserv command as the TSM instance user.
+        Execute a dsmserv command as the SP instance user.
+
+        ACC-4: Uses 'sudo -u <user> --' instead of 'su - <user> -c <cmd>'
+               to avoid shell-escaping pitfalls and align with the sudoers
+               allowlist model.
+
         Returns (stdout, stderr, return_code).
         """
-        # dsmserv commands must be run as the TSM instance user (e.g., tsmsvr01)
-        # to properly load shared libraries like libdb2.so.1
-        
         args = [self.executable]
-        
-        # If instance directory is configured, add -i flag
+
         if self.config.server_instance_dir:
             args.extend(["-i", self.config.server_instance_dir])
-            
+
         cmd_parts = command.split()
         args.extend(cmd_parts)
-        
+
         try:
-            # If instance user is configured, run command as that user
             if self.config.instance_user:
-                # Use 'su' to switch to the instance user
-                # Format: su - <user> -c "<command>"
-                full_command = " ".join(args)
-                su_args = ["su", "-", self.config.instance_user, "-c", full_command]
-                logger.info(f"Executing offline command as {self.config.instance_user}: {full_command}")
-                try:
-                    process = subprocess.run(
-                        su_args,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=30
-                    )
-                except subprocess.TimeoutExpired as e:
-                    stdout = e.stdout.decode() if e.stdout else ""
-                    stderr = e.stderr.decode() if e.stderr else ""
-                    logger.error(f"Offline command timed out after 30 seconds")
-                    return stdout, stderr or "Command execution timed out after 30 seconds", 124
+                # ACC-4: sudo -u <user> -- <binary> [args...]
+                # Requires a sudoers entry such as:
+                #   mcp-runner ALL=(tsmsvr01) NOPASSWD: /usr/bin/dsmserv
+                sudo_args = ["sudo", "-u", self.config.instance_user, "--"] + args
+                logger.info(
+                    "Executing offline command as %s (sudo): %s",
+                    self.config.instance_user,
+                    " ".join(args),
+                )
+                run_args = sudo_args
             else:
-                # Fallback to running as current user (may fail with library errors)
-                logger.warning("SP_INSTANCE_USER not configured. Running dsmserv as current user may fail.")
-                logger.info(f"Executing offline command: {' '.join(args)}")
-                try:
-                    process = subprocess.run(
-                        args,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=30
-                    )
-                except subprocess.TimeoutExpired as e:
-                    stdout = e.stdout.decode() if e.stdout else ""
-                    stderr = e.stderr.decode() if e.stderr else ""
-                    logger.error(f"Offline command timed out after 30 seconds")
-                    return stdout, stderr or "Command execution timed out after 30 seconds", 124
-            
+                logger.warning(
+                    "SP_INSTANCE_USER not configured. "
+                    "Running dsmserv as current user may fail."
+                )
+                logger.info("Executing offline command: %s", " ".join(args))
+                run_args = args
+
+            try:
+                process = subprocess.run(
+                    run_args,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as e:
+                stdout = e.stdout.decode() if e.stdout else ""
+                stderr = e.stderr.decode() if e.stderr else ""
+                logger.error("Offline command timed out after 30 seconds")
+                return stdout, stderr or "Command execution timed out after 30 seconds", 124
+
             return process.stdout, process.stderr, process.returncode
+
         except FileNotFoundError:
-            return "", f"dsmserv executable not found at '{self.executable}'. Please configure SP_DSMSERV_PATH.", 127
+            return (
+                "",
+                f"dsmserv executable not found at '{self.executable}'. "
+                "Please configure SP_DSMSERV_PATH.",
+                127,
+            )
         except Exception as e:
             return "", str(e), 1
 
+
 class ServermonWrapper:
     """Wrapper for the servermon diagnostic utility."""
+
     def __init__(self, config: ServerConfig):
         self.config = config
-        self.executable = self.config.servermon_path or shutil.which("servermon") or "servermon"
+        self.executable = (
+            self.config.servermon_path or shutil.which("servermon") or "servermon"
+        )
 
     def _check_servermon_running(self) -> bool:
-        """
-        Check if another servermon instance is currently running.
-        Returns True if servermon is running, False otherwise.
-        """
+        """Return True when another servermon process is already running."""
         try:
             result = subprocess.run(
                 ["pgrep", "-f", "servermon"],
                 capture_output=True,
                 text=True,
-                check=False
+                check=False,
             )
             if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split('\n')
-                logger.info(f"Found {len(pids)} servermon process(es) running: {', '.join(pids)}")
+                pids = result.stdout.strip().split("\n")
+                logger.info(
+                    "Found %d servermon process(es) running: %s",
+                    len(pids),
+                    ", ".join(pids),
+                )
                 return True
             return False
         except Exception as e:
-            logger.warning(f"Error checking for servermon processes: {e}")
+            logger.warning("Error checking for servermon processes: %s", e)
             return False
 
     def _get_latest_servermon_output(self) -> Optional[str]:
         """
-        Get the most recent servermon output from the XML directory.
+        Return the most recent servermon XML output, or None if not found.
         Servermon creates timestamped subdirectories (e.g., .20260306T1159-SERVER1)
         with XML files inside a results/ subdirectory.
-        Returns the content if found, None otherwise.
         """
-        if not self.config.servermon_xml_dir or not os.path.isdir(self.config.servermon_xml_dir):
+        if not self.config.servermon_xml_dir or not os.path.isdir(
+            self.config.servermon_xml_dir
+        ):
             logger.info("Servermon XML directory not configured or doesn't exist")
             return None
-        
+
         try:
-            # Look for timestamped subdirectories (pattern: .YYYYMMDDTHHMM-SERVERNAME)
             subdir_pattern = os.path.join(self.config.servermon_xml_dir, ".*-*")
-            subdirs = glob.glob(subdir_pattern)
-            
-            # Filter to only directories
-            subdirs = [d for d in subdirs if os.path.isdir(d)]
-            
+            subdirs = [
+                d for d in glob.glob(subdir_pattern) if os.path.isdir(d)
+            ]
             if not subdirs:
-                logger.info(f"No timestamped subdirectories found in {self.config.servermon_xml_dir}")
+                logger.info(
+                    "No timestamped subdirectories found in %s",
+                    self.config.servermon_xml_dir,
+                )
                 return None
-            
-            # Get the most recent subdirectory
+
             latest_subdir = max(subdirs, key=os.path.getmtime)
-            logger.info(f"Found latest servermon subdirectory: {latest_subdir}")
-            
-            # Look for XML files in the results subdirectory
+            logger.info("Found latest servermon subdirectory: %s", latest_subdir)
+
             results_dir = os.path.join(latest_subdir, "results")
             if not os.path.isdir(results_dir):
-                logger.info(f"No results directory found in {latest_subdir}")
+                logger.info("No results directory found in %s", latest_subdir)
                 return None
-            
-            xml_pattern = os.path.join(results_dir, "*.xml")
-            xml_files = glob.glob(xml_pattern)
-            
+
+            xml_files = glob.glob(os.path.join(results_dir, "*.xml"))
             if not xml_files:
-                logger.info(f"No XML files found in {results_dir}")
+                logger.info("No XML files found in %s", results_dir)
                 return None
-            
-            # Get the most recent XML file
+
             latest_file = max(xml_files, key=os.path.getmtime)
-            logger.info(f"Found latest servermon XML output: {latest_file}")
-            
-            # Read and return the content
-            with open(latest_file, 'r', encoding='utf-8', errors='ignore') as f:
+            logger.info("Found latest servermon XML output: %s", latest_file)
+
+            with open(latest_file, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            
+
             return f"Using existing servermon diagnostics from: {latest_file}\n\n{content}"
-            
+
         except Exception as e:
-            logger.warning(f"Error reading servermon output files: {e}")
+            logger.warning("Error reading servermon output files: %s", e)
             return None
 
     def execute(self, args: List[str]) -> Tuple[str, str, int]:
         """
-        Execute a servermon command as the TSM instance user.
-        If another servermon is running, attempts to use existing output instead.
+        Execute a servermon command as the SP instance user.
+
+        ACC-4: Uses 'sudo -u <user> --' instead of 'su - <user> -c <cmd>'.
+        If another servermon is running, attempts to return the latest cached output.
+
         Returns (stdout, stderr, return_code).
         """
-        # Check if servermon is already running
         if self._check_servermon_running():
-            logger.info("Another servermon instance is running. Attempting to use existing diagnostics...")
-            
-            # Try to get existing output
+            logger.info(
+                "Another servermon instance is running. "
+                "Attempting to use existing diagnostics..."
+            )
             existing_output = self._get_latest_servermon_output()
             if existing_output:
                 logger.info("Successfully retrieved existing servermon diagnostics")
                 return existing_output, "", 0
-            
-            # If no existing output found, return error
             logger.warning("No existing servermon output found")
-            return "", "Another servermon instance is currently running and no recent diagnostics are available. Please wait for the running instance to complete or check the servermon XML directory.", 1
-        
-        # No running instance, proceed with execution
+            return (
+                "",
+                "Another servermon instance is currently running and no recent "
+                "diagnostics are available. Please wait for the running instance "
+                "to complete or check the servermon XML directory.",
+                1,
+            )
+
         full_cmd = [self.executable] + args
-        
+
         try:
-            # If instance user is configured, run command as that user
             if self.config.instance_user:
-                # Use 'su' to switch to the instance user
-                # Format: su - <user> -c "<command>"
-                command_str = " ".join(full_cmd)
-                su_args = ["su", "-", self.config.instance_user, "-c", command_str]
-                logger.info(f"Executing servermon command as {self.config.instance_user}: {command_str}")
-                try:
-                    process = subprocess.run(
-                        su_args,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=30
-                    )
-                except subprocess.TimeoutExpired as e:
-                    stdout = e.stdout.decode() if e.stdout else ""
-                    stderr = e.stderr.decode() if e.stderr else ""
-                    logger.error(f"Servermon command timed out after 30 seconds")
-                    return stdout, stderr or "Command execution timed out after 30 seconds", 124
+                # ACC-4: sudo -u <user> -- <binary> [args...]
+                # Requires a sudoers entry such as:
+                #   mcp-runner ALL=(tsmsvr01) NOPASSWD: /usr/bin/servermon
+                sudo_args = ["sudo", "-u", self.config.instance_user, "--"] + full_cmd
+                logger.info(
+                    "Executing servermon command as %s (sudo): %s",
+                    self.config.instance_user,
+                    " ".join(full_cmd),
+                )
+                run_args = sudo_args
             else:
-                # Fallback to running as current user (may fail with library errors)
-                logger.warning("SP_INSTANCE_USER not configured. Running servermon as current user may fail.")
-                logger.info(f"Executing servermon command: {' '.join(full_cmd)}")
-                try:
-                    process = subprocess.run(
-                        full_cmd,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=30
-                    )
-                except subprocess.TimeoutExpired as e:
-                    stdout = e.stdout.decode() if e.stdout else ""
-                    stderr = e.stderr.decode() if e.stderr else ""
-                    logger.error(f"Servermon command timed out after 30 seconds")
-                    return stdout, stderr or "Command execution timed out after 30 seconds", 124
-            
+                logger.warning(
+                    "SP_INSTANCE_USER not configured. "
+                    "Running servermon as current user may fail."
+                )
+                logger.info("Executing servermon command: %s", " ".join(full_cmd))
+                run_args = full_cmd
+
+            try:
+                process = subprocess.run(
+                    run_args,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as e:
+                stdout = e.stdout.decode() if e.stdout else ""
+                stderr = e.stderr.decode() if e.stderr else ""
+                logger.error("Servermon command timed out after 30 seconds")
+                return stdout, stderr or "Command execution timed out after 30 seconds", 124
+
             return process.stdout, process.stderr, process.returncode
+
         except FileNotFoundError:
-            return "", f"servermon executable not found at '{self.executable}'. Please configure SP_SERVERMON_PATH.", 127
+            return (
+                "",
+                f"servermon executable not found at '{self.executable}'. "
+                "Please configure SP_SERVERMON_PATH.",
+                127,
+            )
         except Exception as e:
             return "", str(e), 1

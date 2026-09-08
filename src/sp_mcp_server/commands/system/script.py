@@ -7,6 +7,9 @@ class DefineScript(BaseCommand):
         return "define_script"
     
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a new **Automation Script** based on a file's content.\n\n"
@@ -42,6 +45,9 @@ class UpdateScript(BaseCommand):
     def name(self) -> str:
         return "update_script"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates an existing **Automation Script**.\n\n"
@@ -74,6 +80,9 @@ class DeleteScript(BaseCommand):
     def name(self) -> str:
         return "delete_script"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes an **Automation Script**.\n\n"
@@ -100,6 +109,9 @@ class QueryAutomationScript(BaseCommand):
     def name(self) -> str:
         return "query_automation_script"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

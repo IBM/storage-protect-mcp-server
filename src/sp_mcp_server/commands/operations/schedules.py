@@ -6,6 +6,9 @@ class DefineClientAction(BaseCommand):
     def name(self) -> str:
         return "define_client_action"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Define a **Node Action** (one-time schedule). Forces a node operation (e.g., backup) immediately or shortly.\n"
