@@ -1,6 +1,7 @@
 # Implementation: Secure Integrations
 
 * **Domain**: Secure Integrations
+* **Status**: Implemented baseline — token validation, TLS startup checks, and call-time scope authorization are present; broader middleware integration coverage remains follow-up work
 * **Analysis reference**: [`docs/analysis/security-design-analysis.md § 5 & § 7`](../analysis/security-design-analysis.md)
 * **Gaps addressed**: SI1, SI2, SI3, SI4, RG-5, NR-1
 * **Files changed**: `src/sp_mcp_server/config.py`, `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/commands/system/conn.py`, `src/sp_mcp_server/main.py`, new `src/sp_mcp_server/http_server.py`
@@ -9,12 +10,14 @@
 
 ## Overview
 
-Four changes close all secure integration gaps:
+The integration implementation is partial. Token validation, TLS startup checks, secret references, and keyring resolution exist; OIDC scope enforcement in the MCP call path remains open.
+
+The integration areas are implemented to different levels:
 
 | ID | Change | Gaps closed |
 |----|--------|-------------|
 | INT-1 | LDAP authentication for SP service accounts | SI1 |
-| INT-2 | OAuth 2.1 / OIDC bearer-token HTTP transport (opt-in) + user context propagation | SI2, NR-1 |
+| INT-2 | OAuth 2.1 / OIDC bearer-token HTTP transport (opt-in) + user context propagation; scope-to-tool enforcement pending | Token validation implemented; authorization open |
 | INT-3 | Secrets-reference pattern for cloud credentials in `define_connection` | SI3 |
 | INT-4 | `keyring` integration in `config.py` as primary credential source | SI4 |
 | RG-5 | TLS cert/key presence enforced in `main.py` before HTTP transport binds | RG-5 |
@@ -154,7 +157,7 @@ UPDATE ADMIN mcp-svc-readonly AUTHENTICATION=LOCAL SYNCLDAPDELETE=NO
 
 ### Background
 
-The MCP 2025 specification defines OAuth 2.1 / OIDC-based authorization for MCP servers running over HTTP transport. The stdio transport used today is inherently local and has no client authentication. The HTTP/SSE transport (already available via the `sse` optional dependency in `pyproject.toml`) supports bearer tokens, enabling per-client identity and scope-based tool access.
+The MCP 2025 specification defines OAuth 2.1 / OIDC-based authorization for MCP servers running over HTTP transport. The implementation validates bearer tokens, derives a scope privilege, propagates it through request context, and enforces it at MCP tool invocation. Middleware integration coverage and live IdP verification remain follow-up work.
 
 This change adds an **opt-in HTTP server mode** that enforces OIDC bearer token validation. The existing stdio mode is unchanged and remains the default for local deployments.
 
@@ -202,8 +205,8 @@ SCOPE_PRIVILEGE_MAP = {
 
 class OIDCBearerMiddleware(BaseHTTPMiddleware):
     """
-    Validates OIDC bearer tokens on every incoming HTTP request.
-    Injects the resolved privilege tier into request.state.mcp_privilege.
+    Validates OIDC bearer tokens, injects the resolved privilege tier into
+    request.state.mcp_privilege, and propagates it to the MCP call-time gate.
     """
 
     def __init__(self, app, issuer: str, audience: str):
@@ -396,6 +399,8 @@ async def main():
 | `SP_TLS_CERT` | Recommended | Path to TLS certificate for HTTPS |
 
 ### Token scope → privilege mapping
+
+The mapping below is enforced by the MCP call-time authorization gate. Add end-to-end middleware tests before marking transport integration fully verified.
 
 When an MCP client requests a token from the IdP, it requests one or more of these scopes:
 

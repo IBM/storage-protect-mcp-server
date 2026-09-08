@@ -198,6 +198,13 @@ SP_SERVER_INSTANCE_DIR=/home/tsminst1
 SP_SERVERMON_PATH=/opt/tivoli/tsm/server/bin/servermon
 SP_SERVERMON_XML_DIR=/home/tsminst1/srvmon
 
+# ── Dynamic & Delegated User Authentication (optional) ──────────
+# Set to 'dynamic' to challenge interactive chat users for credentials
+# at runtime instead of relying solely on static service accounts.
+SP_MCP_AUTH_MODE=service_account   # 'service_account' (default) or 'dynamic'
+SP_MCP_SESSION_TTL=900             # Inactivity lease timeout in seconds (default: 15m)
+SP_MCP_SESSION_MAX_TTL=3600        # Hard session cap in seconds (default: 60m)
+
 # ── HTTP transport with OIDC (optional — INT-2) ─────────────────
 # SP_OIDC_ISSUER=https://login.microsoftonline.com/<tenant>/v2.0
 # SP_OIDC_AUDIENCE=sp-mcp-server
@@ -226,6 +233,10 @@ SP_SERVERMON_XML_DIR=/home/tsminst1/srvmon
 | `SP_MCP_USE_PASSWORD_STASH` | No (default `0`) | Both | `1` = omit `-PA=`; use `dsm.sys` stash |
 | `SP_MCP_ENV` | No | Both | Set to `production` to enforce RG-1 production guard |
 | `DSM_CONFIG` | No | Both | Full path to `dsm.sys` file |
+| `SP_MCP_AUTH_MODE` | No (default `service_account`) | Both | `service_account` (static) or `dynamic` (challenge-response) |
+| `SP_MCP_SESSION_TTL` | No (default `900`) | Both | Ephemeral session sliding timeout (seconds) |
+| `SP_MCP_SESSION_MAX_TTL` | No (default `3600`) | Both | Ephemeral session maximum hard lifetime (seconds) |
+| `SP_MCP_STRICT_AUDIT` | No (default `0`) | Both | `1` = fail-closed mode: abort tool if ACTLOG audit write fails |
 | `SP_INSTANCE_USER` | Offline cmds | **A only** | OS user for `dsmserv` / `servermon` |
 | `SP_DSMSERV_PATH` | Offline cmds | **A only** | Full path to `dsmserv` binary |
 | `SP_SERVER_INSTANCE_DIR` | Offline cmds | **A only** | SP server instance directory |

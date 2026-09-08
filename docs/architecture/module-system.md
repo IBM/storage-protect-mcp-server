@@ -30,6 +30,7 @@ graph LR
         LIC["RegisterLicense / QueryLicenseInfo"]
         MACH["DefineMachine / UpdateMachine / DeleteMachine"]
         APPR["ApprovePendingCmd / RejectPendingCmd / WithdrawPendingCmd / QueryPendingCommand"]
+        DYNAUTH["AuthenticateSession / LogoutSession (Dynamic Auth)"]
     end
 
     subgraph SystemConfig ["mcp-server-system-config (ISP_SYSTEM_CONFIG)"]
@@ -47,6 +48,8 @@ graph LR
 
 | MCP Tool Name | Command Class | Required Privilege | IBM Storage Protect Command | Description & Scope |
 | :--- | :--- | :---: | :--- | :--- |
+| `authenticate_session` | `AuthenticateSession` | `any` | `QUERY STATUS` / `QUERY ADMIN <admin>` (silent) | Authenticates an interactive user session dynamically with SP admin credentials; mints an ephemeral in-memory lease and binds `current_audit_user`. |
+| `logout_session` | `LogoutSession` | `any` | *(session manager only — no SP command)* | Explicitly revokes the current ephemeral session lease, zeros the in-memory credential, and clears `current_session_id` / `current_audit_user` context variables. |
 | `define_admin` | `DefineAdmin` | `system` | `REGISTER ADMIN <admin> <pwd> [CONTACT=...]` | Creates a new administrator account. Pre-validates password length against `MINPWLENGTH` and executes silently. |
 | `update_user` | `UpdateUser` | `system` | `UPDATE ADMIN <user> [PASSWORD=...] [CONTACT=...]` | Updates administrator account attributes. Uses silent execution if a new password is provided. |
 | `delete_admin` | `DeleteAdmin` | `system` | `REMOVE ADMIN <admin>` | Deletes an administrator account. |

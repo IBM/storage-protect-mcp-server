@@ -24,17 +24,29 @@ Typical use cases:
 
 ---
 
-## Privilege Tiers and Tool Access
+## Authentication Models & Privilege Tiers
 
-The MCP server automatically narrows the registered tool set based on the IBM SP privilege class of the configured service account. This happens at startup — tools that require a higher privilege than the configured account possesses are simply not registered and are invisible to MCP clients.
+### Authentication Models
+
+The MCP server supports two authentication operational models:
+
+1. **Static Tiered Service Accounts (`SP_MCP_AUTH_MODE=service_account`, default)**:
+   The server connects to IBM SP using pre-configured service accounts stored in `.env` (0600), system keyring, or password stash (`dsm.sys PASSWORDACCESS GENERATE`). Ideal for automated pipelines, background daemons, and dedicated single-tenant bots.
+
+2. **Dynamic Challenge-Response (`SP_MCP_AUTH_MODE=dynamic`)**:
+   Interactive chat users (e.g. Claude Desktop) are challenged for administrator credentials when invoking their first tool. The MCP server verifies credentials using zero-trace silent execution (`dsmadmc execute_silent`), issues an ephemeral sliding-window session lease (default: 15 minutes), and binds the user's verified identity into forensic audit logs.
+
+### Privilege Tiers and Tool Access
+
+The MCP server automatically narrows the registered tool set based on the IBM SP privilege class of the active account (either the configured service account or authenticated dynamic user):
 
 | Account | SP privilege class | Tools available |
 |---------|-------------------|----------------|
-| `mcp-svc-system` | System | All tools — full administrative scope |
-| `mcp-svc-policy` | Policy | Policy management + all read-only tools |
-| `mcp-svc-storage` | Storage | Storage management + all read-only tools |
-| `mcp-svc-operator` | Operator | Operations (sessions, media, jobs) + read-only tools |
-| `mcp-svc-readonly` | Any-admin (no class) | Read-only `QUERY` tools only |
+| `mcp-svc-system` / System Admin | System | All tools — full administrative scope |
+| `mcp-svc-policy` / Policy Admin | Policy | Policy management + all read-only tools |
+| `mcp-svc-storage` / Storage Admin | Storage | Storage management + all read-only tools |
+| `mcp-svc-operator` / Operator | Operator | Operations (sessions, media, jobs) + read-only tools |
+| `mcp-svc-readonly` / Unprivileged Admin | Any-admin (no class) | Read-only `QUERY` tools + `authenticate_session` |
 
 The `--mode` flag applies an additional filter on top of the privilege gate:
 
@@ -174,17 +186,19 @@ The MCP server handles credentials with several layered controls:
 
 3. **Password stash mode** — with `SP_MCP_USE_PASSWORD_STASH=1` in `.env` (after populating the `dsmadmc` stash), the `-PA=` argument is never passed to subprocess calls. Passwords do not appear in `/proc/<pid>/cmdline` or log files.
 
-4. **Silent execution for credential-bearing commands** — `REGISTER ADMIN`, `UPDATE ADMIN`, `REGISTER NODE`, and `UPDATE NODE` commands that embed a password string use a silent execution path that suppresses command logging entirely (RG-3).
+4. **Silent execution for credential-bearing commands** — `REGISTER ADMIN`, `UPDATE ADMIN`, `REGISTER NODE`, `UPDATE NODE`, and `authenticate_session` commands that embed passwords use a silent execution path that suppresses command logging entirely (RG-3 / CRED-2). Passwords are never written to disk or logs.
 
 ---
 
-## Audit Trail
+## Audit Trail & Non-Repudiation
 
-Every write operation (tools requiring `system`, `policy`, `storage`, or `operator` privilege) emits a correlation record to the IBM SP activity log before executing:
+Every write operation (tools requiring `system`, `policy`, `storage`, or `operator` privilege) emits a forensic correlation record to the IBM SP Activity Log before executing:
 
 ```
-DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT tool=delete_admin priv=system corr=a3f8b2c19d44"
+DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin_alice tool=delete_admin priv=system corr=a3f8b2c19d44"
 ```
+
+The record explicitly attributes the action to the authenticated user (`user=...`), captured from OIDC tokens (`sub`), dynamic authentication sessions, or the environment.
 
 The correlation ID appears in both `mcp-server.log` and the IBM SP `ACTLOG`. To cross-reference:
 
@@ -198,7 +212,7 @@ QUERY ACTLOG SEARCH=corr=a3f8b2c19d44
 
 > **Multi-server deployments:** Audit records are distributed across each server's own ACTLOG. Run `QUERY ACTLOG SEARCH=MCP_AUDIT` on **each SP server individually** — there is no aggregated cross-server view.
 
-If the audit write fails (permission issue, SP connectivity), an `ERROR` with marker `SECURITY [POL-4 / RG-4]` is written to `mcp-server.log`. The write operation proceeds — audit mode is advisory, not blocking.
+If the audit write fails (permission issue, SP connectivity), an `ERROR` with marker `SECURITY [POL-4 / RG-4]` is written to `mcp-server.log`. When strict audit enforcement is enabled (`SP_MCP_STRICT_AUDIT=1`), the server aborts the operation immediately (fail-closed mode NR-4).
 
 ---
 

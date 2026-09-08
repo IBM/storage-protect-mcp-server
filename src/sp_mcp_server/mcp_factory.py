@@ -15,10 +15,15 @@ from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 
 # NR-1: Context variable holding the authenticated end-user identity / subject
 current_audit_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_audit_user", default=None)
+current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_session_id", default=None)
+current_request_privilege: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_request_privilege", default=None)
 
+import json
+from .session import global_session_manager
 from .config import load_config
 from .cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
 from .commands.base import BaseCommand, BaseOfflineCommand, BaseServermonCommand, PRIVILEGE_TIERS
+from .cli_wrapper import current_execution_credentials
 
 # Configure logging with both file and stderr output
 def setup_logging():
@@ -26,7 +31,7 @@ def setup_logging():
     # Get log file path from environment or use default
     log_dir = os.environ.get("SP_MCP_LOG_DIR", "/var/log/ibm-sp-mcp-server")
     log_file = os.path.join(log_dir, "mcp-server.log")
-    
+
     # Create log directory if it doesn't exist
     try:
         os.makedirs(log_dir, exist_ok=True)
@@ -35,7 +40,7 @@ def setup_logging():
         log_dir = "/tmp/ibm-sp-mcp-server"
         log_file = os.path.join(log_dir, "mcp-server.log")
         os.makedirs(log_dir, exist_ok=True)
-    
+
     # Create formatters (NR-5: ISO 8601 UTC timestamping)
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
@@ -43,7 +48,7 @@ def setup_logging():
     )
     detailed_formatter.converter = time.gmtime
     simple_formatter = logging.Formatter('%(levelname)s: %(message)s')
-    
+
     # File handler with rotation (10MB max, keep 5 backups)
     file_handler = RotatingFileHandler(
         log_file,
@@ -53,22 +58,22 @@ def setup_logging():
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(detailed_formatter)
-    
+
     # Console handler (stderr) - less verbose for console
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(simple_formatter)
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    
+
     # Get our logger
     logger = logging.getLogger("ibm-sp-mcp-server")
     logger.info(f"Logging initialized. Log file: {log_file}")
-    
+
     return logger
 
 # Initialize logging
@@ -218,6 +223,63 @@ def _parse_sp_privilege(query_admin_stdout: str) -> str:
 
 # ── POL-4: privilege tiers that require audit trail correlation entries ────────
 _WRITE_PRIVILEGES: Set[str] = {"system", "policy", "storage", "operator"}
+
+
+def _privilege_satisfies(account_privilege: str, required_privilege: str) -> bool:
+    """Return whether an authenticated context may invoke a tool."""
+    return required_privilege in _PRIVILEGE_SATISFIES.get(account_privilege, {"any"})
+
+
+def _privilege_satisfies_for_session(session, required_privilege: str) -> bool:
+    return any(
+        _privilege_satisfies(privilege, required_privilege)
+        for privilege in session.privilege_classes
+    )
+
+
+def _check_session_target_server(session, config) -> Optional[str]:
+    """
+    DAUTH-7: Return an error message if the session's target_server does not
+    match the active server configuration, or None if the binding is valid.
+
+    If the session was created without a target_server (i.e. single-server
+    deployment), the check is skipped and None is returned.  Enforcement only
+    activates when the session carries an explicit target_server value —
+    protecting multi-server deployments from cross-server session reuse.
+    """
+    if not session.target_server:
+        # Single-server deployment or target_server not specified at login —
+        # no binding to enforce.
+        return None
+
+    config_address = getattr(config, "server_address", None)
+    if not config_address:
+        # No server address in config — cannot validate; log a warning and allow.
+        logger.warning(
+            "DAUTH-7: Session lease for user='%s' carries target_server='%s' "
+            "but no server_address is set in config. Binding check skipped.",
+            session.username,
+            session.target_server,
+        )
+        return None
+
+    if session.target_server != config_address:
+        logger.warning(
+            "SECURITY [DAUTH-7]: Cross-server session reuse attempt detected. "
+            "Session user='%s' was authenticated against target_server='%s' "
+            "but this MCP server is configured for server_address='%s'. "
+            "Request denied.",
+            session.username,
+            session.target_server,
+            config_address,
+        )
+        return (
+            f"Session was authenticated against server '{session.target_server}' "
+            f"but this MCP server manages '{config_address}'. "
+            "Please authenticate a new session against the correct server."
+        )
+
+    return None
 
 
 def _check_lockout_policy(admc_cli: DsmAdmcWrapper) -> None:
@@ -389,6 +451,56 @@ def create_mcp_server(
         cmd = commands[name]
         tool_privilege = getattr(cmd, "required_privilege", "any")
 
+        # ── Dynamic Auth Challenge Interceptor ──────────────────────────────
+        auth_mode = os.environ.get("SP_MCP_AUTH_MODE", "service_account").lower()
+        if auth_mode == "dynamic" and name != "authenticate_session":
+            active_sid = current_session_id.get() or (arguments and arguments.get("_session_id"))
+            session = global_session_manager.get_session(active_sid) if active_sid else None
+            if session is None:
+                logger.info(
+                    "Dynamic auth challenge triggered for tool='%s' (no active session)",
+                    name,
+                )
+                challenge_payload = {
+                    "is_error": True,
+                    "error_type": "AUTHENTICATION_REQUIRED",
+                    "message": "Authentication required. Please provide your IBM Storage Protect administrator credentials.",
+                    "challenge": {
+                        "server": getattr(config, "server_address", "default"),
+                        "required_fields": ["username", "password"],
+                        "supported_schemes": ["basic_delegated", "oidc_bearer"],
+                        "auth_tool": "authenticate_session",
+                    },
+                }
+                return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
+            else:
+                # Update user identity and execution context from active session.
+                current_audit_user.set(session.username)
+                if not _privilege_satisfies_for_session(session, tool_privilege):
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHORIZATION_DENIED",
+                        "message": "Authenticated session does not have the privilege required by this tool.",
+                    }))]
+                # ── DAUTH-7: reject cross-server session reuse ────────────────
+                target_err = _check_session_target_server(session, config)
+                if target_err:
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHORIZATION_DENIED",
+                        "message": target_err,
+                    }))]
+                current_execution_credentials.set((session.username, session.password))
+
+        # ── INT-2: enforce OIDC request privilege at call time ────────────────
+        request_privilege = current_request_privilege.get()
+        if request_privilege and not _privilege_satisfies(request_privilege, tool_privilege):
+            return [TextContent(type="text", text=json.dumps({
+                "is_error": True,
+                "error_type": "AUTHORIZATION_DENIED",
+                "message": "OIDC token does not have the privilege required by this tool.",
+            }))]
+
         # ── POL-4: emit attribution scratchpad entry for write operations ─────
         correlation_id = None
         if tool_privilege in _WRITE_PRIVILEGES:
@@ -452,6 +564,8 @@ def create_mcp_server(
         except Exception as e:
             logger.error("Error executing tool %s: %s", name, e)
             return [TextContent(type="text", text=f"Error: {str(e)}")]
+        finally:
+            current_execution_credentials.set(None)
 
     return server
 

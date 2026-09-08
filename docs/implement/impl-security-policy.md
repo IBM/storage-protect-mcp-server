@@ -9,7 +9,7 @@
 
 ## Overview
 
-Four changes close all policy management gaps:
+The policy implementation contains the controls described below. Independent verification remains pending until the declared dependencies are installed and the complete suite can be collected and run.
 
 | ID | Change | Gaps closed |
 |----|--------|-------------|

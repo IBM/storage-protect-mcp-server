@@ -1,7 +1,7 @@
 # Security Design: Secure Integrations
 
 * **Domain**: Secure Integrations
-* **Status**: Implemented (RG-5 closed)
+* **Status**: Implemented baseline — token validation and call-time scope authorization are present
 * **Implementation spec**: [`docs/implement/impl-security-integrations.md`](../implement/impl-security-integrations.md)
 * **Gaps closed**: SI1, SI2, SI3, SI4, RG-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
@@ -9,7 +9,7 @@
 
 ## Overview
 
-The original codebase stored all credentials as plain environment variables, had no HTTP client authentication, passed raw cloud credentials through the tool call payload, and never used the `keyring` dependency already declared in `pyproject.toml`. This domain closes all four integration security gaps.
+The integration work adds keyring-first credential resolution, secret references, OIDC bearer-token validation, HTTP TLS startup checks, and call-time enforcement of the mapped OIDC privilege.
 
 | Change | ID | Gaps closed |
 |--------|-----|-------------|
@@ -60,7 +60,7 @@ flowchart TD
     E -->|mcp:storage| H[privilege = storage]
     F & G & H --> I[inject request.state.mcp_privilege & current_audit_user]
     I --> J[SSE handler /mcp/sse]
-    J --> K[MCP Server (POL-4 / NR-1)]
+    J --> K[MCP Server call-time privilege gate]
 ```
 
 ### Token scope → privilege mapping

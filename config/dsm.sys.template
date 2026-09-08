@@ -1,69 +1,30 @@
-* dsm.sys.template — IBM Storage Protect dsmadmc client options
-* Template for the MCP Server deployment.
+* dsm.sys — IBM Storage Protect dsmadmc client options
+* Used by the MCP server's OS user (mcp-runner).
 *
-* Usage:
-*   1. Copy to /opt/sp-mcp-server/config/dsm.sys
-*   2. Replace placeholders:
-*        your-sp-server  → hostname or IP of the IBM SP server
-*        SP_SERVER_1     → a short label for this server (used with -SE= on dsmadmc CLI)
-*   3. Set permissions:  chmod 600 /opt/sp-mcp-server/config/dsm.sys
-*   4. Export the config path before starting the MCP server:
-*        export DSM_CONFIG=/opt/sp-mcp-server/config/dsm.sys
-*   5. Populate the password stash (one-time per account):
-*        dsmadmc -id=mcp-svc-readonly -pa=<password> -se=SP_SERVER_1 "QUERY STATUS"
-*      After this run dsmadmc reads the password from the encrypted stash
-*      automatically — no -PA= argument is needed.
+* Deployment steps:
+*   cp config/dsm.sys.template /opt/sp-mcp-server/config/dsm.sys
+*   sed -i "s/your-sp-server/${SP_SERVER_ADDRESS}/" /opt/sp-mcp-server/config/dsm.sys
+*   chmod 600 /opt/sp-mcp-server/config/dsm.sys
+*   echo "DSM_CONFIG=/opt/sp-mcp-server/config/dsm.sys" >> /opt/sp-mcp-server/.env
 *
-* NET-3 (impl-security-network.md): This file enforces SSL=Yes and
-*   SSLREQUIRED=Yes so that dsmadmc refuses to connect without TLS,
-*   independently of the SP account-level SESSIONSECURITY setting.
-*
-* See also: docs/implement/impl-security-network.md § NET-3
+* See: docs/implement/impl-security-network.md § NET-3
+*      docs/guides/install-guide.md § Part 6
 
 SERVERNAME          SP_SERVER_1
 
-* ── Connection ────────────────────────────────────────────────────────────
-* Replace 'your-sp-server' with the hostname or IP address of the IBM SP server.
+* ── Connection ────────────────────────────────
 TCPSERVERADDRESS    your-sp-server
 TCPPORT             1500
 COMMMETHOD          TCPIP
 
-* ── TLS (NET-3) ───────────────────────────────────────────────────────────
-* SSL=Yes : use TLS for session authentication (default from IBM SP v8.1.2+).
-*           Object data is sent over TCP unless SSL=Yes is set with the server
-*           configured to encrypt all data (see IBM SP documentation).
-* SSLREQUIRED=Yes : refuse the connection entirely if TLS negotiation fails.
-*           This prevents silent fallback to unencrypted TCP.
+* ── TLS ───────────────────────────────────────
+* SSL=Yes: use TLS for authentication only (default from v8.1.2+)
+* SSLREQUIRED=Yes: refuse to connect if TLS negotiation fails
 SSL                 Yes
 SSLREQUIRED         Yes
 
-* ── Password storage (CRED-2) ─────────────────────────────────────────────
-* PASSWORDACCESS GENERATE: dsmadmc stores the password in an OS-encrypted
-*   stash file after the first interactive login.  Subsequent invocations
-*   read the password from the stash — no -PA= argument is needed on the
-*   command line and the password is never visible in /proc/<pid>/cmdline.
-*
-* To populate the stash (run once per account):
-*   dsmadmc -id=<account> -pa=<password> -se=SP_SERVER_1 "QUERY STATUS"
-*
-* Once the stash is populated, set SP_MCP_USE_PASSWORD_STASH=1 in .env
-*   to enable stash-mode in the MCP server's DsmAdmcWrapper.
+* ── Password storage ──────────────────────────
+* PASSWORDACCESS GENERATE stores the password in an encrypted stash.
+* Run dsmadmc once interactively to populate the stash, then the
+* MCP server no longer needs -PA= on the command line.
 PASSWORDACCESS      GENERATE
-
-
-* ══════════════════════════════════════════════════════════════════════════
-* MULTI-SERVER DEPLOYMENTS
-* ══════════════════════════════════════════════════════════════════════════
-* For environments with more than one IBM SP server, add one SERVERNAME
-* stanza per server below.  Each stanza is independent; populate the stash
-* separately for each server/account combination.
-*
-* Example:
-*
-* SERVERNAME          SP_SERVER_2
-* TCPSERVERADDRESS    sp-server-02.example.com
-* TCPPORT             1500
-* COMMMETHOD          TCPIP
-* SSL                 Yes
-* SSLREQUIRED         Yes
-* PASSWORDACCESS      GENERATE

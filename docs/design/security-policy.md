@@ -1,7 +1,7 @@
 # Security Design: Policy Management
 
 * **Domain**: Policy Management & Non-Repudiation
-* **Status**: Implemented (RG-4, NR-1, NR-4, NR-5 closed)
+* **Status**: Implemented controls; independent audit verification remains pending
 * **Implementation spec**: [`docs/implement/impl-security-policy.md`](../implement/impl-security-policy.md)
 * **Gaps closed**: P1, P2, P3, P4, RG-4, NR-1, NR-2, NR-3, NR-4, NR-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
@@ -9,7 +9,7 @@
 
 ## Overview
 
-The original codebase had no mechanism to interact with IBM SP's Command Approval system (P1), no password pre-validation before issuing `REGISTER ADMIN`/`REGISTER NODE` (P2), no startup lockout check (P3), and no audit trail correlating MCP tool calls to IBM SP activity log entries (P4). This domain adds all four controls.
+The policy controls below are implemented in source, but their complete status depends on a dependency-complete test run and should not be reported as independently verified until that validation is available.
 
 | Change | ID | Gaps closed |
 |--------|-----|-------------|

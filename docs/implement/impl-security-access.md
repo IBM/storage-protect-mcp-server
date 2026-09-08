@@ -9,12 +9,14 @@
 
 ## Overview
 
-Four changes close all access management gaps:
+The static access-management controls are implemented, but dynamic-session and OIDC request authorization are not complete. Source remediation must add a call-time gate and negative tests before all access gaps can be considered closed.
+
+The implemented static controls are:
 
 | ID | Change | Gaps closed |
 |----|--------|-------------|
 | ACC-1 | Add `required_privilege` property to `BaseCommand`, `BaseOfflineCommand`, `BaseServermonCommand` | A1, A2 |
-| ACC-2 | Self-narrowing tool registration in `mcp_factory.py` based on SP privilege class | A1, A2, A3 |
+| ACC-2 | Self-narrowing tool registration in `mcp_factory.py` based on configured service-account privilege | Static gate implemented; dynamic/OIDC call-time gate pending |
 | ACC-3 | Annotate all existing command classes with `required_privilege` | A2, A3 |
 | ACC-4 | Replace `su` with `sudo` + sudoers allowlist in `DsmServWrapper` / `ServermonWrapper` | A4 |
 
@@ -176,6 +178,8 @@ class BaseServermonCommand(ABC):
 ---
 
 ## ACC-2 — Self-Narrowing Tool Registration in `mcp_factory.py`
+
+This section describes service-account mode. It does not yet implement authorization from `SessionLease.privilege_classes` or `request.state.mcp_privilege`.
 
 ### What to change
 
@@ -552,6 +556,13 @@ sudo -u tsmsvr01 /opt/tivoli/tsm/server/bin/dsmserv -? 2>&1 | head -3
 ```
 
 ---
+
+## Required Follow-Up Verification
+
+- [ ] Add call-time dynamic-session privilege allow/deny tests.
+- [ ] Add OIDC scope-to-tool allow/deny tests.
+- [ ] Verify that the execution credential context matches the authorized context.
+- [ ] Re-run the complete suite in an installed, dependency-complete environment.
 
 ## Verification Checklist
 

@@ -1,14 +1,11 @@
 from __future__ import annotations
 import asyncio
-from dotenv import load_dotenv
-from .config import check_env_file_permissions
+from .config import secure_startup
 from .mcp_factory import create_mcp_server, run_server
 from .server_groups import ISP_OPS_RULES
 
-# ── CRED-3: check .env permissions before any secrets are loaded ──────────────
-check_env_file_permissions()
-# Load environment variables from .env file
-load_dotenv()
+# ── CRED-3 / RG-2: permission check and dotenv loading ───────────────────────
+secure_startup()
 
 
 def main():

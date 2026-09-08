@@ -157,14 +157,15 @@ ISP_POLICIES_MANAGEMENT = [
 # 8. mcp-server-system-admin (~15 tools)
 # Focus: Administrators and Permissions.
 ISP_SYSTEM_ADMIN = [
+    sys_cmd.AuthenticateSession,  # Dynamic auth lease tool
     sys_cmd.DefineAdmin,
-    sys_cmd.UpdateUser,         # UpdateAdmin
+    sys_cmd.UpdateUser,           # UpdateAdmin
     sys_cmd.DeleteAdmin,
     sys_cmd.QueryAdminUser,
-    sys_cmd.SetUserLock,        # Lock/Unlock Admin
-    sys_cmd.GrantAuthority,     # NEW
-    sys_cmd.RevokeAuthority,    # NEW
-    sys_cmd.RegisterLicense,    # NEW
+    sys_cmd.SetUserLock,          # Lock/Unlock Admin
+    sys_cmd.GrantAuthority,       # NEW
+    sys_cmd.RevokeAuthority,      # NEW
+    sys_cmd.RegisterLicense,      # NEW
     sys_cmd.QueryLicenseInfo,
     sys_cmd.DefineMachine,
     sys_cmd.UpdateMachine,

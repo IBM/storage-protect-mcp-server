@@ -2,12 +2,17 @@ import subprocess
 import shutil
 import os
 import glob
+import contextvars
 from typing import List, Tuple, Dict, Any, Optional
 import logging
 
 from .config import ServerConfig
 
 logger = logging.getLogger(__name__)
+
+current_execution_credentials: contextvars.ContextVar[Optional[Tuple[str, str]]] = contextvars.ContextVar(
+    "current_execution_credentials", default=None
+)
 
 
 class DsmAdmcWrapper:
@@ -34,6 +39,10 @@ class DsmAdmcWrapper:
 
         Returns (stdout, stderr, return_code).
         """
+        delegated = current_execution_credentials.get()
+        if delegated:
+            return self.execute_silent(command, admin_id=delegated[0], password=delegated[1])
+
         if not self.config.validate():
             return "", "Configuration incomplete. Missing required credentials.", 1
 
@@ -116,36 +125,56 @@ class DsmAdmcWrapper:
             logger.exception("Unexpected error executing command: %s", e)
             return "", str(e), 1
 
-    def execute_silent(self, command: str) -> tuple:
+    def execute_silent(
+        self,
+        command: str,
+        admin_id: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> Tuple[str, str, int]:
         """
-        INT-3: Execute a dsmadmc command without logging the command string.
-        Use for commands that contain resolved secrets (e.g. DEFINE CONNECTION).
-        The command string is never written to any log handler.
+        INT-3 / CRED-2: Execute a dsmadmc command without logging the command string.
+        Use for commands that contain resolved secrets (e.g. DEFINE CONNECTION)
+        or dynamic authentication verification queries.
+        The command string and credentials are never written to any log handler.
+
+        If explicit `admin_id` and `password` are provided (e.g. from dynamic authentication),
+        they override configured service account credentials.
 
         Returns (stdout, stderr, return_code).
         """
-        if not self.config.validate():
-            return "", "Configuration incomplete. Missing required credentials.", 1
+        if not (admin_id and password):
+            delegated = current_execution_credentials.get()
+            if delegated:
+                admin_id, password = delegated
 
-        cred = self.config.credential_for(self._privilege)
-        if cred is None:
-            return (
-                "",
-                f"No credential available for privilege tier '{self._privilege}'.",
-                1,
-            )
+        if admin_id and password:
+            effective_id = admin_id
+            effective_pwd = password
+            use_stash = False
+        else:
+            if not self.config.validate():
+                return "", "Configuration incomplete. Missing required credentials.", 1
 
-        use_stash = os.environ.get("SP_MCP_USE_PASSWORD_STASH", "0") == "1"
+            cred = self.config.credential_for(self._privilege)
+            if cred is None:
+                return (
+                    "",
+                    f"No credential available for privilege tier '{self._privilege}'.",
+                    1,
+                )
+            effective_id = cred.admin_id
+            effective_pwd = cred.admin_password
+            use_stash = os.environ.get("SP_MCP_USE_PASSWORD_STASH", "0") == "1"
 
         args = [
             self.executable,
             "-NOConfirm",
             "-DATAONLY=YES",
-            f"-ID={cred.admin_id}",
+            f"-ID={effective_id}",
             "-COMMAdelimited",
         ]
         if not use_stash:
-            args.insert(4, f"-PA={cred.admin_password}")
+            args.insert(4, f"-PA={effective_pwd}")
 
         args.extend(command.split())
 

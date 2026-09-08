@@ -14,8 +14,8 @@ The MCP server supports two transport modes:
 
 | Transport | Flag | Authentication | Typical use |
 |-----------|------|---------------|-------------|
-| `stdio` (default) | `--transport stdio` | SSH key / process isolation | Local or single-client deployments |
-| `http` | `--transport http` | OIDC bearer token (OAuth 2.1) | Enterprise / multi-client deployments |
+| `stdio` (default) | `--transport stdio` | SSH key / Tiered Service Accounts or Dynamic Challenge-Response | Local or single-client deployments (e.g. Claude Desktop) |
+| `http` | `--transport http` | OIDC bearer token (OAuth 2.1) / Dynamic session tokens | Enterprise / multi-client deployments (e.g. Web UIs, REST gateways) |
 
 ---
 
@@ -255,7 +255,62 @@ curl -k -H "Authorization: Bearer <oidc-access-token>" \
 
 ---
 
-## Part 3 — Privilege-Aware Tool Registration
+## Part 3 — Dynamic & Delegated User Authentication (Challenge-Response)
+
+When the MCP server is deployed for interactive AI chat environments (e.g. Claude Desktop, OpenWebUI, or IDE extensions), human administrators interact with tools directly. Instead of embedding static passwords in shared daemon configurations, the server can be configured in **Dynamic Authentication Mode**.
+
+### Enabling Dynamic Authentication
+
+In your `.env` file (or environment):
+
+```dotenv
+# Enable Dynamic Challenge-Response mode
+SP_MCP_AUTH_MODE=dynamic
+
+# Sliding inactivity timeout in seconds (default: 15 minutes)
+SP_MCP_SESSION_TTL=900
+
+# Maximum hard session lease duration in seconds (default: 60 minutes)
+SP_MCP_SESSION_MAX_TTL=3600
+```
+
+### How Challenge-Response Works in Chat
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as Human Operator
+    participant AI as AI Assistant (Claude / Chat UI)
+    participant MCP as MCP Server
+    participant SP as IBM Storage Protect (dsmadmc)
+
+    User->>AI: "List all registered nodes and their storage usage."
+    AI->>MCP: call_tool("query_node", {})
+    Note over MCP: SP_MCP_AUTH_MODE=dynamic: No active session lease found
+    MCP-->>AI: AUTHENTICATION_REQUIRED (JSON Challenge Schema)
+    AI-->>User: "To access IBM Storage Protect, please provide your administrator username and password."
+    User->>AI: Provides credentials (admin_alice / password)
+    AI->>MCP: call_tool("authenticate_session", {username: "admin_alice", password: "***"})
+    Note over MCP: Zero-trace verification via execute_silent (passwords not logged)
+    MCP->>SP: dsmadmc QUERY STATUS / QUERY ADMIN
+    SP-->>MCP: Authenticated (ANR0000I)
+    Note over MCP: Mint ephemeral lease (TTL=15m) & bind current_audit_user
+    MCP-->>AI: {"success": true, "username": "admin_alice", "expires_in_seconds": 900}
+    AI->>MCP: Re-calls original tool: "query_node", {}
+    MCP->>SP: dsmadmc QUERY NODE
+    SP-->>MCP: Node records
+    MCP-->>AI: Tool result payload
+    AI-->>User: Formatted node listing
+```
+
+### Security Properties of Dynamic Authentication
+1. **Zero-Trace Credential Verification**: Passwords provided to `authenticate_session` are verified via [`cli_wrapper.DsmAdmcWrapper.execute_silent()`](../../src/sp_mcp_server/cli_wrapper.py) and are **never** logged to `/var/log/ibm-sp-mcp-server/mcp-server.log` or shell process trees.
+2. **Ephemeral In-Memory Leases**: Session leases are kept only in memory with a sliding inactivity window (`SP_MCP_SESSION_TTL`, default 15 minutes) and are destroyed upon process restart or explicit timeout.
+3. **Forensic Attribution (Non-Repudiation)**: Once authenticated, the user's verified identity is stored in `current_audit_user` ContextVar and emitted to the IBM Storage Protect Activity Log (`DEFINE SCRATCHPADENTRY MCP_AUDIT user=<username> ...`) for every modifying operation.
+
+---
+
+## Part 4 — Privilege-Aware Tool Registration
 
 The MCP server automatically narrows the registered tool set at startup based on the IBM SP privilege class of the configured service account. This is the primary access control gate and operates independently of `--mode`.
 
@@ -278,7 +333,7 @@ The MCP server automatically narrows the registered tool set at startup based on
 
 ---
 
-## Part 4 — Command Approval (Optional but Recommended)
+## Part 5 — Command Approval (Optional but Recommended)
 
 IBM SP's command-approval workflow queues destructive operations for human review before execution. The MCP server provides `approve_pending_command`, `reject_pending_command`, and `withdraw_pending_command` tools to complete the approval cycle.
 
@@ -294,7 +349,7 @@ With `SET APPROVERSREQUIREAPPROVAL ON`, even the `mcp-svc-system` account's own 
 
 ---
 
-## Part 5 — Managing Multiple SP Servers
+## Part 6 — Managing Multiple SP Servers
 
 The MCP server is a **one-process-to-one-SP-server** deployment unit. A single MCP server process connects to exactly one IBM SP server defined by `TCPSERVERADDRESS` in its `.env`. To manage multiple SP servers from a single AI agent session, run one MCP server process per SP server and register each as a separate named entry in the MCP client configuration.
 

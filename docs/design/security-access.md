@@ -1,7 +1,7 @@
 # Security Design: Access Management
 
 * **Domain**: Access Management
-* **Status**: Implemented
+* **Status**: Implemented baseline — static, dynamic-session, and OIDC call-time gates are present
 * **Implementation spec**: [`docs/implement/impl-security-access.md`](../implement/impl-security-access.md)
 * **Gaps closed**: A1, A2, A3, A4 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
@@ -9,7 +9,7 @@
 
 ## Overview
 
-The original codebase registered all tools unconditionally regardless of the configured service account's privilege class, and used `su - <user> -c <cmd>` for privilege escalation. This domain adds a per-tool privilege annotation, self-narrowing tool registration, and replaces `su` with `sudo` to align with the sudoers allowlist model.
+The implementation adds per-tool privilege annotations, static service-account tool registration filtering, dynamic-session privilege checks, OIDC call-time authorization, and replaces `su` with `sudo` to align with the sudoers allowlist model.
 
 | Change | ID | Gaps closed |
 |--------|-----|-------------|
@@ -41,6 +41,8 @@ A service account at a given tier **satisfies** all tiers at or below it in the 
 | `any` | any | system, policy, storage, operator |
 
 ### Tool Registration Flow (ACC-2)
+
+The flow below describes service-account registration. Dynamic and OIDC modes add the call-time authorization gate in `handle_call_tool()`.
 
 ```mermaid
 flowchart TD

@@ -8,11 +8,12 @@ Implementation specifications for each security domain of the IBM Storage Protec
 
 | Document | Domain | Source files |
 |---|---|---|
-| [`impl-security-network.md`](impl-security-network.md) | Network Security | `mcp_factory.py`, `config/dsm.sys.template`, `configure-guide.md` |
-| [`impl-security-identity-credentials.md`](impl-security-identity-credentials.md) | Identity & Credentials | `config.py`, `cli_wrapper.py`, all `main*.py` entry points |
+| [`impl-security-network.md`](impl-security-network.md) | Network Security | `mcp_factory.py`, `config/dsm.sys.template`, `scripts/provision-sp-service-accounts.sh` |
+| [`impl-security-identity-credentials.md`](impl-security-identity-credentials.md) | Identity & Credentials | `config.py`, `cli_wrapper.py`, all `main*.py` entry points, `scripts/provision-sp-service-accounts.sh` |
+| [`impl-security-dynamic-authn.md`](impl-security-dynamic-authn.md) | Dynamic Authentication | `session.py`, `commands/system/auth.py`, `mcp_factory.py`, `cli_wrapper.py` |
 | [`impl-security-access.md`](impl-security-access.md) | Access Management | `commands/base.py`, `mcp_factory.py`, all `commands/**/*.py` |
 | [`impl-security-policy.md`](impl-security-policy.md) | Policy Management | `mcp_factory.py`, `commands/operations/approval.py`, `commands/operations/misc.py` |
-| [`impl-security-integrations.md`](impl-security-integrations.md) | Secure Integrations | `http_server.py`, `system/conn.py`, `config.py` |
+| [`impl-security-integrations.md`](impl-security-integrations.md) | Secure Integrations | `http_server.py`, `commands/system/conn.py`, `config.py` |
 | [`impl-security-non-repudiation.md`](impl-security-non-repudiation.md) | Non-Repudiation & Forensics | `mcp_factory.py`, `http_server.py`, `tests/test_security_controls.py` |
 
 ---

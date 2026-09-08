@@ -29,6 +29,7 @@ This guide covers every error condition the IBM Storage Protect MCP Server can p
 | `ANR0521W` / connection refused | Startup / tool | Both | [§13 Connection to IBM SP Server Fails](#13-connection-to-ibm-sp-server-fails) |
 | `Permission denied (publickey)` | Startup | Both | [§14 SSH connection issues](#14-ssh-connection-issues-stdio-transport) |
 | One process fails; stash collision; wrong key | Startup | Both | [§15 Multi-server issues](#15-multi-server-deployment-issues) |
+| `AUTHENTICATION_REQUIRED` / dynamic auth expiry | Tool challenge | Both | [§16 Dynamic authentication & session lease issues](#16-dynamic-authentication--session-lease-issues) |
 
 ---
 
@@ -918,7 +919,76 @@ ls -la /opt/sp-mcp/spsvr01/.env
 
 ---
 
-## 16. Log File Access
+## 16. Dynamic Authentication & Session Lease Issues
+
+### Symptom A — Structured `AUTHENTICATION_REQUIRED` response
+
+When calling an administrative tool (e.g. `query_node`, `define_admin`), the tool returns:
+
+```json
+{
+  "is_error": true,
+  "error_type": "AUTHENTICATION_REQUIRED",
+  "message": "Authentication required. Please provide your IBM Storage Protect administrator credentials.",
+  "challenge": {
+    "server": "tsm_server_01",
+    "required_fields": ["username", "password"],
+    "supported_schemes": ["basic_delegated", "oidc_bearer"],
+    "auth_tool": "authenticate_session"
+  }
+}
+```
+
+### Cause
+The server is running in Dynamic Authentication Mode (`SP_MCP_AUTH_MODE=dynamic`) and no active session lease exists for the user or the previous session lease has expired due to inactivity.
+
+### Remediation
+1. Provide credentials to the AI assistant or invoke `authenticate_session` directly:
+   ```json
+   {
+     "name": "authenticate_session",
+     "arguments": {
+       "username": "admin1",
+       "password": "<admin-password>"
+     }
+   }
+   ```
+2. If you prefer static daemon execution without interactive prompt challenges, switch to service account mode in `.env`:
+   ```dotenv
+   SP_MCP_AUTH_MODE=service_account
+   ```
+
+---
+
+### Symptom B — `Authentication failed: invalid administrator credentials`
+
+Tool call to `authenticate_session` returns:
+
+```json
+{
+  "success": false,
+  "error": "Authentication failed: invalid administrator credentials.",
+  "returncode": 1
+}
+```
+
+### Cause
+The provided username or password was rejected by the IBM Storage Protect server during the zero-trace verification query (`QUERY STATUS`), or the account is locked due to exceeding `INVALIDPWLIMIT`.
+
+### Remediation
+1. Check administrator status and lock state on the SP server:
+   ```
+   dsmadmc -id=admin -pa=<admin_pass> "QUERY ADMIN <username> FORMAT=DETAILED"
+   ```
+2. If the administrator is locked:
+   ```
+   UNLOCK ADMIN <username>
+   ```
+3. Verify password policy compliance (`SET INVALIDPWLIMIT 5`).
+
+---
+
+## 17. Log File Access
 
 ```bash
 # View the live log

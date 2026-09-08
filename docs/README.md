@@ -14,7 +14,7 @@ This directory contains the complete documentation for the IBM Storage Protect M
 | [`design/`](design/) | Security design specifications per domain |
 | [`implement/`](implement/) | Implementation notes per security domain, tracing design to code |
 | [`analysis/`](analysis/) | Security design analysis and audit findings |
-| [`traceability/`](traceability/) | Requirements traceability matrix and gap analysis |
+| [`traceability/`](traceability/) | Requirements traceability matrix, gap analysis, and independent audit report |
 | [`reference/`](reference/) | External IBM reference material (IBM SP Administrator's Reference) |
 
 ---
@@ -33,11 +33,13 @@ This directory contains the complete documentation for the IBM Storage Protect M
 
 6. [`architecture/architecture.md`](architecture/architecture.md) — System architecture and core design principles
 7. [`architecture/module-*.md`](architecture/) — Per-module architecture for clients, storage, policies, operations, and system
-8. [`analysis/security-design-analysis.md`](analysis/security-design-analysis.md) — Security audit findings and resolved controls
+8. [`analysis/security-design-analysis.md`](analysis/security-design-analysis.md) — Security architecture and active controls across all six domains
+8a. [`analysis/security-dynamic-authn-analysis.md`](analysis/security-dynamic-authn-analysis.md) — Dynamic & delegated authentication design analysis
 
 ### Security governance
 
-9. [`design/`](design/) — Security design specs per domain (network, credentials, access, policy, integrations)
+9. [`design/`](design/) — Security design specs per domain (network, credentials, access, policy, integrations, dynamic authentication, non-repudiation)
 10. [`implement/`](implement/) — Implementation specs per domain, tracing design decisions to source files
-11. [`traceability/traceability-matrix.md`](traceability/traceability-matrix.md) — End-to-end requirements traceability
-12. [`traceability/gap-analysis.md`](traceability/gap-analysis.md) — Security gap status (all 27 gaps closed)
+11. [`traceability/traceability-matrix.md`](traceability/traceability-matrix.md) — End-to-end requirements traceability (44 requirements, all closed)
+12. [`traceability/gap-analysis.md`](traceability/gap-analysis.md) — Security gap status (all 44 requirements closed, 88 tests passing)
+13. [`traceability/audit-report.md`](traceability/audit-report.md) — Independent audit report (no open findings)

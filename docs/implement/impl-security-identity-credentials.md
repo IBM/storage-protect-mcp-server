@@ -9,7 +9,9 @@
 
 ## Overview
 
-Five changes close all identity and credential gaps:
+The implementation provides five tiered service-account credentials, password-stash support, keyring-first resolution, startup permission enforcement, bounded session credentials, and delegated execution context. The supported entry points use the atomic startup helper.
+
+The identity and credential areas are implemented to different levels:
 
 | ID | Change | Gaps closed |
 |----|--------|-------------|
@@ -18,7 +20,7 @@ Five changes close all identity and credential gaps:
 | CRED-3 | `.env` file permission check at startup | I3 |
 | CRED-4 | MFA exemption policy — documented + enforced in `ServerConfig.validate()` | I4 |
 | CRED-5 | SP server provisioning script — one account set per SP server instance | I1, I5 |
-| RG-2 | `secure_startup()` atomic helper; applied to all `main_*.py` entry points | RG-2 |
+| RG-2 | `secure_startup()` atomic helper; applied to supported entry points; legacy entry-point normalization pending | Partial |
 | RG-3 | `_execute_silent_query()` in `BaseCommand`; all password-bearing commands use it | RG-3 |
 
 ---
@@ -326,7 +328,9 @@ except PermissionError as exc:
 load_dotenv()
 ```
 
-### Apply the same guard in all `main_*.py` entry points
+### Apply the same guard in all supported `main*.py` entry points
+
+All supported entry points should use `secure_startup()`; retain this check in CI when adding new entry points.
 
 Each standalone entry point (`main_clients_core.py`, `main_system_admin.py`, etc.) calls `load_dotenv()` directly. Add the same guard to each. A helper in `main.py` can be imported:
 
@@ -402,6 +406,8 @@ UPDATE ADMIN <human-admin-name> MFAREQUIRED=YES
 ## CRED-5 — SP Server Provisioning Script
 
 ### What to add
+
+The referenced provisioning script is not present in the audited repository tree. Add it as a deployment artifact or change all documentation links to the authoritative external runbook.
 
 **New file**: `scripts/provision-sp-service-accounts.sh`
 
@@ -537,6 +543,8 @@ rm /tmp/test.env
 ---
 
 ## RG-2 — `secure_startup()`: Atomic Entry-Point Guard (CRED-3 extension)
+
+**Current status:** Implemented for the supported entry points. Keep the entry-point inventory test in CI.
 
 ### Problem
 

@@ -21,6 +21,8 @@ System architecture documentation for the IBM Storage Protect MCP Server. These 
 
 **Two operating models** — The server can run as a single unified process (`main.py`) exposing all or selected functional groups, or as fine-grained micro-MCP servers (`main_<module>_*.py`) for LLM context-window efficiency and least-privilege scoping.
 
+**Authentication models** — Supports both static 5-tier service accounts (configured via `.env`, OS keyring, or password stash) and dynamic delegated authentication (challenge-response with short-lived in-memory leases for interactive chat clients).
+
 **Privilege gate** — Every tool declares a `required_privilege` property. At startup, `mcp_factory.py` queries the configured service account's actual IBM SP privilege class via `QUERY ADMIN` and registers only the tools that account is authorised to invoke.
 
 **Two transport modes** — `stdio` over SSH (Ed25519 key auth, `StrictHostKeyChecking=yes`) for local/single-client deployments; HTTP/SSE with TLS and OAuth 2.1 / OIDC bearer token authentication for enterprise multi-client deployments.

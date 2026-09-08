@@ -1,7 +1,7 @@
 # IBM Storage Protect MCP Server — System Architecture & Design
 
-* **Revision**: 2025-07 (Post-Remediation Verification & Alignment)
-* **Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md)
+* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
+* **Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/audit-report.md`](../traceability/audit-report.md)
 * **Source reference**: `src/sp_mcp_server/`
 
 ---
@@ -23,12 +23,17 @@ The architecture provides two operating models:
 1. **Strict Least Privilege & Separation of Concerns**:
    - Commands are partitioned into 5 administrative modules (`clients`, `storage`, `policies`, `system`, `operations`).
    - Every tool declares a `required_privilege` (`system`, `policy`, `storage`, `operator`, `any`).
-   - Tool discovery queries the actual administrator account's SP authority (`QUERY ADMIN <name> FORMAT=DETAILED`) and restricts tool registration accordingly.
+   - In service-account mode, tool discovery queries the configured account's SP authority (`QUERY ADMIN <name> FORMAT=DETAILED`) and restricts tool registration accordingly.
+   - Dynamic-session and OIDC privilege claims are enforced at invocation time via `_privilege_satisfies_for_session()` and `current_request_privilege` context variable checks in `handle_call_tool()`.
+   - `_check_session_target_server()` enforces `SessionLease.target_server` binding immediately after privilege confirmation; cross-server session reuse is rejected with `AUTHORIZATION_DENIED` (DAUTH-7, closed).
+   - Delegated session credentials are applied to command execution via `current_execution_credentials` context variable and cleared in the `finally` block.
 
 2. **Defense-in-Depth Session & Transport Security**:
    - **Local Stdio Transport**: Secured via SSH Ed25519 key authentication, dedicated non-privileged OS user (`mcp-runner`), and explicit strict host key checking.
-   - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) mapped to privilege tiers.
-   - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`.
+   - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) with call-time scope enforcement; per-scope privilege mapping (`mcp:*`) and `AUTHORIZATION_DENIED` rejection validated by `TestOIDCAuthorization` (7 scopes).
+   - **Dynamic Authentication (Challenge-Response)**: Allows interactive AI chat users to receive structured `AUTHENTICATION_REQUIRED` responses, verifies credentials via zero-trace `execute_silent()`, issues bounded ephemeral leases, enforces lease privileges, applies delegated credentials to command execution, and supports explicit session revocation via `logout_session`.
+   - **Session Lifecycle**: `SessionManager` uses `RLock` and bounds TTLs to `MAX_SESSION_TTL_SECONDS`. Cleanup is opportunistic (on create / explicit call). `SessionLease.password` is zeroed on every removal path — explicit revocation, inactivity/absolute TTL expiry, bulk sweep, and server shutdown (AUD-08, closed).
+   - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`. Service account provisioning script (`scripts/provision-sp-service-accounts.sh`) registers all five tiered accounts with `SESSIONSECURITY=STRICT` and `MFAREQUIRED=NO` (AUD-07, closed).
 
 3. **Two-Person Integrity & Policy Controls**:
    - Destructive operations support IBM SP native Command Approval (`SET COMMANDAPPROVAL ON`, `APPROVE PENDINGCMD`, `REJECT PENDINGCMD`, `WITHDRAW PENDINGCMD`).
@@ -55,7 +60,8 @@ graph TD
     subgraph CoreTier ["3. MCP Server Core & Security Gates"]
         SEC_START["secure_startup()\n• .env POSIX 0600 permission check"]
         CONFIG_MGR["config.py: ServerConfig\n• 5-Tier Service Account Credentials\n• Keyring / Secrets Resolution"]
-        FACTORY["mcp_factory.py\n• _validate_session_security() (SESSIONSECURITY=STRICT)\n• _check_lockout_policy() (SET INVALIDPWLIMIT)\n• _parse_sp_privilege() (QUERY ADMIN)\n• Tool Privilege Filtering (_PRIVILEGE_SATISFIES)\n• Tool Invocation & POL-4 ACTLOG Audit Attribution"]
+        SESS_MGR["session.py: SessionManager\n• Dynamic ephemeral leases (TTL=15m)\n• Zero-trace auth verification\n• Password zeroed on all removal paths (AUD-08)\n• logout_session explicit revocation tool\n• current_audit_user contextvar"]
+        FACTORY["mcp_factory.py\n• _validate_session_security() (SESSIONSECURITY=STRICT)\n• _check_lockout_policy() (SET INVALIDPWLIMIT)\n• _parse_sp_privilege() (QUERY ADMIN)\n• Tool Privilege Filtering (_PRIVILEGE_SATISFIES)\n• _check_session_target_server() (DAUTH-7)\n• Tool Invocation & POL-4 ACTLOG Audit Attribution"]
     end
 
     subgraph ModuleTier ["4. Command & Tool Abstraction Layer"]
@@ -82,6 +88,7 @@ graph TD
     STDIO_EP --> SEC_START
     HTTP_EP --> SEC_START
     SEC_START --> FACTORY
+    FACTORY --> SESS_MGR
     FACTORY --> CONFIG_MGR
     FACTORY --> GROUPS
     GROUPS --> BASE_CMD
@@ -194,7 +201,7 @@ sequenceDiagram
 
 ## 6. Domain Breakdown & Micro-Servers
 
-The codebase provides 15 dedicated Micro-MCP entry points categorized across 5 administrative modules, in addition to the unified server:
+The codebase provides multiple dedicated Micro-MCP entry points categorized across 5 administrative modules, in addition to the unified server. Supported entry points use the atomic `secure_startup()` helper before loading configuration.
 
 | Module Category | Micro-MCP Server Entry Point | Command Group | Focus & Administrative Scope |
 | :--- | :--- | :--- | :--- |
@@ -210,11 +217,13 @@ The codebase provides 15 dedicated Micro-MCP entry points categorized across 5 a
 ## 7. Security Design References
 
 For domain-specific detailed security control specifications:
+- [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) — Dynamic & Delegated User Authentication (Challenge-Response).
 - [`docs/design/security-network.md`](../design/security-network.md) — Network Security, SSH Transport & TLS Enforcement.
 - [`docs/design/security-identity-credentials.md`](../design/security-identity-credentials.md) — Tiered Credentials, Stash Mode & Keyring Integration.
 - [`docs/design/security-access.md`](../design/security-access.md) — Tool Privilege Gating & Sudoers Execution.
 - [`docs/design/security-policy.md`](../design/security-policy.md) — Command Approval, Password Policies & ACTLOG Audit Trail.
 - [`docs/design/security-integrations.md`](../design/security-integrations.md) — OAuth 2.1 / OIDC HTTP Transport & Secrets Reference Resolution.
+- [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) — Non-Repudiation, Activity Log Attribution & Forensic Correlation.
 
 ---
 
@@ -231,7 +240,7 @@ storage-protect-mcp-server/
 │   ├── mcp_factory.py                 # Core MCP server factory, security gates, audit logging
 │   ├── server_groups.py               # Tool group definitions across all modules
 │   ├── main.py                        # Unified server entry point (--enable-servers)
-│   ├── main_*.py                      # 15 domain-specific micro-server entry points
+│   ├── main_*.py                      # Domain-specific and legacy micro-server entry points
 │   └── commands/                      # Command implementations
 │       ├── base.py                    # BaseCommand, BaseOfflineCommand, BaseServermonCommand
 │       ├── offline.py                 # Offline DB/log tools (dsmserv)
@@ -239,14 +248,18 @@ storage-protect-mcp-server/
 │       ├── clients/                   # assoc.py, groups.py, info.py, node.py, opt.py
 │       ├── storage/                   # content.py, datamover.py, device.py, drive.py, ...
 │       ├── policies/                  # copy.py, domain.py, mgmt.py, policyset.py, ...
-│       ├── system/                    # admin.py, config.py, conn.py, logs.py, script.py, ...
+│       ├── system/                    # admin.py, auth.py (AuthenticateSession, LogoutSession), config.py, conn.py, logs.py, script.py, ...
 │       └── operations/                # alerts.py, approval.py, backupset.py, catalog.py, ...
+├── config/
+│   └── dsm.sys.template               # dsmadmc client-options template (SSL Yes, SSLREQUIRED Yes, PASSWORDACCESS GENERATE)
+├── scripts/
+│   └── provision-sp-service-accounts.sh  # Idempotent SP service account provisioning (5 tiers, SESSIONSECURITY=STRICT)
 ├── tests/                             # Test suite
 │   ├── test_cli_wrapper.py
 │   ├── test_commands.py
 │   ├── test_config.py
 │   ├── test_core_components.py
-│   └── test_security_controls.py      # Automated security regression tests (56/56 passing)
+│   └── test_security_controls.py      # Security regression tests — 88 tests passing post-remediation
 └── docs/                              # Comprehensive documentation
     ├── design/                        # Domain-specific security design specifications
     ├── architecture/                  # System & module-specific architecture docs

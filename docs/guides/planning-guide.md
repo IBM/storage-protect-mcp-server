@@ -97,7 +97,38 @@ graph TB
 
 ---
 
-## Step 2 — Inventory Your SP Servers
+## Step 2 — Choose an Authentication Model
+
+The MCP Server supports two primary authentication models depending on your operational and client architecture:
+
+```mermaid
+flowchart TD
+    A[Select Authentication Model] --> B{Interaction Mode}
+    B -->|Background Services / Headless Pipelines / Shared Daemons| C[Model A: Tiered Service Accounts]
+    B -->|Interactive AI Chat / Multi-User LLM Interface| D[Model B: Dynamic Challenge-Response]
+
+    C --> C1[5 Dedicated Accounts: System, Policy, Storage, Operator, Readonly]
+    C1 --> C2[Stored in local .env 0600 / Keyring / dsm.sys stash]
+    
+    D --> D1[Ephemeral In-Memory Leases TTL=15m]
+    D1 --> D2[AI prompts human user for admin credentials on first tool call]
+    D2 --> D3[Zero-trace SP verification; binds user identity into audit trail]
+```
+
+### Authentication Models Comparison
+
+| Dimension | Model A: Tiered Service Accounts | Model B: Dynamic Challenge-Response |
+|---|---|---|
+| **Primary Architecture** | Automated pipelines, CI/CD, dedicated single-tenant bots | Interactive user chat (Claude Desktop, OpenWebUI), multi-tenant sessions |
+| **Credential Management** | `.env` files (mode `0600`), system keyring, or `dsm.sys` stash (`PASSWORDACCESS GENERATE`) | Ephemeral in-memory session leases; user provides credentials interactively |
+| **Identity Attribution (Forensics)** | Service account identifier (`mcp-svc-*`) | Actual authenticated human user ID recorded in SP Activity Log (`MCP_AUDIT`) |
+| **Session Lifetime** | Persistent server lifetime | Sliding window lease (15-minute default TTL, max 60 minutes) |
+| **MFA Compatibility** | Exemption policy with compensating controls ([`CRED-4`](../design/security-identity-credentials.md)) | Native SP admin password verification with lockout enforcement |
+| **Detailed Design** | [`docs/design/security-identity-credentials.md`](../design/security-identity-credentials.md) | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) |
+
+---
+
+## Step 3 — Inventory Your SP Servers
 
 For each IBM SP server you intend to manage, record the following before proceeding to installation:
 
@@ -122,7 +153,7 @@ For each IBM SP server you intend to manage, record the following before proceed
 
 ---
 
-## Step 3 — Prerequisites Checklist
+## Step 4 — Prerequisites Checklist
 
 Verify all prerequisites before starting installation. The required location differs by topology.
 

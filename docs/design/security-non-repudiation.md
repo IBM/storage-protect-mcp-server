@@ -1,7 +1,7 @@
 # Security Design: Non-Repudiation & Forensic Auditability
 
 * **Domain**: Non-Repudiation & Forensic Auditability
-* **Status**: Implemented (NR-1, NR-4, NR-5 closed; NR-2, NR-3 architectural controls defined)
+* **Status**: Partially implemented — audit correlation controls exist; identity-to-execution binding and deployment controls require qualification
 * **Implementation spec**: [`docs/implement/impl-security-non-repudiation.md`](../implement/impl-security-non-repudiation.md)
 * **Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)
 * **Cross-reference**: [`docs/design/security-policy.md`](security-policy.md) · [`docs/design/security-integrations.md`](security-integrations.md)
@@ -10,7 +10,7 @@
 
 ## 1. Overview & Principles
 
-Non-repudiation provides high-integrity, incontrovertible evidence that a specific entity initiated a specific administrative operation on the IBM Storage Protect (SP) server, preventing plausible deniability during security forensics, regulatory audits, and root-cause analyses.
+Non-repudiation provides evidence linking an authenticated context to an administrative operation. In the current implementation, the recorded dynamic/OIDC identity can differ from the configured service account that executes the command; therefore the audit record is an attribution signal, not yet incontrovertible proof of credential-level actor identity.
 
 To establish non-repudiation across the MCP Server architecture, the system enforces the **Five Forensic Dimensions**:
 
@@ -70,7 +70,7 @@ sequenceDiagram
 
 | Control ID | Threat / Gap Addressed | Implemented Mechanism | Code Location |
 |:---|:---|:---|:---|
-| **NR-1** | **Identity Impersonation / Deniability**: Inability to determine human user behind shared SP service accounts | User context propagation via `contextvars.ContextVar[Optional[str]]` (`current_audit_user`). The authenticated OIDC `sub` claim is bound into the `DEFINE SCRATCHPADENTRY` message payload. | [`src/sp_mcp_server/mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py:16)<br>[`src/sp_mcp_server/http_server.py:144`](../../src/sp_mcp_server/http_server.py:144) |
+| **NR-1** | **Identity Impersonation / Deniability**: Inability to determine human user behind shared SP service accounts | Current implementation propagates a dynamic/OIDC identity through `current_audit_user` and binds it into the scratchpad payload. This does not yet prove that the command executed under that identity; delegated credential binding remains open. | [`src/sp_mcp_server/mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py:16)<br>[`src/sp_mcp_server/http_server.py:144`](../../src/sp_mcp_server/http_server.py:144) |
 | **NR-2** | **Log Tampering / Erasure**: Modification of local server log files | Guidance for forwarding logs to central SIEM (IBM QRadar Suite SIEM) over TLS and write-once WORM retention policies on host log files. | [`docs/implement/impl-security-non-repudiation.md`](../implement/impl-security-non-repudiation.md) |
 | **NR-3** | **Reconnaissance Blindspots**: Unaudited read queries | Targeted diagnostic ACTLOG queries (`query_activity_log`) and guidance for selective high-sensitivity read auditing without log flooding. | [`src/sp_mcp_server/commands/operations/misc.py:104`](../../src/sp_mcp_server/commands/operations/misc.py:104) |
 | **NR-4** | **Advisory Audit Bypass**: Unaudited operations executing when audit log write fails | Strict fail-closed audit option (`SP_MCP_STRICT_AUDIT=1`). When set, any scratchpad write failure aborts the administrative command immediately. | [`src/sp_mcp_server/mcp_factory.py:403`](../../src/sp_mcp_server/mcp_factory.py:403) |

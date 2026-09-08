@@ -1,6 +1,7 @@
 # Implementation: Non-Repudiation & Forensic Auditability
 
 * **Domain**: Non-Repudiation & Forensic Auditability
+* **Status**: Partially implemented — audit correlation and fail-closed controls exist; credential-level identity binding and deployment verification remain qualified
 * **Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)
 * **Design reference**: [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md)
 * **Gaps addressed**: NR-1, NR-2, NR-3, NR-4, NR-5
@@ -10,7 +11,7 @@
 
 ## 1. Overview
 
-This document provides the implementation specifications and runbooks for achieving high-assurance non-repudiation and forensic traceability within the IBM Storage Protect MCP Server.
+This document records the implemented audit controls and the remaining work required for high-assurance non-repudiation. The current scratchpad record can identify a dynamic/OIDC user, but command execution still uses the configured service-account wrapper unless and until delegated credential binding is implemented.
 
 ---
 
@@ -97,6 +98,8 @@ chattr +a /var/log/ibm-sp-mcp-server/mcp-server.log
 ---
 
 ## 4. Verification & Testing
+
+The command below is a verification procedure, not a passing-result claim. The complete test suite currently requires an installed package and declared dependencies; see [`audit-report.md`](../traceability/audit-report.md) AUD-04.
 
 Verify non-repudiation and audit controls:
 ```bash

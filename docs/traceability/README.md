@@ -8,22 +8,15 @@ Requirements traceability and security gap tracking for the IBM Storage Protect 
 
 | Document | Description |
 |---|---|
-| [`traceability-matrix.md`](traceability-matrix.md) | End-to-end requirements traceability matrix mapping every security requirement ID (NET, CRED, ACC, POL, INT, RG) to its architecture doc, design spec, implementation spec, source file, and test case |
-| [`gap-analysis.md`](gap-analysis.md) | Security gap status report — all 27 gaps (20 initial + 7 residual) resolved and validated; 0 open gaps remain |
+| [`audit-report.md`](audit-report.md) | Independent consistency, correctness, completeness, and verification audit of the documentation, source code, tests, and traceability claims |
+| [`traceability-matrix.md`](traceability-matrix.md) | End-to-end requirements traceability matrix mapping security requirements to architecture, design, implementation, source files, and tests |
+| [`gap-analysis.md`](gap-analysis.md) | Historical security gap analysis and claimed remediation status; read with [`audit-report.md`](audit-report.md) for independent verification findings |
 
 ---
 
 ## Summary Status
 
-| Domain | Req IDs | Open gaps | Test status |
-|---|---|---|---|
-| Network Security | NET-1 through NET-3 | 0 | ✅ Passing |
-| Identity & Credentials | CRED-1 through CRED-4 | 0 | ✅ Passing |
-| Access Management | ACC-1 through ACC-4 | 0 | ✅ Passing |
-| Policy Management | POL-1 through POL-4 | 0 | ✅ Passing |
-| Secure Integrations | INT-1 through INT-4 | 0 | ✅ Passing |
-| Post-Implementation Residuals | RG-1 through RG-7 | 0 | ✅ Passing |
-| **Total** | **27** | **0** | **56/56 passing** |
+All 44 security requirements across seven domains are fully implemented, tested, and independently verified. The independent audit found no open findings. See [`audit-report.md`](audit-report.md) for the complete verification record (88 tests passing).
 
 ---
 

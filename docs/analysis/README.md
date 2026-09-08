@@ -8,7 +8,8 @@ Security design analysis and audit findings for the IBM Storage Protect MCP Serv
 
 | Document | Description |
 |---|---|
-| [`security-design-analysis.md`](security-design-analysis.md) | Comprehensive security audit of the MCP server codebase across five domains: Network Security, Identity & Credentials, Access Management, Policy Management, and Secure Integrations. All 27 security gaps (20 initial + 7 residual) have been resolved and validated by 56/56 automated tests. |
+| [`security-design-analysis.md`](security-design-analysis.md) | Comprehensive security architecture and active controls analysis across six domains: Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations, and Non-Repudiation & Forensics. Validated by 88 automated regression tests. |
+| [`security-dynamic-authn-analysis.md`](security-dynamic-authn-analysis.md) | Dynamic & delegated user authentication design analysis — challenge-response workflow, stateful session verification, structured authentication challenge schema, zero-trace credential validation, privilege enforcement, target-server binding, and credential-lifecycle zeroing. |
 
 ---
 

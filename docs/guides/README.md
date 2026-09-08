@@ -52,9 +52,10 @@ Covers MCP client configuration — run after completing `install-guide.md`:
 
 - **stdio over SSH** (Part 1) — Ed25519 key generation and deployment, `StrictHostKeyChecking=yes`, MCP client JSON snippets for Linux/macOS and Windows, `sshd_config` hardening
 - **HTTP/OIDC transport** (Part 2) — TLS certificate setup, OIDC token scope, bearer token authentication, HTTP transport verification
-- **Privilege-aware tool registration** (Part 3) — How `--mode` and service account privilege combine to gate tool visibility
-- **Command approval** (Part 4) — `SET COMMANDAPPROVAL ON`, pending command queue, two-person integrity
-- **Multiple SP servers** (Part 5) — Step-by-step setup for both topologies:
+- **Dynamic & Delegated Authentication** (Part 3) — Challenge-response configuration, ephemeral session lease parameters (`SP_MCP_AUTH_MODE=dynamic`, `SP_MCP_SESSION_TTL`), chat sequence workflow, and zero-trace credential handling
+- **Privilege-aware tool registration** (Part 4) — How `--mode` and service account privilege combine to gate tool visibility
+- **Command approval** (Part 5) — `SET COMMANDAPPROVAL ON`, pending command queue, two-person integrity
+- **Multiple SP servers** (Part 6) — Step-by-step setup for both topologies:
   - **Topology A** — Per-host SSH keys, per-host MCP client entries, per-host `.env` layout, provisioning checklist
   - **Topology B** — Single control-host SSH key, `cd`-based `.env` isolation, centralised MCP client config, security controls table, provisioning checklist
   - **Common** — Tool scoping per entry, prompt addressing, security controls summary
@@ -97,6 +98,7 @@ A quick-reference error guide keyed by log marker, covering startup failures thr
 | Connection failures | SP server unreachable on TCP 1500 | §13 |
 | SSH connection issues | Key not deployed, wrong key, or host key mismatch | §14 |
 | Multi-server issues | One process fails, stash collision, SSH key used for wrong host | §15 |
+| Dynamic Auth / Leases | Challenge returned, session expired, invalid admin credentials | §16 |
 
 ---
 

@@ -1,7 +1,7 @@
 # Security Design: Identity & Credentials Management
 
 * **Domain**: Identity & Credentials Management
-* **Status**: Implemented (RG-2, RG-3 closed)
+* **Status**: Partially implemented — credential resolution and silent execution exist; entry-point coverage and delegated dynamic credentials remain open
 * **Implementation spec**: [`docs/implement/impl-security-identity-credentials.md`](../implement/impl-security-identity-credentials.md)
 * **Gaps closed**: I1, I2, I3, I4, I5, RG-2, RG-3 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
 
@@ -9,7 +9,7 @@
 
 ## Overview
 
-The original codebase used a single shared `SP_ADMIN_ID` / `SP_ADMIN_PASSWORD` credential for every tool call, passing the password as a visible `-PA=` argument to `dsmadmc`, with no file-permission enforcement and no documented MFA policy. This domain replaces that model with five tiered service accounts, an encrypted password stash, startup permission enforcement, and a provisioning script.
+The implementation adds five tiered service-account credentials, password-stash support, keyring-first resolution, and startup permission enforcement. The atomic `secure_startup()` helper is not yet used by every legacy entry point, and dynamic authentication currently verifies user credentials without using them for subsequent command execution. Refer to audit findings AUD-02, AUD-05, and AUD-07 before treating this domain as complete.
 
 | Change | ID | Gaps closed |
 |--------|-----|-------------|
@@ -120,7 +120,7 @@ sequenceDiagram
 
 ### `secure_startup()` — Atomic Startup Guard (CRED-3 / RG-2)
 
-`config.py` exports `secure_startup(env_path)` which combines `check_env_file_permissions()` and `load_dotenv()` in a single call. All `main_*.py` entry points import and call `secure_startup()` at module load time, replacing the previous two-call pattern that was missing from 14 newer entry points.
+`config.py` exports `secure_startup(env_path)` which combines `check_env_file_permissions()` and `load_dotenv()` in a single call. The primary entry point and a subset of domain entry points use it, but legacy `main*.py` entry points still use the separate two-call pattern. Source remediation must normalize the supported entry-point set before this control is described as universal.
 
 ```mermaid
 flowchart LR
@@ -255,9 +255,9 @@ echo "SP_MCP_USE_PASSWORD_STASH=1" >> /opt/sp-mcp-server/.env
 | [`src/sp_mcp_server/commands/base.py`](../../src/sp_mcp_server/commands/base.py) | **RG-3**: `_execute_silent_query()` helper |
 | [`src/sp_mcp_server/commands/system/admin.py`](../../src/sp_mcp_server/commands/system/admin.py) | **RG-3**: `DefineAdmin` and `UpdateUser` use `_execute_silent_query` |
 | [`src/sp_mcp_server/commands/clients/node.py`](../../src/sp_mcp_server/commands/clients/node.py) | **RG-3**: `RegisterNode` and `UpdateNode` use `_execute_silent_query` |
-| `src/sp_mcp_server/main.py` + all 14 `main_*.py` entry points | **RG-2**: switched to `secure_startup()` |
+| `src/sp_mcp_server/main.py` + supported domain entry points | **RG-2**: use `secure_startup()`; legacy entry points remain to be normalized |
 | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) | NET-1 check updated to iterate all configured accounts via `credential_for()` |
-| [`scripts/provision-sp-service-accounts.sh`](../../scripts/provision-sp-service-accounts.sh) | CRED-5: new provisioning script |
+| `scripts/provision-sp-service-accounts.sh` (referenced, not present in audited tree) | CRED-5: deployment artifact required or documentation link must be corrected |
 | [`tests/test_security_controls.py`](../../tests/test_security_controls.py) | **RG-6**: new — 36 automated security regression tests |
 | [`tests/test_cli_wrapper.py`](../../tests/test_cli_wrapper.py) | Updated `su` → `sudo` assertions |
 | [`tests/test_core_components.py`](../../tests/test_core_components.py) | Updated `su` → `sudo` assertions |
