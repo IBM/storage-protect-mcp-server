@@ -66,10 +66,26 @@ The detailed prerequisites and verification steps are maintained in [`planning-g
 - [`docs/example/sample-prompts.md`](docs/example/sample-prompts.md) — example administrator prompts
 - [`docs/reference/`](docs/reference/) — product reference material
 
-## Contributing
+## Sample Prompts
 
-Contributions are welcome through pull requests. Follow the existing project conventions, test changes thoroughly, and sign the Developer's Certificate of Origin (DCO) where required.
+For example prompts and longer task-oriented prompt patterns, see [`docs/example/sample-prompts.md`](docs/example/sample-prompts.md).
+
+## Reporting Issues and Feedback
+
+For issues, questions, or feature requests, open an issue in the repository.
+
+## Contributing Code
+
+Contributions are welcome through Pull Requests. Complete the following steps to contribute:
+
+1. Fork the repository and create a new branch for your feature or bug fix.
+2. Make your changes by following the existing code style and conventions.
+3. Test your changes thoroughly to ensure that they work as expected.
+4. Submit a pull request with a clear description of your changes.
+5. Sign the Developer's Certificate of Origin (DCO) by adding your name and email address to the `DCO.md` file in your pull request.
+
+> **Note:** Submit your first Pull Request against the Developer's Certificate of Origin (DCO) located at `DCO.md` by using your name and email address.
 
 ## Disclaimer
 
-This software is provided "as is" without warranties of any kind. Review and test all configuration and scripts before using them in production. IBM is not responsible for damage, charges, or data loss resulting from use of this software.
+This software is provided "as is" without any warranties of any kind, including, but not limited to, warranties related to installation, use, or performance. IBM is not responsible for any damage, charges, or data loss incurred with the use of this software. You are responsible for reviewing and testing any scripts you run thoroughly before you use them in any production environment. This content is subject to change without notice.
