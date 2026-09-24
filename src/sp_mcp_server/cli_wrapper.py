@@ -58,6 +58,11 @@ class DsmAdmcWrapper:
         # ── CRED-2: password stash mode ───────────────────────────────────────
         use_stash = os.environ.get("SP_MCP_USE_PASSWORD_STASH", "0") == "1"
 
+        # ── NET-3: SP server stanza name ──────────────────────────────────────
+        # SP_SERVER_NAME selects the SERVERNAME stanza in dsm.sys so that
+        # dsmadmc connects to the correct server and returns clean CSV output.
+        sp_server_name = os.environ.get("SP_SERVER_NAME", "")
+
         args = [
             self.executable,
             "-NOConfirm",
@@ -65,6 +70,9 @@ class DsmAdmcWrapper:
             f"-ID={cred.admin_id}",
             "-COMMAdelimited",
         ]
+
+        if sp_server_name:
+            args.append(f"-SE={sp_server_name}")
 
         if not use_stash:
             # Legacy mode: pass password on the CLI.

@@ -16,9 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_privileges(stdout: str) -> Set[str]:
-    """Parse privilege classes from QUERY ADMIN <username> FORMAT=DETAILED output."""
+    """Parse privilege classes from QUERY ADMIN output.
+
+    Handles both verbose FORMAT=DETAILED keyword output and CSV output
+    depending on dsmadmc version and dsm.sys DATAONLY setting.
+    """
     privileges = {"any"}
     upper = (stdout or "").upper()
+
+    # Verbose format: "SYSTEM PRIVILEGE: YES"
     if "SYSTEM PRIVILEGE: YES" in upper:
         privileges.add("system")
     if "POLICY PRIVILEGE: YES" in upper:
@@ -27,6 +33,27 @@ def _parse_privileges(stdout: str) -> Set[str]:
         privileges.add("storage")
     if "OPERATOR PRIVILEGE: YES" in upper:
         privileges.add("operator")
+
+    # CSV format: system privilege is field 6 (index 5) = "Yes"
+    # and policy/storage/operator are "** Included with system privilege **"
+    # e.g: VINOY,<date>,<1,<date>,8,Yes,0,No,,Yes,** Included...**,...
+    if not privileges - {"any"}:  # no privileges found yet — try CSV
+        for line in (stdout or "").splitlines():
+            fields = [f.strip() for f in line.split(",")]
+            if len(fields) >= 11:
+                system_field = fields[5].upper()   # field index 5 = System Privilege
+                policy_field = fields[10].upper()  # field index 10 = Policy Privilege
+                storage_field = fields[11].upper() if len(fields) > 11 else ""
+                operator_field = fields[12].upper() if len(fields) > 12 else ""
+                if system_field == "YES" or "INCLUDED WITH SYSTEM" in policy_field:
+                    privileges.add("system")
+                if "INCLUDED WITH SYSTEM" in policy_field or policy_field == "YES":
+                    privileges.add("policy")
+                if "INCLUDED WITH SYSTEM" in storage_field or storage_field == "YES":
+                    privileges.add("storage")
+                if "INCLUDED WITH SYSTEM" in operator_field or operator_field == "YES":
+                    privileges.add("operator")
+
     return privileges
 
 
@@ -129,9 +156,14 @@ class AuthenticateSession(BaseCommand):
         )
 
         # Set identity context for audit & forensics
+        # ContextVar: valid within this async task only
+        # Module-level: persists across all tool calls in this stdio process
         from ...mcp_factory import current_audit_user, current_session_id
+        import sp_mcp_server.mcp_factory as _factory
         current_audit_user.set(username)
         current_session_id.set(lease.session_id)
+        _factory._process_session_id = lease.session_id
+        _factory._process_audit_user = username
 
         response = {
             "success": True,
@@ -209,6 +241,10 @@ class LogoutSession(BaseCommand):
                 current_audit_user.set(None)
             except Exception:
                 pass  # context vars may not be settable outside an async frame
+            # Clear module-level store so next tool call triggers a fresh challenge
+            import sp_mcp_server.mcp_factory as _factory
+            _factory._process_session_id = None
+            _factory._process_audit_user = None
             return json.dumps({
                 "success": True,
                 "message": "Session revoked. Credentials have been cleared from memory.",

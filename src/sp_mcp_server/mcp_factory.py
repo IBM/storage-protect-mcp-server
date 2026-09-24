@@ -18,6 +18,12 @@ current_audit_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextV
 current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_session_id", default=None)
 current_request_privilege: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_request_privilege", default=None)
 
+# Module-level session store — persists the active session ID across tool calls
+# within the same stdio process lifetime (ContextVars are per-async-task and do
+# not survive between separate MCP tool call invocations).
+_process_session_id: Optional[str] = None
+_process_audit_user: Optional[str] = None
+
 import json
 from .session import global_session_manager
 from .config import load_config
@@ -151,18 +157,54 @@ def _validate_session_security(admc_cli: DsmAdmcWrapper, config) -> None:
             )
             sys.exit(1)
 
-        # Parse key: value pairs from QUERY ADMIN FORMAT=DETAILED output.
-        # IBM SP uses comma-delimited mode (-DATAONLY=YES -COMMAdelimited) in
-        # the wrapper, but QUERY ADMIN FORMAT=DETAILED returns labelled rows
-        # even in that mode.
+        # Parse QUERY ADMIN FORMAT=DETAILED output.
+        # With -DATAONLY=YES -COMMAdelimited the SP server returns a flat CSV
+        # row.  ANS* diagnostic lines may also appear in stdout — filter those
+        # out before parsing so they don't interfere with field extraction.
+        data_lines = [
+            line for line in stdout.splitlines()
+            if line.strip() and not line.startswith("ANS")
+        ]
+
         fields: Dict[str, str] = {}
-        for line in stdout.splitlines():
+        for line in data_lines:
             if ":" in line:
                 key, _, val = line.partition(":")
                 fields[key.strip()] = val.strip().rstrip(",")
 
+        # Fallback: comma-delimited flat row — scan the last data line.
+        # QUERY ADMIN FORMAT=DETAILED CSV column order (IBM SP 8.x):
+        #   0:name, 1:last_access, 2:days_since, 3:pwd_set, 4:days_pwd,
+        #   5:pwd_case(Yes/No), 6:invalid_count, 7:locked, 8:contact,
+        #   9:system_priv, 10:policy_priv, 11:storage_priv, 12:operator_priv,
+        #   13:client_priv, 14:client_owner_priv, 15:reg_date, 16:reg_admin,
+        #   17:managing_profile, 18:pwd_expiry, 19:email, 20:email_alerts,
+        #   21:auth_method, 22:pwd_field(Default/...), 23:session_security,
+        #   24:transport_method, 25:cmd_approver, 26:mfa_required
         session_security = fields.get("Session Security", "")
         transport_method = fields.get("Transport Method", "")
+        if not session_security or not transport_method:
+            # Use only the last non-empty data line (the CSV record itself)
+            csv_line = data_lines[-1] if data_lines else ""
+            tokens = [t.strip() for t in csv_line.split(",")]
+            if len(tokens) >= 25:
+                if not session_security:
+                    session_security = tokens[23]
+                if not transport_method:
+                    transport_method = tokens[24]
+            else:
+                # Value-based fallback: TLS prefix is unambiguous
+                if not transport_method:
+                    for tok in tokens:
+                        if tok.upper().startswith("TLS"):
+                            transport_method = tok
+                            break
+                # Session security: only Strict/Transitional are non-default values
+                if not session_security:
+                    for tok in tokens:
+                        if tok.lower() in ("strict", "transitional"):
+                            session_security = tok
+                            break
 
         if session_security.lower() != "strict":
             logger.error(
@@ -454,7 +496,13 @@ def create_mcp_server(
         # ── Dynamic Auth Challenge Interceptor ──────────────────────────────
         auth_mode = os.environ.get("SP_MCP_AUTH_MODE", "service_account").lower()
         if auth_mode == "dynamic" and name != "authenticate_session":
-            active_sid = current_session_id.get() or (arguments and arguments.get("_session_id"))
+            # Prefer module-level store (survives across tool calls in stdio)
+            # then ContextVar (set within same async task), then explicit arg.
+            active_sid = (
+                _process_session_id
+                or current_session_id.get()
+                or (arguments and arguments.get("_session_id"))
+            )
             session = global_session_manager.get_session(active_sid) if active_sid else None
             if session is None:
                 logger.info(
@@ -475,7 +523,9 @@ def create_mcp_server(
                 return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
             else:
                 # Update user identity and execution context from active session.
+                global _process_audit_user
                 current_audit_user.set(session.username)
+                _process_audit_user = session.username
                 if not _privilege_satisfies_for_session(session, tool_privilege):
                     return [TextContent(type="text", text=json.dumps({
                         "is_error": True,
