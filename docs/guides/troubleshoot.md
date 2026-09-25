@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Troubleshooting Guide
 
 This guide covers every error condition the IBM Storage Protect MCP Server can produce, organized from startup failures through runtime issues. Each section includes the exact log message, root cause, and the remediation steps grounded in IBM SP's own security controls.
@@ -633,28 +632,10 @@ error: No module named 'hatchling'
 ### Remediation
 
 ```bash
-=======
-## Troubleshooting
-
-### Issue: Python version too old
-
-```bash
-# Verify Python version
-python3 --version
-
-# If < 3.10, follow Step 1 to install Python 3.11
-```
-
-### Issue: pip install fails with "No module named 'hatchling'"
-
-```bash
-# Install build dependencies
->>>>>>> upstream/main
 pip install --upgrade pip setuptools wheel hatchling
 pip install -e .
 ```
 
-<<<<<<< HEAD
 ---
 
 ### Symptom C — `No module named 'mcp'` or `No module named 'dotenv'`
@@ -1037,38 +1018,3 @@ ls /tmp/ibm-sp-mcp-server/mcp-server.log 2>/dev/null
 - Security analysis: [`../analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 - Network security implementation: [`../implement/impl-security-network.md`](../implement/impl-security-network.md)
 - Identity & credentials implementation: [`../implement/impl-security-identity-credentials.md`](../implement/impl-security-identity-credentials.md)
-=======
-### Issue: dsmadmc not found
-
-```bash
-# Find dsmadmc
-sudo find / -name dsmadmc 2>/dev/null
-
-# Add to PATH
-export PATH=$PATH:/path/to/dsmadmc/directory
-```
-
-### Issue: Permission denied errors
-
-```bash
-# Ensure proper ownership
-sudo chown -R $USER:$USER /opt/sp-mcp-server
-
-# Ensure virtual environment is activated
-source /opt/sp-mcp-server/venv/bin/activate
-```
-
-### Issue: Connection to ISP server fails
-
-```bash
-# Test network connectivity
-ping your.isp.server.com
-
-# Test dsmadmc directly
-dsmadmc -id=admin -password=password -server=your.isp.server.com "query status"
-
-# Check firewall rules
-sudo firewall-cmd --list-all
-```
-
->>>>>>> upstream/main

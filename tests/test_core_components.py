@@ -104,17 +104,12 @@ def test_dsmserv_wrapper_uses_instance_user(monkeypatch):
     assert stdout == "offline ok"
     assert stderr == ""
     assert code == 0
-<<<<<<< HEAD
     # ACC-4: sudo -u <user> -- used instead of su - <user> -c <cmd>
     assert captured["args"][0:4] == ["sudo", "-u", "tsminst1", "--"]
     assert captured["args"][4] == "/bin/dsmserv"
     assert "-i" in captured["args"]
     assert "DISPLAY" in captured["args"]
     assert "DBSPACE" in captured["args"]
-=======
-    assert captured["args"][0:3] == ["su", "-", "tsminst1"]
-    assert "/bin/dsmserv -i /home/tsminst1 DISPLAY DBSPACE" in captured["args"][4]
->>>>>>> upstream/main
 
 
 def test_servermon_wrapper_returns_existing_output_when_busy(monkeypatch, tmp_path):
@@ -146,7 +141,7 @@ def test_servermon_wrapper_returns_existing_output_when_busy(monkeypatch, tmp_pa
 
 
 def test_query_server_status_executes_expected_command():
-    cli = DummyCli(stdout="STATUS OK")
+    cli: DummyCli = DummyCli(stdout="STATUS OK")
     cmd = QueryServerStatus(cli)
 
     result = cmd.execute({})
