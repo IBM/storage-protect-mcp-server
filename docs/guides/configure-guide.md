@@ -1,5 +1,6 @@
 # Configuration Guide
 
+<<<<<<< HEAD
 > **Before configuring:** Complete [`planning-guide.md`](planning-guide.md) to choose your deployment topology and plan your SP server inventory, service accounts, and SSH keys. Complete [`install-guide.md`](install-guide.md) to install the MCP server software. The steps in this guide assume both are done.
 
 This guide contains MCP client configuration examples for connecting to the IBM Storage Protect MCP Server, covering all supported transports and deployment scenarios.
@@ -141,18 +142,26 @@ Use `--enable-servers` to register only the tool groups you need. Available modu
 ```
 
 #### Windows — remote access to a Windows SP server
+=======
+This guide contains MCP client configuration examples for connecting to the IBM Storage Protect MCP Server from Linux and Windows environments.
+
+## Linux MCP Client Configuration
+
+Add the following to your MCP client configuration:
 
 ```json
 {
   "mcpServers": {
-    "sp-mcp-server-windows": {
-      "command": "ssh",
+    "sp-mcp-server": {
+      "command": "sshpass",
       "args": [
-        "-i", "C:\\Users\\<your-username>\\.ssh\\id_ed25519_sp_mcp",
-        "-o", "StrictHostKeyChecking=yes",
-        "-o", "BatchMode=yes",
-        "mcp-runner@<windows-sp-server-ip>",
-        "powershell -NoProfile -Command \"cd C:\\sp-mcp-server; .\\.venv\\Scripts\\Activate.ps1; python -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage\""
+        "-p",
+        "your_root_password",
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "root@your-sp-server",
+        "cd /opt/sp-mcp-server && source venv/bin/activate && python3 -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
       ],
       "disabled": false,
       "alwaysAllow": []
@@ -161,6 +170,69 @@ Use `--enable-servers` to register only the tool groups you need. Available modu
 }
 ```
 
+## Windows MCP Client Configuration
+
+### SSH Setup for Windows Remote Access
+
+If you need to access the Windows MCP server remotely from a Mac or Linux machine:
+
+**Step 1: Generate SSH Key Pair**
+
+On your local machine (Mac/Linux):
+
+```bash
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_windows
+```
+
+**Step 2: Copy Public Key to Windows**
+
+```bash
+ssh-copy-id -i ~/.ssh/id_rsa_windows.pub SPuser@<windows-machine-ip>
+```
+
+Or manually append the public key content to `C:\Users\SPuser\.ssh\authorized_keys` on Windows.
+
+**Step 3: Test SSH Connection**
+
+```bash
+ssh -i ~/.ssh/id_rsa_windows SPuser@<windows-machine-ip>
+```
+
+**Step 4: Configure MCP Client**
+
+Add the following to your MCP client configuration:
+>>>>>>> upstream/main
+
+```json
+{
+  "mcpServers": {
+    "sp-mcp-server-windows": {
+      "command": "ssh",
+      "args": [
+<<<<<<< HEAD
+        "-i", "C:\\Users\\<your-username>\\.ssh\\id_ed25519_sp_mcp",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", "BatchMode=yes",
+        "mcp-runner@<windows-sp-server-ip>",
+        "powershell -NoProfile -Command \"cd C:\\sp-mcp-server; .\\.venv\\Scripts\\Activate.ps1; python -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage\""
+=======
+        "-i",
+        "/Users/<your-username>/.ssh/id_rsa_windows",
+        "SPuser@<windows-machine-ip>",
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        "cd C:\\sp-mcp-server; .\\venv\\Scripts\\Activate.ps1; python -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
+>>>>>>> upstream/main
+      ],
+      "disabled": false,
+      "alwaysAllow": []
+    }
+  }
+}
+```
+
+<<<<<<< HEAD
 ### `sshd_config` hardening on the SP server (recommended)
 
 On the Linux SP server, restrict the `mcp-runner` account to key-only auth with no TTY or port-forwarding. Add to `/etc/ssh/sshd_config.d/mcp-runner.conf`:
@@ -659,3 +731,10 @@ Every security control applies independently per MCP server process regardless o
 - Security — Implementation (Credentials): [`../implement/impl-security-identity-credentials.md`](../implement/impl-security-identity-credentials.md)
 - Security — Implementation (Network): [`../implement/impl-security-network.md`](../implement/impl-security-network.md)
 - Security — Integrations: [`../implement/impl-security-integrations.md`](../implement/impl-security-integrations.md)
+=======
+## Related Documentation
+
+- Installation steps: [`install-guide.md`](install-guide.md)
+- User guidance: [`user-guide.md`](user-guide.md)
+- Main project overview: [`../../README.md`](../../README.md)
+>>>>>>> upstream/main

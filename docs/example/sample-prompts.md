@@ -1,5 +1,6 @@
 # Sample Prompts
 
+<<<<<<< HEAD
 A collection of naturalistic, task-oriented prompts for the IBM Storage Protect MCP Server, organised by persona. Each prompt carries **intent** (what the user wants to accomplish), **context** (the environment or scope), and **form** (how the answer should be delivered). All prompts use the [Sample Deployment Topology](#sample-deployment-topology) defined below — substitute your own server names, node names, pool names, and dates when adapting them.
 
 ---
@@ -160,11 +161,33 @@ SPSVR02 (DR replica)
 > Day-to-day operation and monitoring of the IBM Storage Protect environment: client deployment, backup policy, storage pools, scheduling, node lifecycle, and failure triage.
 
 ### Discovery & status
+=======
+This document provides readable, task-oriented sample prompts for the IBM Storage Protect MCP Server. Use these prompts as starting points and adapt names, server identifiers, dates, and scope to your environment.
+
+## How to Use These Prompts
+
+When writing prompts:
+
+- keep the scope narrow
+- prefer exact object names when known
+- ask for one task at a time
+- avoid broad log searches unless necessary
+- ask for summaries first, then drill into details
+
+---
+
+## 1. Discover Available Capabilities
+
+Use these prompts to understand what servers and tools are available before starting operational work.
+
+### List available MCP servers and tools
+>>>>>>> upstream/main
 
 ```text
 What micro-MCP servers and tools are available in sp-mcp-server-remote-tumbleweed?
 ```
 
+<<<<<<< HEAD
 ```text
 List all IBM Storage Protect commands called by the tools in sp-mcp-server-remote-tumbleweed.
 ```
@@ -235,10 +258,17 @@ Show me all failed backup operations on SPSVR01 from the last 24 hours. For each
 
 ```text
 Run a server-side database backup on SPSVR01 to POOL_DBBACKUP using SCHED_DBBACKUP_DAILY and confirm it completed successfully using query_volume_history with TYPE=DBBACKUP.
+=======
+### Map tools to IBM Storage Protect commands
+
+```text
+List all IBM Storage Protect commands called by the tools available in sp-mcp-server-remote-tumbleweed.
+>>>>>>> upstream/main
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-02 · Data Protection Administrator
 
 > Advanced administration: performance tuning, capacity expansion, anti-pattern audits, database diagnostics, tape library management, VTL integration, and NDMP NAS backup.
@@ -305,10 +335,39 @@ I am integrating an IBM ProtecTIER VTL as an additional copy target on SPSVR01. 
 
 ```text
 Configure NDMP backup for the NetApp NAS filer on NASSVR01_NODE: update the datamover NAS_MOVER_01 configuration if needed, confirm the filespace definition, and explain the NDMP topology SPSVR01 uses to move data into POOL_DISK_PRIMARY.
+=======
+## 2. Basic Information Requests
+
+Use these prompts for quick operational visibility.
+
+### Check database status
+
+```text
+What is the database status?
+```
+
+### List active clients
+
+```text
+Show me all active clients.
+```
+
+### Review failed operations
+
+```text
+Show me all failed operations from the last 24 hours.
+```
+
+### Check running threads
+
+```text
+How many threads are running?
+>>>>>>> upstream/main
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-03 · Infrastructure Solution Architect
 
 > Environment sizing, solution architecture, server deployment, upgrade planning, cloud tiering strategy, licensing, and TCO optimisation. Operates at Day-0 design through Day-2 cost review.
@@ -377,10 +436,27 @@ Prepare a licence consumption audit for sp-mcp-server-remote-tumbleweed: retriev
 
 ```text
 I am presenting a TCO optimisation analysis for SPSVR01. Retrieve current storage pool utilisation across POOL_DISK_PRIMARY and POOL_CLOUD_TIER, deduplication ratios using query_deduplication_stats, and active node count using query_client. Identify the top three cost optimisation levers across storage capacity, licensing, and cloud egress.
+=======
+## 3. Configuration and Provisioning Tasks
+
+Use these prompts for common administrative changes.
+
+### Create a device class
+
+```text
+Create a devclass named foo_devclass1.
+```
+
+### Create a primary storage pool
+
+```text
+Create a PRIMARY storage pool named my_container_pool using the DISK devclass with description "My storage pool".
+>>>>>>> upstream/main
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-04 · Workload & Application Owner
 
 > Application-specific backup integration for databases, virtualised workloads, and NDMP NAS. Collaborates with R-01 and R-02 to integrate a specific workload into the backup environment.
@@ -421,10 +497,27 @@ VMPROXY01_NODE is the SPVE proxy for our VMware vSphere 8 environment protecting
 
 ```text
 One of our VMware production VMs needs to be restored to its state at 2024-11-10 03:00 using IBM Storage Protect for Virtual Environments via VMPROXY01_NODE. Walk me through the server-side checks to confirm the backup exists and the conditions under which instant access restore is preferred over a full VM restore.
+=======
+## 4. How-To and Concept Questions
+
+Use these prompts when you want explanation plus an example.
+
+### Tier data from container storage to cloud storage
+
+```text
+What are the steps to tier data from a container-type storage pool to a cloud-type storage pool? Show me an example of how to do this.
+```
+
+### Understand retention concepts
+
+```text
+What is retset and how is it related to a retention pool?
+>>>>>>> upstream/main
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-05 · Security & Compliance Officer
 
 > Security hardening, immutability and retention controls, verified recovery, configuration drift detection, and regulatory compliance mapping (NIST SP 800-53, EU DORA, BSI C5, ISO 27001).
@@ -489,10 +582,33 @@ Generate a BSI C5 and ISO 27001 compliance checklist for SPSVR01. Map OPS-09, OP
 
 ```text
 Produce a security hardening gap analysis for sp-mcp-server-remote-tumbleweed: retrieve SSL options and admin account data via query_server_option and query_admin_user, node lock status for inactive nodes via query_client, and WORM retention settings for MC_WORM_7YR via query_protection_policy. Map each finding to its NIST SP 800-53 control and rate its severity.
+=======
+## 5. Monitoring and Diagnostics
+
+Use these prompts for health checks and issue investigation.
+
+### Run server monitoring
+
+```text
+Run the tool run_servermon.
+```
+
+### Check thread count and database condition
+
+```text
+How many threads are running, and what is the DB status? Tell me whether it is almost full or locked.
+```
+
+### Analyze servermon output
+
+```text
+Analyze the servermon logs for customer issues and summarize the most important findings.
+>>>>>>> upstream/main
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-06 · Resilience Operations Manager
 
 > Schedule compliance monitoring, application-aware backup scope, ITIL incident/problem/change management, disaster recovery execution, and ransomware incident response.
@@ -561,10 +677,33 @@ We suspect ransomware has encrypted data on DBSQL01_NODE since approximately 202
 
 ```text
 A ransomware incident has been confirmed on DBSQL01_NODE. Use query_client_backup_volume to retrieve all backup versions from the last 14 days and identify the last backup set that predates the infection timestamp of 2024-11-12 14:00. Summarise which SQL Server databases can be recovered from POOL_DISK_PRIMARY and what data is at risk.
+=======
+## 6. Solution-Oriented Scenario Prompts
+
+These prompts are longer because they describe a role, objective, and expected outcome.
+
+### Cloud Architect: validate tiering efficiency
+
+```text
+On sp-mcp-server-remote-tumbleweed, I am a Cloud Architect managing data movement to object storage. I want to validate tiering efficiency. Analyze the age of data residing on high-performance disk versus the cloud tier. Identify data that meets cold criteria but has not moved, and recommend migration threshold adjustments to optimize storage cost.
+```
+
+### Capacity Planner: forecast storage sustainability
+
+```text
+On sp-mcp-server-remote-tumbleweed, I am a Capacity Planner managing IBM Storage Protect storage pools. Retrieve storage utilization trends for the last 90 days, including deduplication savings, compression ratios, and daily data ingest rates across disk and cloud tiers. Forecast capacity exhaustion timelines and recommend repository expansion or policy adjustments.
+```
+
+### Platform Owner: assess database health
+
+```text
+On sp-mcp-server-remote-tumbleweed, I am a Platform Owner monitoring system stability. Analyze database growth trends, reorganization status, and maintenance job success over the last 30 days. Identify performance risks caused by fragmentation and recommend optimization steps to prevent service latency.
+>>>>>>> upstream/main
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-07 · Storage Protect Service Engineer
 
 > IBM field and remote service professional: deployment health assessment, Blueprint-based resizing, upgrade and fix-pack planning, performance and cost optimisation, security vulnerability analysis, and defect investigation using Servermon and IBM Support tooling.
@@ -703,12 +842,118 @@ Output Format:
 Constraints:
 - Limit analysis to the last 24 hours only.
 - Query one schedule and one failed event at a time.
+=======
+## 7. Prompt Design for Large Investigations
+
+Large prompts can fail if they trigger overly broad queries. The example below shows how to refine a troubleshooting request so it stays constrained and readable.
+
+### Broad prompt that can exhaust context
+
+```text
+I am a Backup Engineer looking to reduce manual troubleshooting. Identify all failed or missed backup schedules in the last 24 hours. Categorize failures by root cause such as communication errors, locked files, or out-of-space conditions.
+```
+
+### Refined prompt with execution constraints
+
+```text
+You are assisting a Backup Engineer to reduce manual troubleshooting in IBM Storage Protect.
+
+Goal:
+Identify all failed or missed client backup schedules in the last 24 hours and categorize each by likely root cause.
+
+Query success rules:
+1. Prefer the most constrained query possible before expanding scope.
+2. Never call query_scheduled_event without first discovering a valid policy domain and relevant schedule names.
+3. Never call query_activity_log without both:
+   - a specific search term
+   - a narrow date/time window
+4. If a query fails, retry once with a simpler but still constrained parameter set.
+5. If a query still fails, state the exact failed query pattern and move to the next best constrained query.
+
+Required execution sequence:
+
+Step 1 - Discover valid scope
+- Use query_policy_group first to identify valid policy domains.
+- Use query_schedule with domain_name and type="client" to list candidate backup schedules.
+- Focus only on schedules whose start times fall within the last 24 hours or whose period indicates daily execution.
+
+Step 2 - Query scheduled events using narrow scope
+- Run query_scheduled_event only after identifying:
+  - one valid policy_group
+  - one or more exact schedule_name values
+- Query one schedule at a time.
+- Use date filters in MM/DD/YYYY format.
+- If supported, add start and end times only in exact HH-SS format.
+- Do not issue broad, all-domain event queries.
+
+Step 3 - Keep only abnormal events
+- Retain only events with status Failed, Missed, Incomplete, or abnormal non-success result codes.
+
+Step 4 - Validate each abnormal event with targeted log search
+- Use query_activity_log only for one failed event at a time.
+- Search using the most specific available discriminator, in this order:
+  1. exact node name
+  2. exact schedule name
+  3. specific IBM message code, if already known
+- Always include a narrow time window around the scheduled or actual event time.
+- Start with a window of plus or minus 60 minutes.
+- Expand only once to plus or minus 180 minutes if no evidence is found.
+- Never run broad searches such as all ANR*, all VMWARE_*, or unbounded 24-hour log scans.
+
+Step 5 - Root cause classification
+Classify each event as one of the following:
+- Communication error
+- Locked file or file in use
+- Out of space or storage pool full
+- Authentication, node locked, or password issue
+- Schedule window, timeout, or missed window
+- Other or unknown
+
+Step 6 - If query_scheduled_event fails
+- Retry once using a simpler valid call:
+  - exact policy_group
+  - exact schedule_name
+  - date only, no time filters
+- If it still fails, continue schedule-by-schedule using:
+  - query_schedule
+  - query_client
+  - query_active_session
+  - query_storage_container
+- Mark findings as Likely instead of Confirmed.
+
+Step 7 - If query_activity_log fails
+- Retry once with:
+  - a single exact node or schedule search term
+  - a smaller time window
+- If it still fails, do not broaden the query.
+- Use operational evidence from:
+  - query_client
+  - query_active_session
+  - query_storage_container
+
+Output format:
+- Executive Summary
+- Confirmed Failed or Missed Schedules Table
+- Likely Failed or Abnormal Schedules Table
+- Top Recurring Failure Patterns
+- Environmental Risks
+- Items Requiring Immediate Attention
+- Limitations
+
+Constraints:
+- Limit analysis to the last 24 hours only.
+- Use query_policy_group and query_schedule to discover valid inputs before query_scheduled_event.
+- Use query_activity_log only with exact search terms and narrow time windows.
+- Query one schedule at a time rather than all schedules at once.
+- Query one failed event at a time rather than all logs at once.
+>>>>>>> upstream/main
 - Do not include raw log dumps unless a single short message is essential as evidence.
 - Clearly distinguish Confirmed from Likely findings.
 ```
 
 ---
 
+<<<<<<< HEAD
 ## R-08 · Multi-Server Replication & Data Management
 
 > Cross-server replication topology management, DR readiness, archive data lifecycle across SPSVR01, SPSVR02, and SPSVR03, and multi-server backup compliance. Relevant to Data Protection Operators, Administrators, Resilience Operations Managers, Security & Compliance Officers, and Infrastructure Solution Architects working in an environment where multiple IBM SP servers replicate data between themselves.
@@ -974,3 +1219,12 @@ Constraints:
 - Do not run broad unbounded queries against all nodes simultaneously.
 - Clearly distinguish Confirmed failures (from query_replication_failures) from Likely failures (inferred from query_replication_client).
 ```
+=======
+## 8. Tips for Better Results
+
+- Replace placeholder server names with your actual MCP server name.
+- Prefer exact object names such as node names, schedule names, and pool names.
+- Ask for summaries before requesting raw details.
+- For troubleshooting, constrain by time window, object name, and failure type.
+- For change operations, clearly state the desired object name and configuration values.
+>>>>>>> upstream/main
