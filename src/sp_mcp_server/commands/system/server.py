@@ -9,6 +9,9 @@ class DefineServer(BaseCommand):
         return "define_server"
     
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Define a **Server** for server-to-server communications (e.g., replication, library sharing).\n\n"
@@ -49,6 +52,9 @@ class DefineServerGroup(BaseCommand):
         return "define_server_group"
     
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Define a **Server Group** to manage multiple servers as a single unit.\n\n"
@@ -81,6 +87,9 @@ class DefineGroupMember(BaseCommand):
     def name(self) -> str:
         return "define_group_member"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Add a **Server** to a **Server Group**.\n\n"
@@ -108,6 +117,9 @@ class DefineEventServer(BaseCommand):
     def name(self) -> str:
         return "define_event_server"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Define a server as the **Event Server** (target for logging events).\n\n"
@@ -133,6 +145,9 @@ class UpdateServer(BaseCommand):
     @property
     def name(self) -> str:
         return "update_server"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (
@@ -172,6 +187,9 @@ class UpdateServerGroup(BaseCommand):
     def name(self) -> str:
         return "update_server_group"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates the description of an existing **Server Group**.\n\n"
@@ -201,6 +219,9 @@ class DeleteServer(BaseCommand):
     def name(self) -> str:
         return "delete_server"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Server** definition. This removes the configuration for server-to-server communication.\n\n"
@@ -227,6 +248,9 @@ class DeleteServerGroup(BaseCommand):
     def name(self) -> str:
         return "delete_server_group"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Server Group**. This removes the grouping but does not delete the member servers themselves.\n\n"
@@ -252,6 +276,9 @@ class DeleteGroupMember(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_group_member"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (
@@ -280,6 +307,9 @@ class DeleteEventServer(BaseCommand):
     def name(self) -> str:
         return "delete_event_server"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes an **Event Server** definition.\n\n"
@@ -306,6 +336,9 @@ class QueryServerStatus(BaseCommand):
     def name(self) -> str:
         return "query_server_status"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -342,6 +375,9 @@ class QueryServerOption(BaseCommand):
     def name(self) -> str:
         return "query_server_option"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

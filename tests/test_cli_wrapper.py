@@ -1,25 +1,26 @@
 from sp_mcp_server.cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
-from sp_mcp_server.config import ServerConfig
 
-
-def make_config():
-    return ServerConfig(
-        server_address="test.server.com",
-        server_port="1500",
-        admin_id="admin",
-        admin_password="password",
-        dsmserv_path="/bin/dsmserv",
-        servermon_path="/bin/servermon",
-        servermon_xml_dir="/tmp/servermon",
-        instance_user="tsminst1",
-    )
+from tests.fixtures import (
+    make_server_config,
+    ADMIN_ID,
+    ADMIN_PASSWORD,
+    SP_INSTANCE_USER,
+    DSMSERV_PATH,
+    SERVERMON_PATH,
+    SP_OUTPUT_QUERY_OUTPUT,
+    SP_OUTPUT_OFFLINE_OK,
+    SP_OUTPUT_SERVERMON_PLAIN,
+    CMD_QUERY_STATUS,
+    CMD_DISPLAY_DBSPACE,
+    SERVERMON_ARGS_STANDARD,
+)
 
 
 def test_dsmadmc_execute_success(monkeypatch):
     captured = {}
 
     class Result:
-        stdout = "Output data"
+        stdout = SP_OUTPUT_QUERY_OUTPUT
         stderr = ""
         returncode = 0
 
@@ -29,18 +30,18 @@ def test_dsmadmc_execute_success(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    wrapper = DsmAdmcWrapper(make_config())
-    stdout, stderr, code = wrapper.execute("QUERY STATUS")
+    wrapper = DsmAdmcWrapper(make_server_config())
+    stdout, stderr, code = wrapper.execute(CMD_QUERY_STATUS)
 
-    assert stdout == "Output data"
+    assert stdout == SP_OUTPUT_QUERY_OUTPUT
     assert stderr == ""
     assert code == 0
     assert captured["args"][0].endswith("dsmadmc")
     assert "-NOConfirm" in captured["args"]
     assert "-DATAONLY=YES" in captured["args"]
     assert "-COMMAdelimited" in captured["args"]
-    assert "-ID=admin" in captured["args"]
-    assert "-PA=password" in captured["args"]
+    assert f"-ID={ADMIN_ID}" in captured["args"]
+    assert f"-PA={ADMIN_PASSWORD}" in captured["args"]
     assert "QUERY" in captured["args"]
     assert "STATUS" in captured["args"]
 
@@ -51,8 +52,8 @@ def test_dsmadmc_execute_file_not_found(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    wrapper = DsmAdmcWrapper(make_config())
-    stdout, stderr, code = wrapper.execute("QUERY STATUS")
+    wrapper = DsmAdmcWrapper(make_server_config())
+    stdout, stderr, code = wrapper.execute(CMD_QUERY_STATUS)
 
     assert stdout == ""
     assert "dsmadmc executable not found" in stderr
@@ -63,7 +64,7 @@ def test_dsmserv_execute_without_instance_user(monkeypatch):
     captured = {}
 
     class Result:
-        stdout = "offline ok"
+        stdout = SP_OUTPUT_OFFLINE_OK
         stderr = ""
         returncode = 0
 
@@ -73,23 +74,22 @@ def test_dsmserv_execute_without_instance_user(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    config = make_config()
-    config.instance_user = None
+    config = make_server_config(instance_user=None)
 
     wrapper = DsmServWrapper(config)
-    stdout, stderr, code = wrapper.execute("DISPLAY DBSPACE")
+    stdout, stderr, code = wrapper.execute(CMD_DISPLAY_DBSPACE)
 
-    assert stdout == "offline ok"
+    assert stdout == SP_OUTPUT_OFFLINE_OK
     assert stderr == ""
     assert code == 0
-    assert captured["args"] == ["/bin/dsmserv", "DISPLAY", "DBSPACE"]
+    assert captured["args"] == [DSMSERV_PATH, "DISPLAY", "DBSPACE"]
 
 
 def test_servermon_execute_runs_command(monkeypatch):
     captured = {}
 
     class Result:
-        stdout = "servermon ok"
+        stdout = SP_OUTPUT_SERVERMON_PLAIN
         stderr = ""
         returncode = 0
 
@@ -99,24 +99,26 @@ def test_servermon_execute_runs_command(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    wrapper = ServermonWrapper(make_config())
+    wrapper = ServermonWrapper(make_server_config())
     monkeypatch.setattr(wrapper, "_check_servermon_running", lambda: False)
 
-    stdout, stderr, code = wrapper.execute(["-standard"])
+    stdout, stderr, code = wrapper.execute(SERVERMON_ARGS_STANDARD)
 
-    assert stdout == "servermon ok"
+    assert stdout == SP_OUTPUT_SERVERMON_PLAIN
     assert stderr == ""
     assert code == 0
-    assert captured["args"][0:3] == ["su", "-", "tsminst1"]
-    assert "/bin/servermon -standard" in captured["args"][4]
+    # ACC-4: sudo -u <user> -- used instead of su - <user> -c <cmd>
+    assert captured["args"][0:4] == ["sudo", "-u", SP_INSTANCE_USER, "--"]
+    assert captured["args"][4] == SERVERMON_PATH
+    assert SERVERMON_ARGS_STANDARD[0] in captured["args"]
 
 
 def test_servermon_returns_busy_error_when_no_existing_output(monkeypatch):
-    wrapper = ServermonWrapper(make_config())
+    wrapper = ServermonWrapper(make_server_config())
     monkeypatch.setattr(wrapper, "_check_servermon_running", lambda: True)
     monkeypatch.setattr(wrapper, "_get_latest_servermon_output", lambda: None)
 
-    stdout, stderr, code = wrapper.execute(["-standard"])
+    stdout, stderr, code = wrapper.execute(SERVERMON_ARGS_STANDARD)
 
     assert stdout == ""
     assert "Another servermon instance is currently running" in stderr

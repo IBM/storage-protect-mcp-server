@@ -7,6 +7,9 @@ class DefinePath(BaseCommand):
         return "define_path"
         
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Data Path** allowing communication between a source and destination.\n"
@@ -49,6 +52,9 @@ class UpdatePath(BaseCommand):
     def name(self) -> str:
         return "update_path"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Update the data path between a source (like a server or data mover) and a destination (drive, library) to allow data transfer.\n"
@@ -88,6 +94,9 @@ class DeletePath(BaseCommand):
     def name(self) -> str:
         return "delete_path"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Path** definition.\n"
@@ -122,6 +131,9 @@ class QueryDataPath(BaseCommand):
     def name(self) -> str:
         return "query_data_path"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

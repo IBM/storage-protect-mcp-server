@@ -7,6 +7,9 @@ class DefineManagementClass(BaseCommand):
         return "define_management_class"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Defines a **Management Class** (also known as a Retention Policy in IBM SP terminology). A management class is the binding point users apply to individual files or objects to specify how they are managed; it contains one or more Copy Groups that define versioning and retention behavior.\n"
@@ -43,6 +46,9 @@ class UpdateManagementClass(BaseCommand):
     def name(self) -> str:
         return "update_management_class"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Updates a **Management Class** (policy object) description.\n"
@@ -76,6 +82,9 @@ class DeleteManagementClass(BaseCommand):
     def name(self) -> str:
         return "delete_management_class"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Management Class** (policy object).\n"
@@ -105,6 +114,9 @@ class AssignDefMgmtClass(BaseCommand):
     def name(self) -> str:
         return "assign_defmgmtclass"
     
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -139,6 +151,9 @@ class QueryProtectionPolicy(BaseCommand):
     def name(self) -> str:
         return "query_protection_policy"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

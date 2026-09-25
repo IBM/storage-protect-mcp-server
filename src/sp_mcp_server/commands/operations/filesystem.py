@@ -6,6 +6,9 @@ class DefineObjectDomain(BaseCommand):
     def name(self) -> str:
         return "define_object_domain"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Define a policy domain for object clients (e.g., S3 clients).\n"
@@ -30,6 +33,9 @@ class DefineVirtualFSMapping(BaseCommand):
     @property
     def name(self) -> str:
         return "define_virtual_fs_mapping"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -59,6 +65,9 @@ class UpdateVirtualFSMapping(BaseCommand):
     @property
     def name(self) -> str:
         return "update_virtual_fs_mapping"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (
@@ -90,6 +99,9 @@ class DeleteVirtualFSMapping(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_virtual_fs_mapping"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (

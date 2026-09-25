@@ -157,18 +157,25 @@ ISP_POLICIES_MANAGEMENT = [
 # 8. mcp-server-system-admin (~15 tools)
 # Focus: Administrators and Permissions.
 ISP_SYSTEM_ADMIN = [
+    sys_cmd.AuthenticateSession,  # Dynamic auth lease tool
     sys_cmd.DefineAdmin,
-    sys_cmd.UpdateUser,         # UpdateAdmin
+    sys_cmd.UpdateUser,           # UpdateAdmin
     sys_cmd.DeleteAdmin,
     sys_cmd.QueryAdminUser,
-    sys_cmd.SetUserLock,        # Lock/Unlock Admin
-    sys_cmd.GrantAuthority,     # NEW
-    sys_cmd.RevokeAuthority,    # NEW
-    sys_cmd.RegisterLicense,    # NEW
+    sys_cmd.SetUserLock,          # Lock/Unlock Admin
+    sys_cmd.GrantAuthority,       # NEW
+    sys_cmd.RevokeAuthority,      # NEW
+    sys_cmd.RegisterLicense,      # NEW
     sys_cmd.QueryLicenseInfo,
     sys_cmd.DefineMachine,
     sys_cmd.UpdateMachine,
-    sys_cmd.DeleteMachine
+    sys_cmd.DeleteMachine,
+    # POL-1: Command approval tools
+    ops.ApprovePendingCmd,
+    ops.RejectPendingCmd,
+    ops.WithdrawPendingCmd,
+    # POL-1: Query pending commands (read-only, already in misc)
+    ops.QueryPendingCommand,
 ]
 
 # 9. mcp-server-system-config (~12 tools)
@@ -370,6 +377,17 @@ ISP_RULES = [
     ops.DefineHold,
     ops.DeleteHold,
     ops.DefineRetentionRule
+]
+
+# ISP_VOLUMES - Volume lifecycle management (used by main_volumes.py)
+ISP_VOLUMES = [
+    stg_cmd.DefineVolume,
+    stg_cmd.UpdateVolume,
+    stg_cmd.DeleteVolume,
+    stg_cmd.QueryMediaVolume,
+    stg_cmd.UpdateVolumeHistory,
+    stg_cmd.QueryMountedVolumes,
+    stg_cmd.QueryVolumeHistory
 ]
 
 # ISP_MISC_OPS - Miscellaneous operations

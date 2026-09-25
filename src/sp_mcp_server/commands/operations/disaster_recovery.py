@@ -7,6 +7,9 @@ class QueryDRStatus(BaseCommand):
         return "query_dr_status"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Display the current settings and status for the Disaster Recovery Manager (DRM).\n\n"
@@ -32,6 +35,9 @@ class QueryDRMedia(BaseCommand):
     def name(self) -> str:
         return "query_dr_media"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -64,6 +70,9 @@ class QueryRecoveryPlanFile(BaseCommand):
     def name(self) -> str:
         return "query_recovery_plan_file"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -122,6 +131,9 @@ class QueryRecoveryPlanFileContent(BaseCommand):
         return "query_recovery_plan_file_content"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Display the contents of a recovery plan file stored on a target server.\n\n"
@@ -169,6 +181,9 @@ class BackupDB(BaseCommand):
         return "backup_db"
 
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Backs up the **Server Database** (DB). This is a critical operation for disaster recovery.\n"
@@ -205,6 +220,9 @@ class RestoreDB(BaseCommand):
     def name(self) -> str:
         return "restore_db"
 
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (

@@ -7,6 +7,9 @@ class DefineDrive(BaseCommand):
         return "define_drive"
 
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Tape Drive** within a specific Tape Library.\n"
@@ -45,6 +48,9 @@ class UpdateDrive(BaseCommand):
     def name(self) -> str:
         return "update_drive"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates a **Drive** definition.\n"
@@ -78,6 +84,9 @@ class DeleteDrive(BaseCommand):
     def name(self) -> str:
         return "delete_drive"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Drive** definition.\n"
@@ -105,6 +114,9 @@ class QueryTapeDrive(BaseCommand):
     def name(self) -> str:
         return "query_tape_drive"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -142,6 +154,9 @@ class QueryTapeAlerts(BaseCommand):
     def name(self) -> str:
         return "query_tape_alerts"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

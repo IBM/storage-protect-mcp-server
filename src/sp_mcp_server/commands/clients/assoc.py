@@ -7,6 +7,9 @@ class DefineAssociation(BaseCommand):
         return "define_association"
     
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Associates **Nodes** with a **Schedule** to automate backup operations.\n"
@@ -38,6 +41,9 @@ class DeleteAssociation(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_association"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (

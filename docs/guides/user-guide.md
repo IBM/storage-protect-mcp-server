@@ -1,173 +1,405 @@
 # User Guide
 
-This guide helps end users get started with the IBM Storage Protect MCP Server after installation. It summarizes what the server does, what you need before using it, how to configure it, and how to interact with it safely.
+> **Prerequisites:** Complete [`planning-guide.md`](planning-guide.md), [`install-guide.md`](install-guide.md), and [`configure-guide.md`](configure-guide.md) before using this guide. The steps here assume the server is installed, service accounts are provisioned, and the MCP client is configured.
+
+This guide helps operators and AI-assisted workflows get the most out of the IBM Storage Protect MCP Server after installation and configuration. It covers what the server does, how privilege tiers control access, how to interact with it safely, and how to audit what it does.
+
+---
 
 ## What the MCP Server Does
 
-The IBM Storage Protect Model Context Protocol (MCP) server enables natural language administration of IBM Storage Protect environments through AI-assisted workflows. Instead of manually composing every administrative command, you can ask for common operational, configuration, and reporting tasks in plain language.
+The IBM Storage Protect MCP Server exposes IBM SP administrative operations as structured tools that any MCP-compatible client (Claude, VS Code Copilot, an automated pipeline) can invoke. Instead of composing `dsmadmc` commands manually, you describe what you want in natural language and the AI agent translates that into the appropriate tool call.
 
-Typical use cases include:
+Typical use cases:
 
-- checking system status
-- reviewing client activity
-- investigating failed operations
-- querying storage utilization
-- assisting with policy and configuration tasks
+| Category | Examples |
+|----------|---------|
+| Monitoring | Check server status, review active sessions, query storage utilization |
+| Investigation | Find failed operations, search activity logs, check alert history |
+| Client management | Register or update nodes, manage node groups, review policy assignments |
+| Storage operations | Define or update storage pools, check volume usage, manage device classes |
+| Policy management | Create or activate policy sets, manage management classes and copy groups |
+| System administration | Manage administrators, licenses, and server-to-server connections |
+| Offline diagnostics | Run `servermon`, check DB space and recovery logs |
 
-## Before You Start
+---
 
-Make sure the following are available before using the server:
+## Authentication Models & Privilege Tiers
 
-- an IBM Storage Protect server
-- administrator credentials with appropriate permissions
-- access to the IBM Storage Protect instance user account when `dsmserv`-based operations are required
-- Python 3.10 or higher
-- a completed installation of the MCP server
+### Authentication Models
 
-For installation steps, see [`install-guide.md`](install-guide.md) and the main [`README.md`](../../README.md).
+The MCP server supports two authentication operational models:
 
-## Required Configuration
+1. **Static Tiered Service Accounts (`SP_MCP_AUTH_MODE=service_account`, default)**:
+   The server connects to IBM SP using pre-configured service accounts stored in `.env` (0600), system keyring, or password stash (`dsm.sys PASSWORDACCESS GENERATE`). Ideal for automated pipelines, background daemons, and dedicated single-tenant bots.
 
-At minimum, configure these environment variables:
+2. **Dynamic Challenge-Response (`SP_MCP_AUTH_MODE=dynamic`)**:
+   Interactive chat users (e.g. Claude Desktop) are challenged for administrator credentials when invoking their first tool. The MCP server verifies credentials using zero-trace silent execution (`dsmadmc execute_silent`), issues an ephemeral sliding-window session lease (default: 15 minutes), and binds the user's verified identity into forensic audit logs.
 
-| Variable | Description |
-|----------|-------------|
-| `SP_ADMIN_ID` | IBM Storage Protect administrator ID |
-| `SP_ADMIN_PASSWORD` | IBM Storage Protect administrator password |
+### Privilege Tiers and Tool Access
 
-Common optional variables:
+The MCP server automatically narrows the registered tool set based on the IBM SP privilege class of the active account (either the configured service account or authenticated dynamic user):
 
-| Variable | Description |
-|----------|-------------|
-| `TCPSERVERADDRESS` | Storage Protect server address |
-| `SP_SERVER_PORT` or `TCPPORT` | Server port |
-| `SP_DSMSERV_PATH` | Path to `dsmserv` |
-| `SP_SERVER_INSTANCE_DIR` | Server instance directory |
-| `SP_SERVERMON_PATH` | Path to `servermon` |
-| `SP_SERVERMON_XML_DIR` | Directory for `servermon` XML output |
-| `SP_INSTANCE_USER` | IBM Storage Protect instance user for `dsmserv` commands |
+| Account | SP privilege class | Tools available |
+|---------|-------------------|----------------|
+| `mcp-svc-system` / System Admin | System | All tools — full administrative scope |
+| `mcp-svc-policy` / Policy Admin | Policy | Policy management + all read-only tools |
+| `mcp-svc-storage` / Storage Admin | Storage | Storage management + all read-only tools |
+| `mcp-svc-operator` / Operator | Operator | Operations (sessions, media, jobs) + read-only tools |
+| `mcp-svc-readonly` / Unprivileged Admin | Any-admin (no class) | Read-only `QUERY` tools + `authenticate_session` |
 
-Example:
+The `--mode` flag applies an additional filter on top of the privilege gate:
 
-```bash
-export SP_ADMIN_ID=admin
-export SP_ADMIN_PASSWORD=mypassword
-export TCPSERVERADDRESS=sp-server.example.com
-export SP_SERVER_PORT=1500
-export SP_DSMSERV_PATH=/opt/tivoli/tsm/server/bin/dsmserv
-export SP_SERVER_INSTANCE_DIR=/tsminst1
-export SP_SERVERMON_PATH=/opt/tivoli/tsm/server/bin/servermon
-export SP_SERVERMON_XML_DIR=/tmp/servermon
-export SP_INSTANCE_USER=tsmsvr01
-```
+| `--mode` | Effect |
+|----------|--------|
+| `full` (default) | All privilege-appropriate tools registered |
+| `read-only` | Only `QUERY`/info tools, regardless of account privilege |
 
-## Why `SP_INSTANCE_USER` Matters
+For a monitoring-only deployment, `--mode read-only` is the safest choice. For full administration, configure per-privilege accounts and let the privilege gate control scope automatically.
 
-Some IBM Storage Protect server-side commands require the correct instance user environment. If `SP_INSTANCE_USER` is not set correctly, `dsmserv` commands can fail because required shared libraries are not loaded in the proper runtime context.
-
-Example error:
-
-```text
-/usr/bin/dsmserv: error while loading shared libraries: libdb2.so.1: cannot open shared object file: No such file or directory
-```
+---
 
 ## Starting the Server
 
-After installation and configuration, activate the virtual environment and start the server.
+After completing [`install-guide.md`](install-guide.md) and [`configure-guide.md`](configure-guide.md), the MCP client launches the server automatically via SSH. The commands below are for **manual testing only**.
 
-Example:
-
-```bash
-source /opt/sp-mcp-server/venv/bin/activate
-python -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage
-```
-
-For a more restrictive startup, you can enable only selected server groups or use read-only mode:
+### Topology A — manual test on an SP server host
 
 ```bash
-python -m sp_mcp_server.main --mode read-only --enable-servers system,clients
+cd /opt/sp-mcp-server
+source .venv/bin/activate
+
+# Full access — all modules, privilege-gated by configured accounts
+python3 -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage
+
+# Read-only — query tools only
+python3 -m sp_mcp_server.main --mode read-only
+
+# Scoped — only storage and operations modules
+python3 -m sp_mcp_server.main --mode full --enable-servers storage,operations
+
+# HTTP transport with OIDC (requires SP_OIDC_ISSUER, SP_TLS_CERT, SP_TLS_KEY in .env)
+python3 -m sp_mcp_server.main --transport http --port 8443 --mode full
 ```
 
-## MCP Client Configuration
+### Topology B — manual test on the control host
 
-The MCP server is typically launched by an MCP-compatible client.
+Each process must be started from its SP-server-specific subdirectory so `secure_startup()` loads the correct `.env`:
 
-Linux example from `README.md`:
+```bash
+source /opt/sp-mcp/shared/.venv/bin/activate
 
-```json
-{
-  "mcpServers": {
-    "sp-mcp-server": {
-      "command": "sshpass",
-      "args": [
-        "-p",
-        "your_root_password",
-        "ssh",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "root@your-sp-server",
-        "cd /opt/sp-mcp-server && source venv/bin/activate && python3 -m sp_mcp_server.main --mode full --enable-servers system,operations,clients,policy,storage"
-      ],
-      "disabled": false,
-      "alwaysAllow": []
-    }
-  }
-}
+# Test the process that targets SPSVR01
+cd /opt/sp-mcp/spsvr01
+python3 -m sp_mcp_server.main --mode read-only
+
+# Test the process that targets SPSVR02
+cd /opt/sp-mcp/spsvr02
+python3 -m sp_mcp_server.main --mode read-only
 ```
 
-For Windows remote access and SSH-based setup, refer to the MCP client configuration section in [`README.md`](../../README.md).
+> In production, the MCP client starts each process automatically using the `cd /opt/sp-mcp/<servername>` command in each MCP client config entry — see [`configure-guide.md` — Part 5](configure-guide.md#part-5--managing-multiple-sp-servers).
 
-## Example User Requests
+### Command-line arguments
 
-Here are some example prompts a user might ask through an MCP client:
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--mode` | `full` | `full` = all privilege-appropriate tools; `read-only` = query/info only |
+| `--enable-servers` | all | Comma-separated module names: `system`, `operations`, `clients`, `policy`, `storage` |
+| `--transport` | `stdio` | `stdio` (SSH) or `http` (OIDC bearer token) |
+| `--port` | `8443` | HTTP listen port (used only with `--transport http`) |
 
-```text
-What is the database status?
-Show me all active clients
-Show me all failed operations from the last 24 hours
-Create a device class named file_class of type file
-Tell me the steps to tier data from container storage pool to cloud storage pool
-How many threads are running?
-Analyze current capacity utilization and forecast storage exhaustion
+---
+
+## Server Modules
+
+The `--enable-servers` flag controls which IBM SP functional areas are exposed. Each module maps to a set of tool classes:
+
+| Module name | SP areas covered | Typical account |
+|-------------|-----------------|----------------|
+| `system` | Administrators, licenses, server definitions, scripts, connections | `system` |
+| `operations` | DB backup, replication, data movement, jobs, alerts, rules, retention | `operator` / `system` |
+| `clients` | Nodes, node groups, associations, client option sets | `policy` / `system` |
+| `policy` | Policy domains/sets, management classes, copy groups, schedules | `policy` / `system` |
+| `storage` | Storage pools, volumes, libraries, drives, paths, device classes, data movers | `storage` / `system` |
+
+Omit modules that are not needed for a given deployment. A storage-focused team can run with `--enable-servers storage` and avoid exposing system or policy tools entirely.
+
+---
+
+## Managing Multiple SP Servers
+
+The MCP server is a **one-process-to-one-SP-server** deployment unit. A single MCP server process connects to exactly one IBM SP server defined by `TCPSERVERADDRESS` in its `.env`. To manage multiple SP servers from a single AI agent session, run one MCP server process per SP server and register each as a separate named entry in the MCP client configuration.
+
+Two deployment topologies are supported — see [`planning-guide.md`](planning-guide.md) for the full comparison:
+
+**Topology A — Co-located:** each process runs on the SP server host it manages; the MCP client SSH-es to each host independently.
 ```
+AI Agent  ──SSH──▶  mcp-runner@spsvr01  ──dsmadmc──▶  SPSVR01
+          ──SSH──▶  mcp-runner@spsvr02  ──dsmadmc──▶  SPSVR02
+```
+
+**Topology B — Centralised:** all processes run on one control host; the MCP client SSH-es only there; each process targets its SP server remotely over TCP 1500.
+```
+AI Agent  ──SSH──▶  mcp-runner@ctrl  ──[cwd: /opt/sp-mcp/spsvr01]── dsmadmc ──▶  SPSVR01
+                                      ──[cwd: /opt/sp-mcp/spsvr02]── dsmadmc ──▶  SPSVR02
+```
+
+Each process starts up independently, runs its own NET-1 session security check, and registers only the tools the configured service accounts permit. A failure on one process does not affect the others.
+
+### Addressing a specific server in prompts
+
+The registered MCP server name (e.g. `sp-mcp-spsvr01`) becomes the routing key the AI agent uses to target operations at a specific SP server:
+
+```
+On sp-mcp-spsvr01, show me all failed backup operations from the last 24 hours.
+```
+
+```
+Compare storage pool utilisation on sp-mcp-spsvr01 and sp-mcp-spsvr02.
+```
+
+```
+Register node APPSVR10_NODE in policy domain DOM_GENERAL on sp-mcp-spsvr02.
+```
+
+### `isp_server_name` parameter note
+
+Many tools expose an optional `isp_server_name` parameter in their schema. This parameter is documented ahead of a planned multi-server registry feature and is **not yet wired into command execution** — it is currently ignored at runtime. Until that feature is implemented, use the per-process pattern above (one named MCP server entry per SP host) to target a specific SP server.
+
+For full setup instructions — SSH key generation, MCP client JSON configuration, per-server `.env` files, and per-topology provisioning checklists — see [`configure-guide.md` — Part 5](configure-guide.md#part-5--managing-multiple-sp-servers). For pre-installation planning and topology selection, see [`planning-guide.md`](planning-guide.md).
+
+---
+
+## How Passwords Are Protected
+
+The MCP server handles credentials with several layered controls:
+
+1. **`.env` permissions enforced at startup** — the server aborts if `.env` is group- or world-readable (CRED-3). Never set permissions wider than `600`.
+
+2. **Keyring-first password resolution** — if the OS keyring (macOS Keychain, Linux Secret Service) contains the service account password, it is used instead of the env var. To migrate:
+   ```python
+   import keyring
+   keyring.set_password("ibm-sp-mcp-server", "mcp-svc-system", "<password>")
+   ```
+   Then remove `SP_ADMIN_PASSWORD_SYSTEM` from `.env`.
+
+3. **Password stash mode** — with `SP_MCP_USE_PASSWORD_STASH=1` in `.env` (after populating the `dsmadmc` stash), the `-PA=` argument is never passed to subprocess calls. Passwords do not appear in `/proc/<pid>/cmdline` or log files.
+
+4. **Silent execution for credential-bearing commands** — `REGISTER ADMIN`, `UPDATE ADMIN`, `REGISTER NODE`, `UPDATE NODE`, and `authenticate_session` commands that embed passwords use a silent execution path that suppresses command logging entirely (RG-3 / CRED-2). Passwords are never written to disk or logs.
+
+---
+
+## Audit Trail & Non-Repudiation
+
+Every write operation (tools requiring `system`, `policy`, `storage`, or `operator` privilege) emits a forensic correlation record to the IBM SP Activity Log before executing:
+
+```
+DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin_alice tool=delete_admin priv=system corr=a3f8b2c19d44"
+```
+
+The record explicitly attributes the action to the authenticated user (`user=...`), captured from OIDC tokens (`sub`), dynamic authentication sessions, or the environment.
+
+The correlation ID appears in both `mcp-server.log` and the IBM SP `ACTLOG`. To cross-reference:
+
+```
+* Find all MCP-originated write operations
+QUERY ACTLOG SEARCH=MCP_AUDIT
+
+* Find a specific tool call by correlation ID
+QUERY ACTLOG SEARCH=corr=a3f8b2c19d44
+```
+
+> **Multi-server deployments:** Audit records are distributed across each server's own ACTLOG. Run `QUERY ACTLOG SEARCH=MCP_AUDIT` on **each SP server individually** — there is no aggregated cross-server view.
+
+If the audit write fails (permission issue, SP connectivity), an `ERROR` with marker `SECURITY [POL-4 / RG-4]` is written to `mcp-server.log`. When strict audit enforcement is enabled (`SP_MCP_STRICT_AUDIT=1`), the server aborts the operation immediately (fail-closed mode NR-4).
+
+---
+
+## Command Approval Workflow
+
+When `SET COMMANDAPPROVAL ON` is active on the IBM SP server, destructive commands are held in a pending queue instead of executing immediately. The MCP server provides three tools to manage this queue:
+
+| Tool | SP command | Required privilege |
+|------|------------|-------------------|
+| `approve_pending_command` | `APPROVE PENDINGCMD <id>` | `system` |
+| `reject_pending_command` | `REJECT PENDINGCMD <id>` | `system` |
+| `withdraw_pending_command` | `WITHDRAW PENDINGCMD <id>` | `any` (issuing admin) |
+
+Typical workflow via an AI agent:
+
+1. AI issues a destructive command (e.g. `delete_node`) → SP queues it, returns the Command ID.
+2. Operator asks the agent: *"Show me pending commands"* → `query_pending_command` lists them.
+3. Operator approves or rejects: *"Approve command 42"* → `approve_pending_command {command_id: "42"}`.
+
+With `SET APPROVERSREQUIREAPPROVAL ON`, even the approval administrator's own commands require a second approver — enforcing two-person integrity for the most sensitive operations.
+
+---
+
+## Example Prompts
+
+These are examples of natural-language requests you can make through an MCP client:
+
+**Monitoring**
+```
+What is the current server status?
+Show me all active client sessions.
+Which storage pools are above 85% utilization?
+List all failed backup operations in the last 24 hours.
+```
+
+**Investigation**
+```
+Find all ANR error messages in the activity log from the last hour.
+Which nodes have not backed up in the last 7 days?
+Show the replication status for all rules.
+Are there any tape alerts on the library?
+```
+
+**Administration**
+```
+Register a new node called PROD-SERVER-01 in the STANDARD domain.
+Create an administrator account for alice with operator privilege.
+Activate the STANDARD policy set on the PROD_DOMAIN policy domain.
+Show me all administrators and their privilege classes.
+```
+
+**Storage**
+```
+Define a new disk storage pool named CLOUD_TIER of type cloud.
+Show volume usage history for pool TAPE_PRIMARY.
+List all libraries and their current status.
+What device classes are defined?
+```
+
+**Approvals**
+```
+Show me all commands pending approval.
+Approve pending command 42.
+Withdraw pending command 17.
+```
+
+**Multi-server targeting**
+```
+On sp-mcp-spsvr01, show me all failed backup operations from the last 24 hours.
+```
+
+```
+Compare storage pool utilisation on sp-mcp-spsvr01 and sp-mcp-spsvr02.
+```
+
+```
+Register node APPSVR10_NODE in policy domain DOM_GENERAL on sp-mcp-spsvr02.
+```
+
+```
+Which nodes have not backed up in the last 7 days on sp-mcp-spsvr03?
+```
+
+---
 
 ## Safe Usage Guidance
 
-When using the MCP server in production environments:
+- **Start with read-only** when validating a new installation. Use `--mode read-only` or configure only a `mcp-svc-readonly` account until you are confident in the setup.
+- **Review before confirming** — AI agents can misinterpret intent. When issuing write operations, read the generated tool call before confirming execution.
+- **Use the narrowest account** — if only storage operations are needed, configure only `SP_ADMIN_ID_STORAGE` and omit system and policy accounts. The server registers only the tools the account can execute.
+- **Enable command approval** in production — `SET COMMANDAPPROVAL ON` ensures no destructive command executes without human review, regardless of what the AI agent issues.
+- **Never set `SP_MCP_SKIP_SECURITY_CHECKS=1` in production** — set `SP_MCP_ENV=production` in every `.env` so the server aborts startup if this bypass is ever accidentally introduced.
+- **Protect `.env`** — `chmod 600` on every `.env` file (Topology A: `/opt/sp-mcp-server/.env` per host; Topology B: `/opt/sp-mcp/<servername>/.env` on the control host). The server refuses to start if the file is group- or world-readable.
+- **SSH key discipline** — Topology A: use a dedicated Ed25519 key pair per SP server host so a compromised key for one server cannot access others. Topology B: use a dedicated key for the control host and protect it accordingly — a compromised control-host key exposes all SP server processes. See [`planning-guide.md` — Step 6](planning-guide.md).
 
-- start with read-only queries when validating a new setup
-- confirm credentials and target server settings before running administrative actions
-- review generated actions carefully before applying changes
-- restrict enabled server groups if full administrative scope is not required
-- protect `.env` files and credentials with appropriate filesystem permissions
+---
 
 ## Basic Validation Checklist
 
-Use this checklist after installation:
+After installation, verify the server is working correctly.
 
-1. Verify the package is installed:
-   ```bash
-   pip list | grep -E "mcp|ibm-sp"
-   ```
+### Topology A — run on each SP server host
 
-2. Verify the main command is available:
-   ```bash
-   which sp-mcp-server
-   ```
+```bash
+# 1. Confirm the package is installed
+cd /opt/sp-mcp-server && source .venv/bin/activate
+python3 -m sp_mcp_server.main --help
 
-3. Verify IBM Storage Protect CLI access:
-   ```bash
-   which dsmadmc
-   dsmadmc -id=$SP_ADMIN_ID -password=$SP_ADMIN_PASSWORD "query status"
-   ```
+# 2. Confirm dsmadmc is reachable
+dsmadmc -id=mcp-svc-readonly "QUERY STATUS"
 
-4. Start the server in read-only mode:
-   ```bash
-   python -m sp_mcp_server.main --mode read-only --enable-servers system
-   ```
+# 3. Confirm session security is STRICT on service accounts
+dsmadmc -id=mcp-svc-readonly "QUERY ADMIN mcp-svc-readonly FORMAT=DETAILED" | grep -i "session security"
+# Expected: Session Security: Strict
+
+# 4. Start in read-only mode and confirm startup succeeds
+python3 -m sp_mcp_server.main --mode read-only --enable-servers system 2>&1 | head -30
+# Expected: NET-1 check passed, tool registration logged, waiting on stdin
+```
+
+Verify via SSH from the MCP client workstation before registering the entry in the MCP client config:
+
+```bash
+# Replace key and hostname for each SP server host
+ssh -i ~/.ssh/id_ed25519_spsvr01 \
+    -o StrictHostKeyChecking=yes -o BatchMode=yes \
+    mcp-runner@spsvr01.corp.example.com \
+    "cd /opt/sp-mcp-server && source .venv/bin/activate && \
+     python3 -m sp_mcp_server.main --mode read-only 2>&1 | head -20"
+```
+
+### Topology B — run on the control host, once per SP server subdirectory
+
+```bash
+source /opt/sp-mcp/shared/.venv/bin/activate
+
+# Verify for SPSVR01
+cd /opt/sp-mcp/spsvr01
+dsmadmc -id=mcp-svc-readonly -se=SP_SPSVR01 "QUERY STATUS"
+python3 -m sp_mcp_server.main --mode read-only --enable-servers system 2>&1 | head -30
+# Expected: NET-1 check passed, tool registration logged, waiting on stdin
+
+# Verify for SPSVR02
+cd /opt/sp-mcp/spsvr02
+dsmadmc -id=mcp-svc-readonly -se=SP_SPSVR02 "QUERY STATUS"
+python3 -m sp_mcp_server.main --mode read-only --enable-servers system 2>&1 | head -30
+```
+
+Verify via SSH from the MCP client workstation before registering entries in the MCP client config:
+
+```bash
+# Replace subdirectory path for each SP server entry
+ssh -i ~/.ssh/id_ed25519_ctrl \
+    -o StrictHostKeyChecking=yes -o BatchMode=yes \
+    mcp-runner@ctrl.corp.example.com \
+    "cd /opt/sp-mcp/spsvr01 && source /opt/sp-mcp/shared/.venv/bin/activate && \
+     python3 -m sp_mcp_server.main --mode read-only 2>&1 | head -20"
+```
+
+---
+
+## Log File
+
+The MCP server writes a rotating log to `/var/log/ibm-sp-mcp-server/mcp-server.log` (or `$SP_MCP_LOG_DIR/mcp-server.log`). Key log markers:
+
+> **Topology A:** Each MCP process writes to the log on its own SP server host. Set `SP_MCP_LOG_DIR` to the same path on every host to make log collection uniform. Check each host's log independently when investigating issues.
+>
+> **Topology B:** All MCP processes run on the control host and write to the **same log file**. Filter by timestamp or process ID to distinguish entries from different SP server processes. Set `SP_MCP_LOG_DIR` consistently across all per-server `.env` files — or leave it at the default so all processes share `/var/log/ibm-sp-mcp-server/mcp-server.log`.
+
+| Log marker | Meaning |
+|------------|---------|
+| `NET-1: Session security check passed` | Startup security validation succeeded |
+| `SECURITY [NET-1]` | Session security check failed — server will exit |
+| `SECURITY [CRED-3]` | `.env` file has insecure permissions — server will exit |
+| `SECURITY [RG-1]` | Production bypass attempted — server will exit |
+| `SECURITY [RG-5]` | HTTP transport started without TLS — review immediately |
+| `ACC-2: Registered N tools` | Confirms which tools were registered at startup |
+| `POL-3: Account lockout threshold` | Advisory check result at startup |
+| `POL-4: Emitting audit correlation` | Write operation is being audited |
+| `SECURITY [POL-4 / RG-4]` | Audit write failed — write proceeded but has no ACTLOG record |
+
+---
 
 ## Related Documentation
 
-- Installation steps: [`install-guide.md`](install-guide.md)
-- Main project overview and MCP client setup: [`../../README.md`](../../README.md)
-- Build and distribution notes: [`../../build/distribution.md`](../../build/distribution.md)
+- Deployment planning: [`planning-guide.md`](planning-guide.md)
+- Installation: [`install-guide.md`](install-guide.md)
+- MCP client configuration: [`configure-guide.md`](configure-guide.md)
+- Troubleshooting: [`troubleshoot.md`](troubleshoot.md)
+- Security analysis: [`../analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)

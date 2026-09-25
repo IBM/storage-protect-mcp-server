@@ -1,0 +1,30 @@
+* dsm.sys — IBM Storage Protect dsmadmc client options
+* Used by the MCP server's OS user (mcp-runner).
+*
+* Deployment steps:
+*   cp config/dsm.sys.template /opt/sp-mcp-server/config/dsm.sys
+*   sed -i "s/your-sp-server/${SP_SERVER_ADDRESS}/" /opt/sp-mcp-server/config/dsm.sys
+*   chmod 600 /opt/sp-mcp-server/config/dsm.sys
+*   echo "DSM_CONFIG=/opt/sp-mcp-server/config/dsm.sys" >> /opt/sp-mcp-server/.env
+*
+* See: docs/implement/impl-security-network.md § NET-3
+*      docs/guides/install-guide.md § Part 6
+
+SERVERNAME          SP_SERVER_1
+
+* ── Connection ────────────────────────────────
+TCPSERVERADDRESS    your-sp-server
+TCPPORT             1500
+COMMMETHOD          TCPIP
+
+* ── TLS ───────────────────────────────────────
+* SSL=Yes: use TLS for authentication only (default from v8.1.2+)
+* SSLREQUIRED=Yes: refuse to connect if TLS negotiation fails
+SSL                 Yes
+SSLREQUIRED         Yes
+
+* ── Password storage ──────────────────────────
+* PASSWORDACCESS GENERATE stores the password in an encrypted stash.
+* Run dsmadmc once interactively to populate the stash, then the
+* MCP server no longer needs -PA= on the command line.
+PASSWORDACCESS      GENERATE

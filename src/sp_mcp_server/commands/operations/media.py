@@ -6,6 +6,9 @@ class DefineRecoveryMedia(BaseCommand):
     def name(self) -> str:
         return "define_recovery_media"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Define **Recovery Media** information for disaster recovery. Records details about media containing system recovery data.\n"
@@ -56,6 +59,9 @@ class UpdateRecoveryMedia(BaseCommand):
     def name(self) -> str:
         return "update_recovery_media"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Updates **Recovery Media** information.\n"
@@ -105,6 +111,9 @@ class DeleteRecoveryMedia(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_recovery_media"
+    @property
+    def required_privilege(self) -> str:
+        return "operator"
     @property
     def description(self) -> str:
         return (

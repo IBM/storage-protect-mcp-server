@@ -1,12 +1,14 @@
 import asyncio
 import sys
 import logging
+from .config import secure_startup
 from .mcp_factory import create_mcp_server, run_server
-from .server_groups import ISP_POOLS, ISP_VOLUMES, ISP_HARDWARE, ISP_DEVCLASS
-from dotenv import load_dotenv
+from .server_groups import (
+    ISP_STORAGE_POOLS, ISP_STORAGE_HARDWARE, ISP_STORAGE_DEVICE,
+)
 
-# Load environment variables from .env file
-load_dotenv()
+# ── CRED-3 / RG-2: permission check and dotenv loading ───────────────────────
+secure_startup()
 
 
 # Configure logging
@@ -15,7 +17,7 @@ logger = logging.getLogger("ibm-sp-mcp-server-storage")
 async def main():
     logger.info("Starting ISP Storage Server...")
     
-    all_storage_commands = ISP_POOLS + ISP_VOLUMES + ISP_HARDWARE + ISP_DEVCLASS
+    all_storage_commands = ISP_STORAGE_POOLS + ISP_STORAGE_HARDWARE + ISP_STORAGE_DEVICE
     
     server = create_mcp_server("isp-storage", all_storage_commands)
     await run_server(server)

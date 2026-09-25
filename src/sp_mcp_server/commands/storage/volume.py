@@ -7,6 +7,9 @@ class DefineVolume(BaseCommand):
         return "define_volume"
 
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Storage Unit** (known as a **Volume** in SP) within a Storage Pool. Represents a specific disk, file, or tape.\n"
@@ -67,6 +70,9 @@ class UpdateVolume(BaseCommand):
     def name(self) -> str:
         return "update_volume"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates an existing **Storage Volume**. Can modify its access mode.\n"
@@ -95,6 +101,9 @@ class UpdateVolumeHistory(BaseCommand):
     @property
     def name(self) -> str:
         return "update_volume_history"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -125,6 +134,9 @@ class DeleteVolume(BaseCommand):
     def name(self) -> str:
         return "delete_volume"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Storage Volume**.\n"
@@ -153,6 +165,9 @@ class QueryMediaVolume(BaseCommand):
     def name(self) -> str:
         return "query_media_volume"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -198,6 +213,9 @@ class QueryVolumeHistory(BaseCommand):
         return "query_volume_history"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display historical records of sequential volume usage (e.g., Database Backups).\n"
@@ -230,6 +248,9 @@ class QuerySequentialMedia(BaseCommand):
     def name(self) -> str:
         return "query_sequential_media"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -287,6 +308,9 @@ class QueryMountedVolumes(BaseCommand):
         return "query_mounted_volumes"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display information on currently mounted sequential access volumes.\n"
@@ -314,6 +338,9 @@ class QueryRecoveryMedia(BaseCommand):
         return "query_recovery_media"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query media needed for disaster recovery.\n"
@@ -339,6 +366,9 @@ class QueryRetentionMedia(BaseCommand):
     def name(self) -> str:
         return "query_retention_media"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -372,6 +402,9 @@ class QueryBackupTOC(BaseCommand):
     def name(self) -> str:
         return "query_backup_toc"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

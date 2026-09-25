@@ -2,17 +2,34 @@ from __future__ import annotations
 import asyncio
 import sys
 import os
+import uuid
+import time
 import logging
 from logging.handlers import RotatingFileHandler
 import inspect
-from typing import Any, Sequence, List
+import contextvars
+from typing import Any, Sequence, List, Dict, Optional, Set
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 
+# NR-1: Context variable holding the authenticated end-user identity / subject
+current_audit_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_audit_user", default=None)
+current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_session_id", default=None)
+current_request_privilege: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_request_privilege", default=None)
+
+# Module-level session store — persists the active session ID across tool calls
+# within the same stdio process lifetime (ContextVars are per-async-task and do
+# not survive between separate MCP tool call invocations).
+_process_session_id: Optional[str] = None
+_process_audit_user: Optional[str] = None
+
+import json
+from .session import global_session_manager
 from .config import load_config
 from .cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
-from .commands.base import BaseCommand, BaseOfflineCommand, BaseServermonCommand
+from .commands.base import BaseCommand, BaseOfflineCommand, BaseServermonCommand, PRIVILEGE_TIERS
+from .cli_wrapper import current_execution_credentials
 
 # Configure logging with both file and stderr output
 def setup_logging():
@@ -20,7 +37,7 @@ def setup_logging():
     # Get log file path from environment or use default
     log_dir = os.environ.get("SP_MCP_LOG_DIR", "/var/log/ibm-sp-mcp-server")
     log_file = os.path.join(log_dir, "mcp-server.log")
-    
+
     # Create log directory if it doesn't exist
     try:
         os.makedirs(log_dir, exist_ok=True)
@@ -29,14 +46,15 @@ def setup_logging():
         log_dir = "/tmp/ibm-sp-mcp-server"
         log_file = os.path.join(log_dir, "mcp-server.log")
         os.makedirs(log_dir, exist_ok=True)
-    
-    # Create formatters
+
+    # Create formatters (NR-5: ISO 8601 UTC timestamping)
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        datefmt='%Y-%m-%dT%H:%M:%SZ'
     )
+    detailed_formatter.converter = time.gmtime
     simple_formatter = logging.Formatter('%(levelname)s: %(message)s')
-    
+
     # File handler with rotation (10MB max, keep 5 backups)
     file_handler = RotatingFileHandler(
         log_file,
@@ -46,101 +64,424 @@ def setup_logging():
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(detailed_formatter)
-    
+
     # Console handler (stderr) - less verbose for console
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(simple_formatter)
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    
+
     # Get our logger
     logger = logging.getLogger("ibm-sp-mcp-server")
     logger.info(f"Logging initialized. Log file: {log_file}")
-    
+
     return logger
 
 # Initialize logging
 logger = setup_logging()
 
-def create_mcp_server(server_name: str, tool_classes: List[Any], allowed_modes: List[str] = None):
+
+def _validate_session_security(admc_cli: DsmAdmcWrapper, config) -> None:
+    """
+    NET-1: Assert that every configured SP service account has SESSIONSECURITY=STRICT.
+
+    For each privilege tier with a configured credential, queries IBM SP via
+    QUERY ADMIN <admin_id> FORMAT=DETAILED and checks:
+      - Session Security: Strict
+      - Transport Method: TLS 1.2 or TLS 1.3  (advisory — blank is also accepted)
+
+    Refuses server startup (sys.exit(1)) if:
+      - The query fails (wrong credentials, SP unreachable)
+      - Session Security is not 'Strict'
+      - Transport Method is present but contains no 'TLS'
+
+    CRED-1: Uses credential_for() to resolve the admin ID for each tier so
+            the check works with both per-module and legacy single credentials.
+
+    Override for testing only:
+      Set SP_MCP_SKIP_SECURITY_CHECKS=1 to bypass this check.
+      NEVER use this in production.
+    """
+    if os.environ.get("SP_MCP_SKIP_SECURITY_CHECKS") == "1":
+        # RG-1: Distinguish test bypass from a misconfigured production deployment.
+        # In production (SP_MCP_ENV=production) this variable must never be set.
+        if os.environ.get("SP_MCP_ENV", "").lower() == "production":
+            logger.error(
+                "SECURITY [RG-1]: SP_MCP_SKIP_SECURITY_CHECKS=1 is set but "
+                "SP_MCP_ENV=production. "
+                "PRODUCTION UNSAFE — all session security checks are disabled. "
+                "Unset SP_MCP_SKIP_SECURITY_CHECKS before running in production."
+            )
+            sys.exit(1)
+        logger.warning(
+            "NET-1: SESSIONSECURITY check SKIPPED (SP_MCP_SKIP_SECURITY_CHECKS=1). "
+            "Do not use this override in production. "
+            "Set SP_MCP_ENV=production to prevent this bypass on production hosts."
+        )
+        return
+
+    # Collect the unique admin IDs that are actually configured.
+    # With per-module credentials, there may be up to 5 distinct accounts.
+    # With a legacy single credential, there is exactly 1.
+    from .config import PRIVILEGE_TIERS
+    seen_ids: set = set()
+    accounts_to_check = []
+    for tier in PRIVILEGE_TIERS:
+        cred = config.credential_for(tier)
+        if cred and cred.admin_id not in seen_ids:
+            seen_ids.add(cred.admin_id)
+            accounts_to_check.append(cred.admin_id)
+
+    if not accounts_to_check:
+        logger.warning(
+            "NET-1: No service account credentials configured — "
+            "cannot validate session security. Skipping check."
+        )
+        return
+
+    for admin_id in accounts_to_check:
+        stdout, stderr, code = admc_cli.execute(
+            f"QUERY ADMIN {admin_id} FORMAT=DETAILED"
+        )
+
+        if code != 0:
+            logger.error(
+                "SECURITY [NET-1]: Cannot query service account '%s'. "
+                "Verify credentials and SP server connectivity. stderr: %s",
+                admin_id, stderr.strip()
+            )
+            sys.exit(1)
+
+        # Parse QUERY ADMIN FORMAT=DETAILED output.
+        # With -DATAONLY=YES -COMMAdelimited the SP server returns a flat CSV
+        # row.  ANS* diagnostic lines may also appear in stdout — filter those
+        # out before parsing so they don't interfere with field extraction.
+        data_lines = [
+            line for line in stdout.splitlines()
+            if line.strip() and not line.startswith("ANS")
+        ]
+
+        fields: Dict[str, str] = {}
+        for line in data_lines:
+            if ":" in line:
+                key, _, val = line.partition(":")
+                fields[key.strip()] = val.strip().rstrip(",")
+
+        # Fallback: comma-delimited flat row — scan the last data line.
+        # QUERY ADMIN FORMAT=DETAILED CSV column order (IBM SP 8.x):
+        #   0:name, 1:last_access, 2:days_since, 3:pwd_set, 4:days_pwd,
+        #   5:pwd_case(Yes/No), 6:invalid_count, 7:locked, 8:contact,
+        #   9:system_priv, 10:policy_priv, 11:storage_priv, 12:operator_priv,
+        #   13:client_priv, 14:client_owner_priv, 15:reg_date, 16:reg_admin,
+        #   17:managing_profile, 18:pwd_expiry, 19:email, 20:email_alerts,
+        #   21:auth_method, 22:pwd_field(Default/...), 23:session_security,
+        #   24:transport_method, 25:cmd_approver, 26:mfa_required
+        session_security = fields.get("Session Security", "")
+        transport_method = fields.get("Transport Method", "")
+        if not session_security or not transport_method:
+            # Use only the last non-empty data line (the CSV record itself)
+            csv_line = data_lines[-1] if data_lines else ""
+            tokens = [t.strip() for t in csv_line.split(",")]
+            if len(tokens) >= 25:
+                if not session_security:
+                    session_security = tokens[23]
+                if not transport_method:
+                    transport_method = tokens[24]
+            else:
+                # Value-based fallback: TLS prefix is unambiguous
+                if not transport_method:
+                    for tok in tokens:
+                        if tok.upper().startswith("TLS"):
+                            transport_method = tok
+                            break
+                # Session security: only Strict/Transitional are non-default values
+                if not session_security:
+                    for tok in tokens:
+                        if tok.lower() in ("strict", "transitional"):
+                            session_security = tok
+                            break
+
+        if session_security.lower() != "strict":
+            logger.error(
+                "SECURITY [NET-1]: Service account '%s' has SESSIONSECURITY=%s. "
+                "Required value: Strict. "
+                "Remediate on the SP server: UPDATE ADMIN %s SESSIONSECURITY=STRICT",
+                admin_id,
+                session_security if session_security else "(unknown — not in QUERY ADMIN output)",
+                admin_id,
+            )
+            sys.exit(1)
+
+        if transport_method and "TLS" not in transport_method.upper():
+            logger.error(
+                "SECURITY [NET-1]: Service account '%s' transport method is '%s'. "
+                "TLS 1.2 or TLS 1.3 required.",
+                admin_id, transport_method
+            )
+            sys.exit(1)
+
+        logger.info(
+            "NET-1: Session security check passed — account '%s': "
+            "Session Security=%s, Transport Method=%s",
+            admin_id,
+            session_security,
+            transport_method if transport_method else "(not reported)",
+        )
+
+
+# ── ACC-2: Privilege satisfaction table ──────────────────────────────────────
+# A 'system' account satisfies all privilege tiers.
+# A 'storage' account satisfies 'storage' and 'any', but not 'policy' or 'system'.
+_PRIVILEGE_SATISFIES: Dict[str, Set[str]] = {
+    "system":   {"system", "policy", "storage", "operator", "any"},
+    "policy":   {"policy", "any"},
+    "storage":  {"storage", "any"},
+    "operator": {"operator", "any"},
+    "any":      {"any"},
+}
+
+
+def _parse_sp_privilege(query_admin_stdout: str) -> str:
+    """
+    ACC-2: Parse the privilege class from QUERY ADMIN <name> FORMAT=DETAILED output.
+    Returns the broadest privilege tier the account holds.
+    """
+    upper = query_admin_stdout.upper()
+    if "SYSTEM PRIVILEGE: YES" in upper:
+        return "system"
+    if "POLICY PRIVILEGE: YES" in upper:
+        return "policy"
+    if "STORAGE PRIVILEGE: YES" in upper:
+        return "storage"
+    if "OPERATOR PRIVILEGE: YES" in upper:
+        return "operator"
+    return "any"
+
+
+# ── POL-4: privilege tiers that require audit trail correlation entries ────────
+_WRITE_PRIVILEGES: Set[str] = {"system", "policy", "storage", "operator"}
+
+
+def _privilege_satisfies(account_privilege: str, required_privilege: str) -> bool:
+    """Return whether an authenticated context may invoke a tool."""
+    return required_privilege in _PRIVILEGE_SATISFIES.get(account_privilege, {"any"})
+
+
+def _privilege_satisfies_for_session(session, required_privilege: str) -> bool:
+    return any(
+        _privilege_satisfies(privilege, required_privilege)
+        for privilege in session.privilege_classes
+    )
+
+
+def _check_session_target_server(session, config) -> Optional[str]:
+    """
+    DAUTH-7: Return an error message if the session's target_server does not
+    match the active server configuration, or None if the binding is valid.
+
+    If the session was created without a target_server (i.e. single-server
+    deployment), the check is skipped and None is returned.  Enforcement only
+    activates when the session carries an explicit target_server value —
+    protecting multi-server deployments from cross-server session reuse.
+    """
+    if not session.target_server:
+        # Single-server deployment or target_server not specified at login —
+        # no binding to enforce.
+        return None
+
+    config_address = getattr(config, "server_address", None)
+    if not config_address:
+        # No server address in config — cannot validate; log a warning and allow.
+        logger.warning(
+            "DAUTH-7: Session lease for user='%s' carries target_server='%s' "
+            "but no server_address is set in config. Binding check skipped.",
+            session.username,
+            session.target_server,
+        )
+        return None
+
+    if session.target_server != config_address:
+        logger.warning(
+            "SECURITY [DAUTH-7]: Cross-server session reuse attempt detected. "
+            "Session user='%s' was authenticated against target_server='%s' "
+            "but this MCP server is configured for server_address='%s'. "
+            "Request denied.",
+            session.username,
+            session.target_server,
+            config_address,
+        )
+        return (
+            f"Session was authenticated against server '{session.target_server}' "
+            f"but this MCP server manages '{config_address}'. "
+            "Please authenticate a new session against the correct server."
+        )
+
+    return None
+
+
+def _check_lockout_policy(admc_cli: DsmAdmcWrapper) -> None:
+    """
+    POL-3: Warn if IBM SP's account lockout threshold is disabled (limit = 0).
+    Default at installation is 0 (disabled), which allows unlimited brute-force attempts.
+    Recommended remediation: SET INVALIDPWLIMIT 5
+    """
+    stdout, _, code = admc_cli.execute("QUERY STATUS")
+    if code != 0:
+        logger.warning(
+            "POL-3: Could not query SP server status for lockout check."
+        )
+        return
+
+    for line in stdout.splitlines():
+        if "Invalid Sign-on Attempt Limit" in line or "INVALIDPWLIMIT" in line.upper():
+            parts = line.split(":")
+            if len(parts) >= 2:
+                val = parts[-1].strip().rstrip(",")
+                if val == "0" or val == "" or val.lower() == "unlimited":
+                    logger.warning(
+                        "SECURITY [POL-3]: IBM SP account lockout is DISABLED "
+                        "(Invalid Sign-on Attempt Limit = %s). "
+                        "Brute-force attacks on SP accounts are unrestricted. "
+                        "Remediate on SP server: SET INVALIDPWLIMIT 5",
+                        val,
+                    )
+                else:
+                    logger.info(
+                        "POL-3: Account lockout threshold = %s. OK.", val
+                    )
+            return
+
+    logger.warning(
+        "POL-3: Could not determine lockout policy from QUERY STATUS output. "
+        "Manually verify: SET INVALIDPWLIMIT 5 on the SP server."
+    )
+
+
+def create_mcp_server(
+    server_name: str,
+    tool_classes: List[Any],
+    allowed_modes: Optional[List[str]] = None,
+    admc_cli: Optional[DsmAdmcWrapper] = None,
+    serv_cli: Optional[DsmServWrapper] = None,
+    mon_cli: Optional[ServermonWrapper] = None,
+    config: Optional[Any] = None,
+):
     """
     Creates an MCP Server instance populated with the provided tool command classes.
-    
+
     Args:
         server_name: The name of the MCP server.
         tool_classes: A list of command classes to instantiate and register.
-        allowed_modes: List of allowed modes (e.g. ["read-only", "destructive"]). 
+        allowed_modes: List of allowed modes (e.g. ["read-only", "destructive"]).
                        If None, all modes are allowed.
+        admc_cli: Optional pre-configured DsmAdmcWrapper instance (injected in tests).
+        serv_cli: Optional pre-configured DsmServWrapper instance (injected in tests).
+        mon_cli: Optional pre-configured ServermonWrapper instance (injected in tests).
+        config: Optional pre-loaded ServerConfig instance (injected in tests).
     """
-    
+
     # Load configuration
-    config = load_config()
-    
+    if config is None:
+        config = load_config()
+
     # Initialize CLI wrappers
-    # We initialize all of them, but only use the ones needed by the commands.
-    # This is efficient enough for now.
-    admc_cli = DsmAdmcWrapper(config)
-    serv_cli = DsmServWrapper(config)
-    mon_cli = ServermonWrapper(config)
-    
+    if admc_cli is None:
+        admc_cli = DsmAdmcWrapper(config)
+    if serv_cli is None:
+        serv_cli = DsmServWrapper(config)
+    if mon_cli is None:
+        mon_cli = ServermonWrapper(config)
+
+    # ── NET-1: validate SP session security before registering any tools ──────
+    _validate_session_security(admc_cli, config)
+
+    # ── POL-3: warn if account lockout threshold is disabled ──────────────────
+    _check_lockout_policy(admc_cli)
+
+    # ── ACC-2: determine account privilege tier and narrow tool registration ──
+    from .config import PRIVILEGE_TIERS as CONFIG_TIERS
+    # Use the broadest credential to discover privilege (system is the default tier
+    # used by DsmAdmcWrapper when no privilege is specified).
+    cred = config.credential_for("system")
+    account_id_for_query = cred.admin_id if cred else None
+    account_privilege = "any"  # safe default if we can't query
+
+    if account_id_for_query:
+        stdout, _, code = admc_cli.execute(
+            f"QUERY ADMIN {account_id_for_query} FORMAT=DETAILED"
+        )
+        if code == 0:
+            account_privilege = _parse_sp_privilege(stdout)
+        else:
+            logger.warning(
+                "ACC-2: Could not determine SP privilege for '%s'. "
+                "Defaulting to 'any' (read-only tools only).",
+                account_id_for_query,
+            )
+
+    satisfies: Set[str] = _PRIVILEGE_SATISFIES.get(account_privilege, {"any"})
+    logger.info(
+        "ACC-2: Account '%s' has SP privilege '%s'. "
+        "Will register tools requiring: %s",
+        account_id_for_query, account_privilege, satisfies,
+    )
+    # ─────────────────────────────────────────────────────────────────────────
+
     commands = {}
 
     # Instantiate commands
     for obj in tool_classes:
         try:
             inst = None
-            # Check for BaseCommand subclasses (Online commands)
             if inspect.isclass(obj) and issubclass(obj, BaseCommand) and obj is not BaseCommand:
                 inst = obj(admc_cli)
-                
-            # Check for BaseOfflineCommand subclasses (Offline commands)
             elif inspect.isclass(obj) and issubclass(obj, BaseOfflineCommand) and obj is not BaseOfflineCommand:
                 inst = obj(serv_cli)
-                
-            # Check for BaseServermonCommand subclasses (Servermon commands)
             elif inspect.isclass(obj) and issubclass(obj, BaseServermonCommand) and obj is not BaseServermonCommand:
                 inst = obj(mon_cli)
-            
-            if inst:
-                # Filter based on allowed_modes
-                if allowed_modes:
-                     # Check if tool_type matches any allowed mode (e.g. "read-only")
-                     # Map "full" to allow everything (or just don't pass allowed_modes if full)
-                     # Assuming "read-only" is the main restriction.
-                     # If allowed_modes=['read-only'] and tool_type='destructive', skip.
-                     
-                     # If "full" is in allowed_modes, allow everything.
-                     if "full" in allowed_modes:
-                         pass
-                     elif inst.tool_type not in allowed_modes:
-                         continue
 
-                commands[inst.name] = inst
-                
+            if inst is None:
+                continue
+
+            # ── ACC-2: privilege gate ─────────────────────────────────────────
+            tool_priv = getattr(inst, "required_privilege", "any")
+            if tool_priv not in satisfies:
+                logger.debug(
+                    "ACC-2: Skipping tool '%s' — requires '%s', account satisfies: %s",
+                    inst.name, tool_priv, satisfies,
+                )
+                continue
+
+            # Legacy --mode filter (kept for backward compatibility)
+            if allowed_modes and "full" not in allowed_modes:
+                tool_type = getattr(inst, "tool_type", "read-only")
+                if tool_type not in allowed_modes:
+                    continue
+
+            commands[inst.name] = inst
+
         except Exception as e:
-            # Log error but continue loading other commands
-            logger.error(f"Failed to instantiate command {obj}: {e}")
-    
+            logger.error("Failed to instantiate command %s: %s", obj, e)
+
+    logger.info(
+        "ACC-2: Registered %d tools for privilege tier '%s'.",
+        len(commands), account_privilege,
+    )
+
     # Create MCP Server
     server = Server(server_name)
 
     @server.list_tools()
     async def handle_list_tools() -> list[Tool]:
-        tools = []
-        for name, cmd in commands.items():
-            tools.append(
-                Tool(
-                    name=cmd.name,
-                    description=cmd.description,
-                    inputSchema=cmd.args_schema
-                )
-            )
-        return tools
+        return [
+            Tool(name=cmd.name, description=cmd.description, inputSchema=cmd.args_schema)
+            for cmd in commands.values()
+        ]
 
     @server.call_tool()
     async def handle_call_tool(
@@ -150,13 +491,131 @@ def create_mcp_server(server_name: str, tool_classes: List[Any], allowed_modes: 
             raise ValueError(f"Unknown tool: {name}")
 
         cmd = commands[name]
+        tool_privilege = getattr(cmd, "required_privilege", "any")
+
+        # ── Dynamic Auth Challenge Interceptor ──────────────────────────────
+        auth_mode = os.environ.get("SP_MCP_AUTH_MODE", "service_account").lower()
+        if auth_mode == "dynamic" and name != "authenticate_session":
+            # Prefer module-level store (survives across tool calls in stdio)
+            # then ContextVar (set within same async task), then explicit arg.
+            active_sid = (
+                _process_session_id
+                or current_session_id.get()
+                or (arguments and arguments.get("_session_id"))
+            )
+            session = global_session_manager.get_session(active_sid) if active_sid else None
+            if session is None:
+                logger.info(
+                    "Dynamic auth challenge triggered for tool='%s' (no active session)",
+                    name,
+                )
+                challenge_payload = {
+                    "is_error": True,
+                    "error_type": "AUTHENTICATION_REQUIRED",
+                    "message": "Authentication required. Please provide your IBM Storage Protect administrator credentials.",
+                    "challenge": {
+                        "server": getattr(config, "server_address", "default"),
+                        "required_fields": ["username", "password"],
+                        "supported_schemes": ["basic_delegated", "oidc_bearer"],
+                        "auth_tool": "authenticate_session",
+                    },
+                }
+                return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
+            else:
+                # Update user identity and execution context from active session.
+                global _process_audit_user
+                current_audit_user.set(session.username)
+                _process_audit_user = session.username
+                if not _privilege_satisfies_for_session(session, tool_privilege):
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHORIZATION_DENIED",
+                        "message": "Authenticated session does not have the privilege required by this tool.",
+                    }))]
+                # ── DAUTH-7: reject cross-server session reuse ────────────────
+                target_err = _check_session_target_server(session, config)
+                if target_err:
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHORIZATION_DENIED",
+                        "message": target_err,
+                    }))]
+                current_execution_credentials.set((session.username, session.password))
+
+        # ── INT-2: enforce OIDC request privilege at call time ────────────────
+        request_privilege = current_request_privilege.get()
+        if request_privilege and not _privilege_satisfies(request_privilege, tool_privilege):
+            return [TextContent(type="text", text=json.dumps({
+                "is_error": True,
+                "error_type": "AUTHORIZATION_DENIED",
+                "message": "OIDC token does not have the privilege required by this tool.",
+            }))]
+
+        # ── POL-4: emit attribution scratchpad entry for write operations ─────
+        correlation_id = None
+        if tool_privilege in _WRITE_PRIVILEGES:
+            correlation_id = uuid.uuid4().hex[:12]
+            # NR-1: Bind authenticated end-user / subject or fallback to local account
+            user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
+            audit_msg = (
+                f"MCP_AUDIT user={user_id} "
+                f"tool={name} "
+                f"priv={tool_privilege} "
+                f"corr={correlation_id}"
+            )
+            logger.info("POL-4: Emitting audit correlation: %s", audit_msg)
+            strict_audit = os.environ.get("SP_MCP_STRICT_AUDIT", "0") == "1"
+            try:
+                _stdout, _stderr, _code = await asyncio.to_thread(
+                    admc_cli.execute,
+                    f'DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="{audit_msg}"',
+                )
+                if _code != 0:
+                    # RG-4 / NR-4: Explicit ERROR so SIEM/log aggregators can detect audit gaps.
+                    logger.error(
+                        "SECURITY [POL-4 / RG-4 / NR-4]: Audit write FAILED for tool='%s' "
+                        "corr=%s (SP returned code %d: %s). "
+                        "%s"
+                        "Verify SCRATCHPADENTRY write permission for the service account.",
+                        name, correlation_id, _code, (_stderr or "no detail").strip(),
+                        "Execution ABORTED due to SP_MCP_STRICT_AUDIT=1. " if strict_audit else "Write operation will proceed but this event has no ACTLOG record. ",
+                    )
+                    if strict_audit:
+                        raise RuntimeError(
+                            f"Strict audit failure: unable to record ACTLOG entry ({_stderr or 'code ' + str(_code)})"
+                        )
+            except Exception as audit_exc:
+                if strict_audit and not isinstance(audit_exc, RuntimeError):
+                    logger.error(
+                        "SECURITY [POL-4 / RG-4 / NR-4]: Audit write raised exception for "
+                        "tool='%s' corr=%s: %s. Execution ABORTED due to SP_MCP_STRICT_AUDIT=1.",
+                        name, correlation_id, audit_exc,
+                    )
+                    raise RuntimeError(f"Strict audit failure: {audit_exc}") from audit_exc
+                elif not strict_audit:
+                    # RG-4: Promoted from WARNING to ERROR for SIEM detectability.
+                    logger.error(
+                        "SECURITY [POL-4 / RG-4]: Audit write raised exception for "
+                        "tool='%s' corr=%s: %s. "
+                        "Write operation will proceed but this event has no ACTLOG record.",
+                        name, correlation_id, audit_exc,
+                    )
+                else:
+                    raise
+
         try:
-            # Execute command
             result = await asyncio.to_thread(cmd.execute, arguments or {})
+            if correlation_id:
+                logger.info(
+                    "POL-4: Tool '%s' completed. SP ACTLOG correlation key: %s",
+                    name, correlation_id,
+                )
             return [TextContent(type="text", text=result)]
         except Exception as e:
-            logger.error(f"Error executing tool {name}: {e}")
+            logger.error("Error executing tool %s: %s", name, e)
             return [TextContent(type="text", text=f"Error: {str(e)}")]
+        finally:
+            current_execution_credentials.set(None)
 
     return server
 

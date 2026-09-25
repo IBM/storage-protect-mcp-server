@@ -6,6 +6,9 @@ class DefineHold(BaseCommand):
     def name(self) -> str:
         return "define_hold"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Define a **Hold** on retention set data. Prevents deletion of retention sets until the hold is released.\n"
@@ -31,6 +34,9 @@ class DeleteHold(BaseCommand):
     def name(self) -> str:
         return "delete_hold"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Deletes a **Hold** on retention set data.\n"
@@ -55,6 +61,9 @@ class DefineRetentionRule(BaseCommand):
     @property
     def name(self) -> str:
         return "define_retention_rule"
+    @property
+    def required_privilege(self) -> str:
+        return "policy"
     @property
     def description(self) -> str:
         return (

@@ -6,6 +6,9 @@ class DefineMachine(BaseCommand):
     def name(self) -> str:
         return "define_machine"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Define a **Machine** (Client) manually, declaring its existence to the server.\n\n"
@@ -38,6 +41,9 @@ class UpdateMachine(BaseCommand):
     def name(self) -> str:
         return "update_machine"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates properties of a registered **Machine** (Client).\n\n"
@@ -66,6 +72,9 @@ class DeleteMachine(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_machine"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (

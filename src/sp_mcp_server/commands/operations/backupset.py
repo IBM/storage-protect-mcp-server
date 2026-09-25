@@ -6,6 +6,9 @@ class DefineBackupSet(BaseCommand):
     def name(self) -> str:
         return "define_backup_set"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Define a **Backup Set** from existing backup versions on the server. Backup sets are portable collections of node data.\n"
@@ -38,6 +41,9 @@ class UpdateBackupSet(BaseCommand):
     def name(self) -> str:
         return "update_backup_set"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Updates the retention rule for a **Backup Set**.\n"
@@ -67,6 +73,9 @@ class DeleteBackupSet(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_backup_set"
+    @property
+    def required_privilege(self) -> str:
+        return "operator"
     @property
     def description(self) -> str:
         return (

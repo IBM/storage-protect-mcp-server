@@ -7,6 +7,9 @@ class QueryRecoveryLog(BaseCommand):
         return "query_recovery_log"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display information about the transaction recovery log.\n\n"
@@ -45,6 +48,9 @@ class QueryEnabledEvents(BaseCommand):
         return "query_enabled_events"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query which system events are currently enabled for logging or alerting.\n\n"
@@ -79,6 +85,9 @@ class QueryEventRules(BaseCommand):
         return "query_event_rules"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Query configured event rules which filter or direct specific events.\n\n"
@@ -104,6 +113,9 @@ class QueryEventReceiver(BaseCommand):
     def name(self) -> str:
         return "query_event_receiver"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

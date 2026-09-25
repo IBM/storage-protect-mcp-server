@@ -6,6 +6,9 @@ class DefineAlertTrigger(BaseCommand):
     def name(self) -> str:
         return "define_alert_trigger"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Define an alert trigger with specific threshold.\n"
@@ -41,6 +44,9 @@ class UpdateAlertTrigger(BaseCommand):
     @property
     def name(self) -> str:
         return "update_alert_trigger"
+    @property
+    def required_privilege(self) -> str:
+        return "operator"
     @property
     def description(self) -> str:
         return (
@@ -81,6 +87,9 @@ class UpdateAlertStatus(BaseCommand):
     def name(self) -> str:
         return "update_alert_status"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Updates the status of an existing **Alert**.\n"
@@ -108,6 +117,9 @@ class DeleteAlertTrigger(BaseCommand):
     def name(self) -> str:
         return "delete_alert_trigger"
     @property
+    def required_privilege(self) -> str:
+        return "operator"
+    @property
     def description(self) -> str:
         return (
             "Deletes a defined **Alert Trigger**.\n"
@@ -134,6 +146,9 @@ class QueryAlertTrigger(BaseCommand):
         return "query_alert_trigger"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "Query the list of defined alert triggers that generate notifications.\n\n"
@@ -159,6 +174,9 @@ class QueryAlertStatus(BaseCommand):
     def name(self) -> str:
         return "query_alert_status"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

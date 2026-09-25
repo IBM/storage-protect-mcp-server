@@ -7,6 +7,9 @@ class QueryCatalog(BaseCommand):
         return "query_catalog"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display information about the server's metadata catalog (database).\n\n"
@@ -47,6 +50,9 @@ class QueryCatalogSpace(BaseCommand):
         return "query_catalog_space"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display storage space utilization for the metadata catalog (database).\n\n"
@@ -75,6 +81,9 @@ class QuerySystemInfo(BaseCommand):
     def name(self) -> str:
         return "query_system_info"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -109,6 +118,9 @@ class QueryMonitoringConfig(BaseCommand):
         return "query_monitoring_config"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display configuration settings for system monitoring.\n\n"
@@ -134,6 +146,9 @@ class QueryMonitoringStatus(BaseCommand):
     def name(self) -> str:
         return "query_monitoring_status"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

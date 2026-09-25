@@ -34,7 +34,6 @@ classifiers = [
 dependencies = [
     "mcp>=1.0.0,<2.0.0",
     "python-dotenv>=1.0.0",
-    "openai>=1.0.0",
     "keyring>=24.0.0"
 ]
 
@@ -76,6 +75,8 @@ sse = [
     "mcp[sse]",
     "starlette>=0.27.0",
     "uvicorn>=0.23.0",
+    "httpx>=0.24.0",
+    "PyJWT>=2.8.0",
 ]
 
 [build-system]

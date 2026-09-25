@@ -12,6 +12,9 @@ class DefineAdmin(BaseCommand):
     def name(self) -> str:
         return "define_admin"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines an **Administrator** account with specific privileges.\n\n"
@@ -34,15 +37,26 @@ class DefineAdmin(BaseCommand):
             "required": ["admin_name", "password"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
-        cmd = f"REGISTER ADMIN {arguments['admin_name']} {arguments['password']}"
+        password = arguments.get("password", "")
+
+        # POL-2: pre-validate password length against server's MINPWLENGTH policy
+        pw_error = self._validate_password_policy(password)
+        if pw_error:
+            return f"Error defining administrator: {pw_error}"
+
+        cmd = f"REGISTER ADMIN {arguments['admin_name']} {password}"
         if arguments.get("contact"):
             cmd += f" CONTACT=\"{arguments['contact']}\""
-        return self._execute_simple_query(cmd)
+        # RG-3: password is embedded in the command string — use silent execution
+        return self._execute_silent_query(cmd)
 
 class UpdateUser(BaseCommand):
     @property
     def name(self) -> str:
         return "update_user"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (
@@ -66,15 +80,27 @@ class UpdateUser(BaseCommand):
             "required": ["user_name"]
         }
     def execute(self, arguments: Dict[str, Any]) -> str:
+        # POL-2: if a new password is supplied, validate it before sending
+        if arguments.get("password"):
+            pw_error = self._validate_password_policy(arguments["password"])
+            if pw_error:
+                return f"Error updating account: {pw_error}"
+
         cmd = f"UPDATE ADMIN {arguments['user_name']}"
         if arguments.get("password"): cmd += f" {arguments['password']}"
         if arguments.get("contact"): cmd += f" CONTACT=\"{arguments['contact']}\""
+        # RG-3: password may be in the command string — use silent execution
+        if arguments.get("password"):
+            return self._execute_silent_query(cmd)
         return self._execute_simple_query(cmd)
 
 class SetUserLock(BaseCommand):
     @property
     def name(self) -> str:
         return "set_user_lock"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (
@@ -122,6 +148,9 @@ class GrantAuthority(BaseCommand):
     def name(self) -> str:
         return "grant_authority"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Grants specific **Privilege Classes** to an administrator. Controls authorization level.\n\n"
@@ -162,6 +191,9 @@ class RevokeAuthority(BaseCommand):
     @property
     def name(self) -> str:
         return "revoke_authority"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (
@@ -216,6 +248,9 @@ class RegisterLicense(BaseCommand):
     def name(self) -> str:
         return "register_license"
     @property
+    def required_privilege(self) -> str:
+        return "system"
+    @property
     def description(self) -> str:
         return (
             "- Description: Registers a new **Software License** key from a specified file.\n\n"
@@ -241,6 +276,9 @@ class DeleteAdmin(BaseCommand):
     @property
     def name(self) -> str:
         return "delete_admin"
+    @property
+    def required_privilege(self) -> str:
+        return "system"
     @property
     def description(self) -> str:
         return (
@@ -285,6 +323,9 @@ class QueryAdminUser(BaseCommand):
         return "query_admin_user"
 
     @property
+    def required_privilege(self) -> str:
+        return "any"
+    @property
     def description(self) -> str:
         return (
             "- Description: Display information about server administrators/users.\n\n"
@@ -317,6 +358,9 @@ class QueryLicenseInfo(BaseCommand):
     def name(self) -> str:
         return "query_license_info"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

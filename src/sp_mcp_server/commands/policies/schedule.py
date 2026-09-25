@@ -7,6 +7,9 @@ class DefineSchedule(BaseCommand):
         return "define_schedule"
         
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "Defines a **Client Schedule** to automate backup tasks.\n"
@@ -53,6 +56,9 @@ class UpdateSchedule(BaseCommand):
     def name(self) -> str:
         return "update_schedule"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "- Description: Updates a **Client Schedule**.\n"
@@ -90,6 +96,9 @@ class DeleteSchedule(BaseCommand):
     def name(self) -> str:
         return "delete_schedule"
     @property
+    def required_privilege(self) -> str:
+        return "policy"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Client Schedule**.\n"
@@ -117,6 +126,9 @@ class QuerySchedule(BaseCommand):
     def name(self) -> str:
         return "query_schedule"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -160,6 +172,9 @@ class QueryScheduledEvent(BaseCommand):
     def name(self) -> str:
         return "query_scheduled_event"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -222,6 +237,9 @@ class QueryScheduleAssociation(BaseCommand):
     def name(self) -> str:
         return "query_schedule_association"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (

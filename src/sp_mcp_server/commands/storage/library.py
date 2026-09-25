@@ -7,6 +7,9 @@ class DefineLibrary(BaseCommand):
         return "define_library"
 
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Defines a **Tape Library** configuration physically or logically connected to the server.\n"
@@ -43,6 +46,9 @@ class UpdateLibrary(BaseCommand):
     @property
     def name(self) -> str:
         return "update_library"
+    @property
+    def required_privilege(self) -> str:
+        return "storage"
     @property
     def description(self) -> str:
         return (
@@ -91,6 +97,9 @@ class DeleteLibrary(BaseCommand):
     def name(self) -> str:
         return "delete_library"
     @property
+    def required_privilege(self) -> str:
+        return "storage"
+    @property
     def description(self) -> str:
         return (
             "- Description: Deletes a **Library** definition.\n"
@@ -116,6 +125,9 @@ class QueryTapeLibrary(BaseCommand):
     def name(self) -> str:
         return "query_tape_library"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
@@ -149,6 +161,9 @@ class QueryLibraryVolume(BaseCommand):
     def name(self) -> str:
         return "query_library_volume"
 
+    @property
+    def required_privilege(self) -> str:
+        return "any"
     @property
     def description(self) -> str:
         return (
