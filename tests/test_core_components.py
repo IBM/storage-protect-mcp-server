@@ -3,54 +3,78 @@ from sp_mcp_server.cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonW
 from sp_mcp_server.commands.system.server import QueryServerStatus
 from sp_mcp_server.commands.servermon import RunServerMon
 
+from tests.fixtures import (
+    FakeAdmcCli,
+    FakeServermonCli,
+    make_server_config,
+    # server / network
+    SP_TEST_SERVER_ADDRESS,
+    SP_ALT_SERVER_PORT,
+    SP_SERVER_PORT,
+    # credentials
+    ADMIN_ID,
+    ADMIN_PASSWORD,
+    SP_INSTANCE_USER,
+    SP_INSTANCE_DIR,
+    DSMSERV_PATH,
+    DSMSERV_PATH_FULL,
+    SERVERMON_PATH,
+    SERVERMON_PATH_FULL,
+    SERVERMON_XML_DIR,
+    # command outputs
+    SP_OUTPUT_STATUS_OK,
+    SP_OUTPUT_SERVERMON_OK,
+    SP_OUTPUT_OFFLINE_OK,
+    SERVERMON_XML_CONTENT,
+    SERVERMON_SUBDIR_NAME,
+    # commands
+    CMD_QUERY_STATUS,
+    CMD_DISPLAY_DBSPACE,
+    SERVERMON_ARGS_STANDARD,
+    SERVERMON_ARGS_STANDARD_DBONLY,
+)
 
-class DummyCli:
-    def __init__(self, stdout="OK", stderr="", code=0):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.code = code
-        self.calls = []
 
-    def execute(self, command):
-        self.calls.append(command)
-        return self.stdout, self.stderr, self.code
+# ---------------------------------------------------------------------------
+# Config tests
+# ---------------------------------------------------------------------------
 
 
 def test_load_config_reads_environment(monkeypatch):
-    monkeypatch.setenv("TCPSERVERADDRESS", "test.server.com")
-    monkeypatch.setenv("SP_SERVER_PORT", "1600")
-    monkeypatch.setenv("SP_ADMIN_ID", "admin")
-    monkeypatch.setenv("SP_ADMIN_PASSWORD", "secret")
-    monkeypatch.setenv("SP_DSMSERV_PATH", "/opt/tivoli/tsm/server/bin/dsmserv")
-    monkeypatch.setenv("SP_SERVER_INSTANCE_DIR", "/home/tsminst1")
-    monkeypatch.setenv("SP_SERVERMON_PATH", "/opt/tivoli/tsm/server/bin/servermon")
-    monkeypatch.setenv("SP_SERVERMON_XML_DIR", "/tmp/servermon")
-    monkeypatch.setenv("SP_INSTANCE_USER", "tsminst1")
+    monkeypatch.setenv("TCPSERVERADDRESS", SP_TEST_SERVER_ADDRESS)
+    monkeypatch.setenv("SP_SERVER_PORT", SP_ALT_SERVER_PORT)
+    monkeypatch.setenv("SP_ADMIN_ID", ADMIN_ID)
+    monkeypatch.setenv("SP_ADMIN_PASSWORD", ADMIN_PASSWORD)
+    monkeypatch.setenv("SP_DSMSERV_PATH", DSMSERV_PATH_FULL)
+    monkeypatch.setenv("SP_SERVER_INSTANCE_DIR", SP_INSTANCE_DIR)
+    monkeypatch.setenv("SP_SERVERMON_PATH", SERVERMON_PATH_FULL)
+    monkeypatch.setenv("SP_SERVERMON_XML_DIR", SERVERMON_XML_DIR)
+    monkeypatch.setenv("SP_INSTANCE_USER", SP_INSTANCE_USER)
 
     config = load_config()
 
-    assert config.server_address == "test.server.com"
-    assert config.server_port == "1600"
-    assert config.admin_id == "admin"
-    assert config.admin_password == "secret"
-    assert config.dsmserv_path == "/opt/tivoli/tsm/server/bin/dsmserv"
-    assert config.server_instance_dir == "/home/tsminst1"
-    assert config.servermon_path == "/opt/tivoli/tsm/server/bin/servermon"
-    assert config.servermon_xml_dir == "/tmp/servermon"
-    assert config.instance_user == "tsminst1"
+    assert config.server_address == SP_TEST_SERVER_ADDRESS
+    assert config.server_port == SP_ALT_SERVER_PORT
+    assert config.admin_id == ADMIN_ID
+    assert config.admin_password == ADMIN_PASSWORD
+    assert config.dsmserv_path == DSMSERV_PATH_FULL
+    assert config.server_instance_dir == SP_INSTANCE_DIR
+    assert config.servermon_path == SERVERMON_PATH_FULL
+    assert config.servermon_xml_dir == SERVERMON_XML_DIR
+    assert config.instance_user == SP_INSTANCE_USER
 
 
 def test_server_config_validate_requires_credentials():
     valid = ServerConfig(
         server_address=None,
-        server_port="1500",
-        admin_id="admin",
-        admin_password="secret",
+        server_port=SP_SERVER_PORT,
+        admin_id=ADMIN_ID,
+        admin_password=ADMIN_PASSWORD,
     )
     invalid = ServerConfig(
         server_address=None,
-        server_port="1500",
-        admin_id="admin",
+        server_port=SP_SERVER_PORT,
+        admin_id=ADMIN_ID,
         admin_password=None,
     )
 
@@ -58,16 +82,21 @@ def test_server_config_validate_requires_credentials():
     assert invalid.validate() is False
 
 
+# ---------------------------------------------------------------------------
+# Wrapper tests
+# ---------------------------------------------------------------------------
+
+
 def test_dsmadmc_wrapper_returns_config_error_when_credentials_missing():
     config = ServerConfig(
-        server_address="server.example.com",
-        server_port="1500",
+        server_address=SP_TEST_SERVER_ADDRESS,
+        server_port=SP_SERVER_PORT,
         admin_id=None,
         admin_password=None,
     )
 
     wrapper = DsmAdmcWrapper(config)
-    stdout, stderr, code = wrapper.execute("QUERY STATUS")
+    stdout, stderr, code = wrapper.execute(CMD_QUERY_STATUS)
 
     assert stdout == ""
     assert "Configuration incomplete" in stderr
@@ -78,7 +107,7 @@ def test_dsmserv_wrapper_uses_instance_user(monkeypatch):
     captured = {}
 
     class Result:
-        stdout = "offline ok"
+        stdout = SP_OUTPUT_OFFLINE_OK
         stderr = ""
         returncode = 0
 
@@ -88,25 +117,22 @@ def test_dsmserv_wrapper_uses_instance_user(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    config = ServerConfig(
+    config = make_server_config(
         server_address=None,
-        server_port="1500",
-        admin_id="admin",
-        admin_password="secret",
-        dsmserv_path="/bin/dsmserv",
-        server_instance_dir="/home/tsminst1",
-        instance_user="tsminst1",
+        dsmserv_path=DSMSERV_PATH,
+        server_instance_dir=SP_INSTANCE_DIR,
+        instance_user=SP_INSTANCE_USER,
     )
 
     wrapper = DsmServWrapper(config)
-    stdout, stderr, code = wrapper.execute("DISPLAY DBSPACE")
+    stdout, stderr, code = wrapper.execute(CMD_DISPLAY_DBSPACE)
 
-    assert stdout == "offline ok"
+    assert stdout == SP_OUTPUT_OFFLINE_OK
     assert stderr == ""
     assert code == 0
     # ACC-4: sudo -u <user> -- used instead of su - <user> -c <cmd>
-    assert captured["args"][0:4] == ["sudo", "-u", "tsminst1", "--"]
-    assert captured["args"][4] == "/bin/dsmserv"
+    assert captured["args"][0:4] == ["sudo", "-u", SP_INSTANCE_USER, "--"]
+    assert captured["args"][4] == DSMSERV_PATH
     assert "-i" in captured["args"]
     assert "DISPLAY" in captured["args"]
     assert "DBSPACE" in captured["args"]
@@ -114,47 +140,49 @@ def test_dsmserv_wrapper_uses_instance_user(monkeypatch):
 
 def test_servermon_wrapper_returns_existing_output_when_busy(monkeypatch, tmp_path):
     xml_root = tmp_path / "srvmon"
-    results_dir = xml_root / ".20260306T1159-SERVER1" / "results"
+    results_dir = xml_root / SERVERMON_SUBDIR_NAME / "results"
     results_dir.mkdir(parents=True)
     xml_file = results_dir / "summary.xml"
-    xml_file.write_text("<servermon>ready</servermon>")
+    xml_file.write_text(SERVERMON_XML_CONTENT)
 
-    config = ServerConfig(
+    config = make_server_config(
         server_address=None,
-        server_port="1500",
-        admin_id="admin",
-        admin_password="secret",
-        servermon_path="/bin/servermon",
+        servermon_path=SERVERMON_PATH,
         servermon_xml_dir=str(xml_root),
-        instance_user="tsminst1",
+        instance_user=SP_INSTANCE_USER,
     )
 
     wrapper = ServermonWrapper(config)
     monkeypatch.setattr(wrapper, "_check_servermon_running", lambda: True)
 
-    stdout, stderr, code = wrapper.execute(["-standard"])
+    stdout, stderr, code = wrapper.execute(SERVERMON_ARGS_STANDARD)
 
     assert code == 0
     assert stderr == ""
     assert "Using existing servermon diagnostics from:" in stdout
-    assert "<servermon>ready</servermon>" in stdout
+    assert SERVERMON_XML_CONTENT in stdout
+
+
+# ---------------------------------------------------------------------------
+# Command unit tests
+# ---------------------------------------------------------------------------
 
 
 def test_query_server_status_executes_expected_command():
-    cli: DummyCli = DummyCli(stdout="STATUS OK")
-    cmd = QueryServerStatus(cli)
+    cli = FakeAdmcCli(stdout=SP_OUTPUT_STATUS_OK)
+    cmd = QueryServerStatus(cli)  # type: ignore[arg-type]
 
     result = cmd.execute({})
 
-    assert cli.calls == ["QUERY STATUS"]
-    assert result == "STATUS OK"
+    assert cli.calls == [CMD_QUERY_STATUS]
+    assert result == SP_OUTPUT_STATUS_OK
 
 
 def test_run_servermon_passes_args_to_wrapper():
-    cli = DummyCli(stdout="SERVERMON OK")
-    cmd = RunServerMon(cli)
+    cli = FakeServermonCli(stdout=SP_OUTPUT_SERVERMON_OK)
+    cmd = RunServerMon(cli)  # type: ignore[arg-type]
 
-    result = cmd.execute({"args": ["-standard", "-dbonly"]})
+    result = cmd.execute({"args": SERVERMON_ARGS_STANDARD_DBONLY})
 
-    assert cli.calls == [["-standard", "-dbonly"]]
-    assert result == "SERVERMON OK"
+    assert cli.calls == [SERVERMON_ARGS_STANDARD_DBONLY]
+    assert result == SP_OUTPUT_SERVERMON_OK

@@ -1,0 +1,15 @@
+# requirements.txt — IBM Storage Protect MCP Server
+# Generated from pyproject.toml dependency groups.
+#
+# Install options:
+#   Runtime only:          pip install -r requirements.txt
+#   With test extras:      pip install -r requirements.txt -r requirements-test.txt
+#   With dev extras:       pip install -r requirements.txt -r requirements-dev.txt
+#   With SSE/HTTP extras:  pip install -r requirements.txt -r requirements-sse.txt
+
+# ---------------------------------------------------------------------------
+# Runtime dependencies  (project.dependencies)
+# ---------------------------------------------------------------------------
+mcp>=1.0.0,<2.0.0
+python-dotenv>=1.0.0
+keyring>=24.0.0

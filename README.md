@@ -11,44 +11,7 @@ The IBM Storage Protect Model Context Protocol (MCP) server exposes Storage Prot
 - `stdio`/SSH and HTTP/SSE transport options
 - Privilege-aware tool registration and audit correlation
 
-## Setup and Usage
-
-Use the end-user guides in [`docs/guides/`](docs/guides/) in this order:
-
-1. **Plan** — [`planning-guide.md`](docs/guides/planning-guide.md)
-   Choose a deployment topology, inventory Storage Protect servers, plan service accounts and SSH keys, and confirm prerequisites.
-2. **Install** — [`install-guide.md`](docs/guides/install-guide.md)
-   Set up the operating-system user, Python environment, package, credentials, TLS configuration, and Storage Protect integration.
-3. **Configure** — [`configure-guide.md`](docs/guides/configure-guide.md)
-   Configure the MCP client, transport, authentication, privilege scope, command approval, and multiple-server deployments.
-4. **Use** — [`user-guide.md`](docs/guides/user-guide.md)
-   Start and operate the server, select modules, address multiple servers, review audit records, and follow safe usage practices.
-5. **Troubleshoot** — [`troubleshoot.md`](docs/guides/troubleshoot.md)
-   Diagnose startup, credential, connection, transport, SSH, offline-command, and runtime problems.
-
-The guide index at [`docs/guides/README.md`](docs/guides/README.md) provides the complete reading order and section summaries.
-
-## Quick Start
-
-After completing the guides, a manual `stdio` test can be started with:
-
-```bash
-cd /opt/sp-mcp-server
-source .venv/bin/activate
-python3 -m sp_mcp_server.main --mode full
-```
-
-For a safer monitoring deployment:
-
-```bash
-python3 -m sp_mcp_server.main --mode read-only
-```
-
-The MCP client normally starts the server for you. See [`configure-guide.md`](docs/guides/configure-guide.md) for client configuration examples and [`user-guide.md`](docs/guides/user-guide.md) for command-line options and server modules.
-
 ## Requirements
-
-The detailed prerequisites and verification steps are maintained in [`planning-guide.md`](docs/guides/planning-guide.md) and [`install-guide.md`](docs/guides/install-guide.md). In general, you need:
 
 - Python 3.10 or later
 - A reachable IBM Storage Protect server
@@ -56,35 +19,159 @@ The detailed prerequisites and verification steps are maintained in [`planning-g
 - A dedicated non-root operating-system user
 - Storage Protect administrator credentials with the required privilege
 
-## Further Documentation
+Full prerequisite details and verification steps are in [`docs/guides/planning-guide.md`](docs/guides/planning-guide.md) and [`docs/guides/install-guide.md`](docs/guides/install-guide.md).
 
-- [`docs/architecture/`](docs/architecture/) — system and module architecture
-- [`docs/design/`](docs/design/) — security and design specifications
-- [`docs/implement/`](docs/implement/) — implementation specifications
-- [`docs/analysis/`](docs/analysis/) — design and security analysis
-- [`docs/traceability/`](docs/traceability/) — requirements traceability, gap analysis, and independent audit report
-- [`docs/example/sample-prompts.md`](docs/example/sample-prompts.md) — example administrator prompts
-- [`docs/reference/`](docs/reference/) — product reference material
+## Install & Configure
 
-## Sample Prompts
+Follow the guides in [`docs/guides/`](docs/guides/) in order. Each guide links to the next.
 
-For example prompts and longer task-oriented prompt patterns, see [`docs/example/sample-prompts.md`](docs/example/sample-prompts.md).
+### 1. Plan — [`docs/guides/planning-guide.md`](docs/guides/planning-guide.md)
 
-## Reporting Issues and Feedback
+Choose a deployment topology (co-located on each SP server host, or centralised on a single control host), inventory your Storage Protect servers, plan service accounts and SSH keys, and confirm system prerequisites.
 
-For issues, questions, or feature requests, open an issue in the repository.
+### 2. Install — [`docs/guides/install-guide.md`](docs/guides/install-guide.md)
 
-## Contributing Code
+Set up the OS user and working directory, create a Python virtual environment, install the package and its dependencies, write the `.env` credential file with 0600 permissions, configure TLS certificates for HTTP transport, and verify the Storage Protect connection.
 
-Contributions are welcome through Pull Requests. Complete the following steps to contribute:
+Key steps at a glance:
+
+```bash
+# Create the virtual environment and install
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[sse]"          # or: pip install -r requirements-sse.txt
+
+# Write credentials (owner-read-only)
+install -m 600 /dev/null .env
+echo "SP_ADMIN_ID=mcp-svc-system"     >> .env
+echo "SP_ADMIN_PASSWORD=<password>"   >> .env
+echo "SP_SERVER_ADDRESS=your-sp-host" >> .env
+echo "SP_SERVER_PORT=1500"            >> .env
+```
+
+Full topology-specific instructions (co-located vs centralised, SSH key deployment, TLS setup) are in [`install-guide.md`](docs/guides/install-guide.md).
+
+### 3. Configure — [`docs/guides/configure-guide.md`](docs/guides/configure-guide.md)
+
+Register the MCP server in your AI client (Claude Desktop, VS Code Copilot, or similar). Choose a transport:
+
+| Transport | When to use |
+|-----------|-------------|
+| `stdio` over SSH | Single-client, local, or Claude Desktop deployments |
+| `http` with OIDC | Enterprise, multi-client, or REST gateway deployments |
+
+Example `stdio` + SSH entry for Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "sp-admin": {
+      "command": "ssh",
+      "args": [
+        "-i", "~/.ssh/id_ed25519_sp_mcp",
+        "-o", "StrictHostKeyChecking=yes",
+        "mcp-runner@your-sp-server",
+        "/opt/sp-mcp-server/.venv/bin/python3",
+        "-m", "sp_mcp_server.main",
+        "--mode", "full"
+      ]
+    }
+  }
+}
+```
+
+Authentication modes, privilege scoping, multi-server configurations, and HTTP/OIDC setup are covered in [`configure-guide.md`](docs/guides/configure-guide.md).
+
+## Usage
+
+Full usage reference is in [`docs/guides/user-guide.md`](docs/guides/user-guide.md). The sections below summarise the most common starting points.
+
+### Starting the server manually
+
+The MCP client normally launches the server for you via the configured command. For testing or offline use, start it directly:
+
+```bash
+cd /opt/sp-mcp-server
+source .venv/bin/activate
+
+# Full administrative access
+python3 -m sp_mcp_server.main --mode full
+
+# Monitoring / read-only (safest for first run)
+python3 -m sp_mcp_server.main --mode read-only
+```
+
+### Specialised server modules
+
+Instead of the unified `main` server you can launch a focused module that exposes only the tools for one administrative domain:
+
+| Module | Command | Scope |
+|--------|---------|-------|
+| Client core | `mcp-server-clients-core` | Node and group management |
+| Client config | `mcp-server-clients-config` | Node options and settings |
+| Storage pools | `mcp-server-storage-pools` | Storage pool and volume management |
+| Storage hardware | `mcp-server-storage-hardware` | Library and drive management |
+| Storage device | `mcp-server-storage-device` | Device class and data-mover configuration |
+| Policies lifecycle | `mcp-server-policies-lifecycle` | Policy sets and activation |
+| Policies management | `mcp-server-policies-management` | Management classes and copy groups |
+| System admin | `mcp-server-system-admin` | Administrators and licensing |
+| System config | `mcp-server-system-config` | Server options, schedules, and monitoring |
+| Operations | `mcp-server-ops` | Status, sessions, and activity log |
+| Ops protection | `mcp-server-ops-protection` | Backup rules and recovery |
+| Ops maintenance | `mcp-server-ops-maintenance` | Database, log, and media maintenance |
+| Ops rules | `mcp-server-ops-rules` | Administrative schedules and rules |
+
+### Privilege tiers
+
+The server narrows the registered tool set to match the IBM SP privilege class of the active account:
+
+| Privilege class | Tools available |
+|-----------------|----------------|
+| System | All tools — full administrative scope |
+| Policy | Policy management + all read-only tools |
+| Storage | Storage management + all read-only tools |
+| Operator | Operations (sessions, media, jobs) + read-only tools |
+| Any-admin (no class) | Read-only `QUERY` tools only |
+
+Use `--mode read-only` to restrict to read-only tools regardless of privilege class.
+
+### Authentication modes
+
+| Mode | `SP_MCP_AUTH_MODE` value | Best for |
+|------|--------------------------|----------|
+| Static tiered service accounts (default) | `service_account` | Automated pipelines, daemons, single-tenant bots |
+| Dynamic challenge-response | `dynamic` | Interactive chat (Claude Desktop) — users authenticate per session |
+
+See [`user-guide.md`](docs/guides/user-guide.md) for session lifecycle, audit records, and safe usage practices.
+
+### Troubleshooting
+
+Startup errors, credential failures, connection problems, SSH issues, and runtime diagnostics are covered in [`docs/guides/troubleshoot.md`](docs/guides/troubleshoot.md).
+
+## Documentation
+
+| Path | Contents |
+|------|----------|
+| [`docs/guides/`](docs/guides/) | End-user guides: planning, install, configure, use, troubleshoot |
+| [`docs/architecture/`](docs/architecture/) | System and module architecture |
+| [`docs/design/`](docs/design/) | Security and design specifications |
+| [`docs/implement/`](docs/implement/) | Implementation specifications |
+| [`docs/analysis/`](docs/analysis/) | Design and security analysis |
+| [`docs/traceability/`](docs/traceability/) | Requirements traceability, gap analysis, and independent audit report |
+| [`docs/reference/`](docs/reference/) | Product reference material |
+| [`docs/example/sample-prompts.md`](docs/example/sample-prompts.md) | Example administrator prompts and task patterns |
+
+## Contributing
+
+Contributions are welcome through Pull Requests. To contribute:
 
 1. Fork the repository and create a new branch for your feature or bug fix.
-2. Make your changes by following the existing code style and conventions.
-3. Test your changes thoroughly to ensure that they work as expected.
+2. Follow the existing code style and conventions.
+3. Test your changes thoroughly before submitting.
 4. Submit a pull request with a clear description of your changes.
-5. Sign the Developer's Certificate of Origin (DCO) by adding your name and email address to the `DCO.md` file in your pull request.
+5. Sign the Developer's Certificate of Origin (DCO) by adding your name and email address to `DCO.md` in your pull request.
 
-> **Note:** Submit your first Pull Request against the Developer's Certificate of Origin (DCO) located at `DCO.md` by using your name and email address.
+For issues, questions, or feature requests, open an issue in the repository.
 
 ## Disclaimer
 

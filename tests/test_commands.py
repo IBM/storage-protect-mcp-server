@@ -2,62 +2,64 @@ from sp_mcp_server.commands.system.server import QueryServerStatus
 from sp_mcp_server.commands.operations.misc import QueryActivityLog
 from sp_mcp_server.commands.servermon import RunServerMon
 
-
-class DummyCli:
-    def __init__(self, stdout="Output", stderr="", code=0):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.code = code
-        self.calls = []
-
-    def execute(self, command):
-        self.calls.append(command)
-        return self.stdout, self.stderr, self.code
+from tests.fixtures import (
+    FakeAdmcCli,
+    FakeServermonCli,
+    SP_OUTPUT_STATUS_OK,
+    SP_OUTPUT_SERVERMON_OK,
+    CMD_QUERY_STATUS,
+    CMD_QUERY_ACTLOG_SEARCH,
+    CMD_QUERY_ACTLOG_FILTERED,
+    ACTLOG_SEARCH_TERM,
+    ACTLOG_BEGIN_DATE,
+    ACTLOG_END_DATE,
+    ACTLOG_BEGIN_TIME,
+    ACTLOG_END_TIME,
+    SERVERMON_ARGS_STANDARD_DBONLY,
+)
 
 
 def test_query_server_status():
-    cli = DummyCli(stdout="STATUS OK")
-    cmd = QueryServerStatus(cli)
+    cli = FakeAdmcCli(stdout=SP_OUTPUT_STATUS_OK)
+    cmd = QueryServerStatus(cli)  # type: ignore[arg-type]
 
     result = cmd.execute({})
 
-    assert cli.calls == ["QUERY STATUS"]
-    assert result == "STATUS OK"
+    assert cli.calls == [CMD_QUERY_STATUS]
+    assert result == SP_OUTPUT_STATUS_OK
 
 
 def test_query_activity_log_with_search_only():
-    cli = DummyCli()
-    cmd = QueryActivityLog(cli)
+    cli = FakeAdmcCli()
+    cmd = QueryActivityLog(cli)  # type: ignore[arg-type]
 
     cmd.execute({"search": "ANR2968E"})
 
-    assert cli.calls == ["QUERY ACTLOG SEARCH=ANR2968E"]
+    assert cli.calls == [CMD_QUERY_ACTLOG_SEARCH]
 
 
 def test_query_activity_log_with_time_filters():
-    cli = DummyCli()
-    cmd = QueryActivityLog(cli)
+    cli = FakeAdmcCli()
+    cmd = QueryActivityLog(cli)  # type: ignore[arg-type]
 
     cmd.execute(
         {
-            "search": "ERROR",
-            "begindate": "2026-07-15",
-            "enddate": "2026-07-16",
-            "begintime": "08:00",
-            "endtime": "09:00",
+            "search": ACTLOG_SEARCH_TERM,
+            "begindate": ACTLOG_BEGIN_DATE,
+            "enddate": ACTLOG_END_DATE,
+            "begintime": ACTLOG_BEGIN_TIME,
+            "endtime": ACTLOG_END_TIME,
         }
     )
 
-    assert cli.calls == [
-        "QUERY ACTLOG SEARCH=ERROR BEGINDATE=2026-07-15 ENDDATE=2026-07-16 BEGINTIME=08:00 ENDTIME=09:00"
-    ]
+    assert cli.calls == [CMD_QUERY_ACTLOG_FILTERED]
 
 
 def test_run_servermon_forwards_args():
-    cli = DummyCli(stdout="SERVERMON OK")
-    cmd = RunServerMon(cli)
+    cli = FakeServermonCli(stdout=SP_OUTPUT_SERVERMON_OK)
+    cmd = RunServerMon(cli)  # type: ignore[arg-type]
 
-    result = cmd.execute({"args": ["-standard", "-dbonly"]})
+    result = cmd.execute({"args": SERVERMON_ARGS_STANDARD_DBONLY})
 
-    assert cli.calls == [["-standard", "-dbonly"]]
-    assert result == "SERVERMON OK"
+    assert cli.calls == [SERVERMON_ARGS_STANDARD_DBONLY]
+    assert result == SP_OUTPUT_SERVERMON_OK
