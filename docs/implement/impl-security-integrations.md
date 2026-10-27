@@ -709,7 +709,7 @@ Tool call using references (no raw credentials in the payload):
 
 ### Background
 
-The `keyring` package is declared as a runtime dependency in [`pyproject.toml`](../../pyproject.toml:38) but is not used anywhere in the codebase. This change integrates it as the **primary** credential source for MCP service account passwords, with environment variables as a fallback. Credentials are stored in the OS-backed credential store (macOS Keychain, Linux Secret Service / libsecret, Windows Credential Manager) rather than in plaintext environment variables or `.env` files.
+The `keyring` package is declared as a runtime dependency in [`pyproject.toml`](../../pyproject.toml#L38) but is not used anywhere in the codebase. This change integrates it as the **primary** credential source for MCP service account passwords, with environment variables as a fallback. Credentials are stored in the OS-backed credential store (macOS Keychain, Linux Secret Service / libsecret, Windows Credential Manager) rather than in plaintext environment variables or `.env` files.
 
 ### What to change
 
@@ -1020,5 +1020,5 @@ python3 -m sp_mcp_server.main --transport http --port 8443
 
 ### Automated test coverage
 
-[`tests/test_security_controls.py::TestHttpTransportTLS`](../../tests/test_security_controls.py)
+[`tests/test_sec_audit_trail.py::TestHttpTransportTLS`](../../tests/test_sec_audit_trail.py)
 

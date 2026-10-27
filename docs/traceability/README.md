@@ -8,16 +8,16 @@ Requirements traceability and security gap tracking for the IBM Storage Protect 
 
 | Document | Description |
 |---|---|
-| [`audit-report.md`](audit-report.md) | Independent consistency, correctness, completeness, and verification audit of the documentation, source code, tests, and traceability claims |
-| [`traceability-matrix.md`](traceability-matrix.md) | End-to-end requirements traceability matrix mapping security requirements to architecture, design, implementation, source files, and tests |
-| [`gap-analysis.md`](gap-analysis.md) | Historical security gap analysis and claimed remediation status; read with [`audit-report.md`](audit-report.md) for independent verification findings |
-| [`guides-gap-analysis.md`](guides-gap-analysis.md) | Consistency, correctness, and completeness assessment of `docs/guides/` against design specs, implementation specs, and source — 3 open findings (GGA-02, GGA-04, GGA-05) |
+| [`traceability-matrix.md`](traceability-matrix.md) | **End-to-End Requirements Traceability Matrix**: Mapping all 51 security requirements, 25 negative scenarios, 15 resilience scenarios, and 10 stress scenarios to architecture, design, code, and tests. |
+| [`gap-analysis.md`](gap-analysis.md) | **Consolidated Gap Analysis**: Unified assessment of security requirements (Domains 1–8) and documentation/guides (GGA-01..05) — 100% closed, 0 open gaps. |
+| [`audit-report.md`](audit-report.md) | **Consolidated Independent Audit & Verification Report**: Complete audit covering source code, runtime security, packaging metadata, documentation corpus (AUD-DOC-01..13), 8 sample prompt personas + negative prompts, and 266 automated tests with Allure reporting. |
 
 ---
 
 ## Summary Status
 
-All 51 security requirements across eight domains are fully implemented, tested, and independently verified. One open finding (AUD-F-01): 3 tests in `TestDynamicAuthentication` fail under default suite ordering due to `current_audit_user` ContextVar state pollution from a preceding test; all three pass in isolation — no security control is compromised. See [`audit-report.md`](audit-report.md) for the complete verification record (114 collected; 111 passing; 26 OAuth 2 tests in `tests/test_sec_oauth2.py` all pass; 10 test files).
+All 51 security requirements across eight domains, 8 sample prompt persona workflows, negative prompt scenarios, and all documentation audit findings are fully implemented, verified, and closed. AUD-F-01 test-isolation defect is fully resolved via `tests/conftest.py`. See [`audit-report.md`](audit-report.md) for the complete verification record (**266 collected tests across 15 test files: 248 passing, 18 skipped, 0 failing**; integrated with Allure reporting and containerized test-bed).
+
 
 ---
 

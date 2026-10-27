@@ -733,6 +733,9 @@ SP_SERVERMON_PATH=/opt/tivoli/tsm/server/bin/servermon
 SP_SERVERMON_XML_DIR=/tmp/servermon
 SP_INSTANCE_USER=tsminst1
 SP_MCP_ENV=production
+# Optional server identity and fallback audit subject (NR-1)
+# SP_SERVER_NAME=ibm-storage-protect-mcp
+# SP_MCP_USER=local
 # HTTP transport + OIDC (omit if using SSH/stdio transport)
 # SP_OIDC_ISSUER=https://idp.corp.example.com/realms/mcp
 # SP_OIDC_AUDIENCE=sp-mcp-server
@@ -849,6 +852,9 @@ SP_ADMIN_ID_READONLY=mcp-svc-readonly
 SP_MCP_USE_PASSWORD_STASH=1
 DSM_CONFIG=/opt/sp-mcp/config/dsm.sys
 SP_MCP_ENV=production
+# Optional server identity and fallback audit subject (NR-1)
+# SP_SERVER_NAME=ibm-storage-protect-mcp
+# SP_MCP_USER=local
 # SP_INSTANCE_USER / SP_DSMSERV_PATH / SP_SERVERMON_PATH — omit in Topology B
 # HTTP transport + OIDC (omit if using SSH/stdio transport)
 # SP_OIDC_ISSUER=https://idp.corp.example.com/realms/mcp

@@ -413,5 +413,5 @@ SP_MCP_ENV=test SP_MCP_SKIP_SECURITY_CHECKS=1 python3 -m sp_mcp_server.main
 
 ### Automated test coverage
 
-[`tests/test_security_controls.py::TestProductionGuard`](../../tests/test_security_controls.py)
+[`tests/test_sec_startup.py::TestProductionGuard`](../../tests/test_sec_startup.py)
 

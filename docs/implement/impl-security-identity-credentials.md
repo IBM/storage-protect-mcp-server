@@ -593,7 +593,7 @@ Any future `main_*.py` must use the same pattern. `secure_startup()` is the sing
 
 ### Automated test coverage
 
-[`tests/test_security_controls.py::TestSecureStartup`](../../tests/test_security_controls.py) and `TestEnvFilePermissions`
+[`tests/test_sec_startup.py::TestSecureStartup`](../../tests/test_sec_startup.py) and `TestEnvFilePermissions`
 
 ---
 
@@ -642,5 +642,5 @@ Any SP command that embeds a credential as a positional or named argument must u
 
 ### Automated test coverage
 
-[`tests/test_security_controls.py::TestPasswordCommandsSilentExecution`](../../tests/test_security_controls.py)
+[`tests/test_sec_password_commands.py::TestPasswordCommandsSilentExecution`](../../tests/test_sec_password_commands.py)
 

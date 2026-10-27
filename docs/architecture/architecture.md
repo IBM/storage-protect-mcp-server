@@ -264,9 +264,9 @@ The codebase provides multiple dedicated Micro-MCP entry points categorized acro
 ### 7.1 Entry Points (`main.py` / `main_*.py`)
 
 **Responsibilities:**
-- Parse command-line arguments (`--enable-servers`, `--mode`)
-- Invoke `secure_startup()` for `.env` permission and credential checks
-- Select and enable server modules based on configuration
+- Unified entry point (`main.py`): Parses command-line arguments (`--enable-servers`, `--mode`, `--transport`, `--port`, `--host`), runs PKCE checks, and enables selected micro-MCP modules
+- Micro-MCP entry points (25 `main_*.py` files): Standalone servers registering predefined command groups
+- Invoke `secure_startup()` across all 26 entry points for `.env` permission and credential checks
 - Initialize the async runtime and start the MCP server
 
 ### 7.2 MCP Factory (`mcp_factory.py`)

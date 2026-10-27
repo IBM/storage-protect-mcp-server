@@ -454,8 +454,10 @@ SP_MCP_SESSION_MAX_TTL=3600        # Hard session cap in seconds (default: 60m)
 
 | Variable | Required | Topology | Description |
 |----------|----------|----------|-------------|
-| `TCPSERVERADDRESS` | Yes | Both | IBM SP server hostname or IP |
+| `TCPSERVERADDRESS` | Yes | Both | IBM SP server hostname or IP (alias: `SP_SERVER_ADDRESS`) |
 | `SP_SERVER_PORT` | No (default `1500`) | Both | IBM SP admin port |
+| `SP_SERVER_NAME` | No (default `ibm-storage-protect-mcp`) | Both | MCP server instance name identifier |
+| `SP_MCP_USER` | No (default `local`) | Both | End-user subject identity for ACTLOG scratchpad attribution when no dynamic/OIDC token is present (NR-1) |
 | `SP_ADMIN_ID` | Legacy | Both | Single-account ID (deprecated) |
 | `SP_ADMIN_PASSWORD` | Legacy | Both | Single-account password (deprecated) |
 | `SP_ADMIN_ID_SYSTEM` | Per-privilege | Both | System-privilege service account ID |

@@ -8,7 +8,7 @@ Security design analysis and audit findings for the IBM Storage Protect MCP Serv
 
 | Document | Description |
 |---|---|
-| [`security-design-analysis.md`](security-design-analysis.md) | Comprehensive security architecture and active controls analysis across six domains: Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations, and Non-Repudiation & Forensics. Validated by 114 automated regression tests. |
+| [`security-design-analysis.md`](security-design-analysis.md) | Comprehensive security architecture and active controls analysis across eight domains: Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations, Non-Repudiation & Forensics, Dynamic Authentication, and OAuth 2 Extended Middleware. Validated by 188 automated regression tests. |
 | [`security-dynamic-authn-analysis.md`](security-dynamic-authn-analysis.md) | Dynamic & delegated user authentication design analysis — challenge-response workflow, stateful session verification, structured authentication challenge schema, zero-trace credential validation, privilege enforcement, target-server binding, and credential-lifecycle zeroing. |
 | [`security-oauth2-analysis.md`](security-oauth2-analysis.md) | OAuth 2 authorization gap analysis — seven gaps (OA-1 through OA-7) in the INT-2 OIDC resource-server baseline: missing AS metadata endpoint, unbounded JWKS cache, undocumented PKCE grant flow, absent IdP capability check, no token introspection, incomplete `WWW-Authenticate` header, and auth-model attribution gap in ACTLOG records. All seven gaps are now closed — see [`../implement/impl-security-oauth2.md`](../implement/impl-security-oauth2.md). |
 
@@ -16,7 +16,7 @@ Security design analysis and audit findings for the IBM Storage Protect MCP Serv
 
 ## Summary
 
-The analysis covers the following security domains:
+The analysis covers the following eight security domains:
 
 | Domain | Controls | Status |
 |---|---|---|
@@ -25,6 +25,8 @@ The analysis covers the following security domains:
 | Access Management | Per-tool privilege gate, self-narrowing tool registry, `sudo` execution | ✅ 0 open gaps |
 | Policy Management | Command approval workflow, `MINPWLENGTH` pre-validation, ACTLOG audit attribution | ✅ 0 open gaps |
 | Secure Integrations | OAuth 2.1 / OIDC bearer auth, HTTP TLS enforcement, keyring secret resolution | ✅ 0 open gaps |
+| Non-Repudiation & Forensics | User identity binding, fail-closed audit, ISO 8601 UTC timestamps | ✅ 0 open gaps |
+| Dynamic Authentication | Challenge-response, TTL bounding, delegation, session lifecycle & server binding | ✅ 0 open gaps |
 | OAuth 2 Authorization | AS metadata, JWKS TTL rotation, PKCE capability check, RFC 7662 introspection, RFC 9470 resource metadata, `authmodel` audit binding | ✅ 0 open gaps (OA-1 — OA-7 implemented, 26 tests) |
 
 ---

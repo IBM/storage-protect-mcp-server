@@ -32,7 +32,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mcp>=1.0.0,<2.0.0",
+    "mcp>=2.3.0,<2.4.0",
     "python-dotenv>=1.0.0",
     "keyring>=24.0.0"
 ]
@@ -64,15 +64,20 @@ test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "respx>=0.20.0",
+    "allure-pytest>=2.13.0",
+    "locust>=2.20.0",
 ]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "respx>=0.20.0",
+    "allure-pytest>=2.13.0",
+    "locust>=2.20.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
+
 sse = [
     "mcp[sse]",
     "starlette>=0.27.0",
@@ -98,6 +103,11 @@ exclude = ["tests*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+addopts = "--alluredir=allure-results"
 markers = [
     "integration: tests that require a live IBM SP server (deselect with -m 'not integration')",
+    "negative: negative tests validating schema, privilege, token, and injection handling",
+    "resilience: controlled failure and environmental recovery tests",
+    "stress: stress, load, and capacity tests",
 ]
+
