@@ -100,7 +100,7 @@ async def main():
     if args.transport == "http":
         # ── INT-2: HTTP/SSE transport with OIDC bearer auth ───────────────────
         import uvicorn
-        from .http_server import create_http_app
+        from .http_server import create_http_app, _check_idp_pkce_capability
 
         oidc_issuer   = os.environ.get("SP_OIDC_ISSUER")
         oidc_audience = os.environ.get("SP_OIDC_AUDIENCE", "sp-mcp-server")
@@ -111,6 +111,21 @@ async def main():
                 "Example: SP_OIDC_ISSUER=https://login.microsoftonline.com/<tenant>/v2.0"
             )
             sys.exit(1)
+
+        # ── OA-4: PKCE capability check (runs before TLS gate so it can warm the metadata cache)
+        asyncio.get_event_loop().run_until_complete(
+            _check_idp_pkce_capability(oidc_issuer)
+        )
+        # ─────────────────────────────────────────────────────────────────────
+
+        # ── OA-2: JWKS TTL + OA-5: introspection + OA-6: public URL env vars ─
+        jwks_ttl = int(os.environ.get("SP_OIDC_JWKS_TTL", "3600"))
+        public_url = os.environ.get("SP_MCP_PUBLIC_URL", "")
+        introspection_endpoint     = os.environ.get("SP_OIDC_INTROSPECTION_ENDPOINT")
+        introspection_client_id    = os.environ.get("SP_OIDC_INTROSPECTION_CLIENT_ID")
+        introspection_client_secret = os.environ.get("SP_OIDC_INTROSPECTION_CLIENT_SECRET")
+        introspect_below_ttl       = int(os.environ.get("SP_OIDC_INTROSPECT_BELOW_TTL", "300"))
+        # ─────────────────────────────────────────────────────────────────────
 
         # ── RG-5: enforce TLS certificate presence before binding ─────────────
         tls_cert = os.environ.get("SP_TLS_CERT")
@@ -145,7 +160,17 @@ async def main():
                     sys.exit(1)
         # ─────────────────────────────────────────────────────────────────────
 
-        app = create_http_app(server, oidc_issuer, oidc_audience)
+        app = create_http_app(
+            server,
+            oidc_issuer=oidc_issuer,
+            oidc_audience=oidc_audience,
+            jwks_ttl=jwks_ttl,
+            introspection_endpoint=introspection_endpoint,
+            introspection_client_id=introspection_client_id,
+            introspection_client_secret=introspection_client_secret,
+            introspect_below_ttl=introspect_below_ttl,
+            public_url=public_url,
+        )
         logger.info(
             "INT-2: Starting HTTP/SSE transport on port %d with OIDC issuer %s",
             args.port, oidc_issuer,

@@ -10,6 +10,8 @@ The IBM Storage Protect Model Context Protocol (MCP) server exposes Storage Prot
 - Unified and fine-grained MCP server deployments
 - `stdio`/SSH and HTTP/SSE transport options
 - Privilege-aware tool registration and audit correlation
+- OAuth 2 / OIDC bearer authentication with JWKS key-rotation, token introspection (RFC 7662), AS metadata discovery (RFC 8414 / MCP 2025-03), and RFC 9470 resource metadata
+- `authmodel`-tagged ACTLOG attribution for `client_credentials`, `oidc_bearer`, and `dynamic_session` identities
 
 ## Requirements
 
@@ -141,8 +143,23 @@ Use `--mode read-only` to restrict to read-only tools regardless of privilege cl
 |------|--------------------------|----------|
 | Static tiered service accounts (default) | `service_account` | Automated pipelines, daemons, single-tenant bots |
 | Dynamic challenge-response | `dynamic` | Interactive chat (Claude Desktop) — users authenticate per session |
+| OIDC bearer (HTTP transport) | via `--transport http` + `SP_OIDC_ISSUER` | Enterprise multi-client deployments; `client_credentials` or Authorization Code + PKCE |
+
+**OAuth 2 / OIDC env vars** (HTTP transport only):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SP_OIDC_ISSUER` | — | OIDC issuer / AS base URL (required for `--transport http`) |
+| `SP_OIDC_AUDIENCE` | `sp-mcp-server` | Token `aud` claim |
+| `SP_OIDC_JWKS_TTL` | `3600` | JWKS cache lifetime in seconds (OA-2) |
+| `SP_OIDC_INTROSPECTION_ENDPOINT` | unset | RFC 7662 introspection URL (OA-5, optional) |
+| `SP_OIDC_INTROSPECTION_CLIENT_ID` | `SP_OIDC_AUDIENCE` | Basic-auth client ID for introspection |
+| `SP_OIDC_INTROSPECTION_CLIENT_SECRET` | unset | Basic-auth client secret — store in OS keyring |
+| `SP_OIDC_INTROSPECT_BELOW_TTL` | `300` | Introspect tokens with < N seconds remaining |
+| `SP_MCP_PUBLIC_URL` | derived | MCP server public base URL for RFC 9470 `resource_metadata` (OA-6) |
 
 See [`user-guide.md`](docs/guides/user-guide.md) for session lifecycle, audit records, and safe usage practices.
+See [`docs/guides/local-idp-oauth2-guide.md`](docs/guides/local-idp-oauth2-guide.md) for a Keycloak-based local IdP test setup.
 
 ### Troubleshooting
 

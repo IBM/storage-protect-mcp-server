@@ -207,6 +207,14 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
     """
     Validates OIDC bearer tokens, injects the resolved privilege tier into
     request.state.mcp_privilege, and propagates it to the MCP call-time gate.
+
+    OA-2 NOTE: The instance-level `_get_jwks()` / `_jwks` pattern below is the
+    INT-2 baseline implementation (one-shot fetch, no TTL, no kid-miss re-fetch).
+    It is superseded by the OA-2 module-level `_get_jwks_with_ttl()` /
+    `_get_key_for_kid()` functions specified in `impl-security-oauth2.md § OA-2`.
+    The full updated `__init__`, `dispatch()`, and `create_http_app()` signatures
+    are defined there; apply those diffs to replace this section when implementing
+    OA-1 through OA-7.
     """
 
     def __init__(self, app, issuer: str, audience: str):
@@ -215,9 +223,20 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
         self.audience = audience
         self._jwks_uri: Optional[str] = None
         self._jwks: Optional[dict]    = None
+        # OA-2: replace with jwks_ttl, introspection_endpoint, public_url params
+        #       (see impl-security-oauth2.md § OA-2 for the updated __init__)
 
     async def _get_jwks(self) -> dict:
-        """Fetch and cache the OIDC JWKS (JSON Web Key Set)."""
+        """
+        INT-2 baseline: one-shot JWKS fetch with no TTL and no kid-miss re-fetch.
+
+        OA-2 REPLACEMENT: Replace this method with the module-level
+        `_get_jwks_with_ttl(issuer, jwks_ttl)` and `_get_key_for_kid(issuer,
+        jwks_ttl, kid)` functions from `impl-security-oauth2.md § OA-2`. Those
+        functions add a configurable TTL cache (SP_OIDC_JWKS_TTL, default 3600 s),
+        a kid-miss triggered forced re-fetch, and a 60 s DoS rate-limit on
+        forced re-fetches.
+        """
         if self._jwks is not None:
             return self._jwks
 
@@ -233,12 +252,16 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
         return self._jwks
 
     async def dispatch(self, request: Request, call_next):
-        # Skip health-check endpoint
+        # Skip health-check and well-known endpoints
+        # OA-1/OA-6: also exempt /.well-known/oauth-authorization-server
+        #             and /.well-known/oauth-protected-resource
         if request.url.path in ("/health", "/"):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
+            # OA-6: _unauthorized() helper will add resource_metadata URI to
+            #       WWW-Authenticate when SP_MCP_PUBLIC_URL is set
             return JSONResponse(
                 {"error": "missing_token", "message": "Bearer token required."},
                 status_code=401,
@@ -248,6 +271,8 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
         token = auth_header[len("Bearer "):]
         try:
             import jwt  # pyjwt
+            # OA-2: replace self._get_jwks() with _get_jwks_with_ttl() +
+            #       _get_key_for_kid() to gain TTL cache and kid-miss protection
             jwks = await self._get_jwks()
             jwks_client = jwt.PyJWKClient(self._jwks_uri)
             signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -277,6 +302,8 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
 
         request.state.mcp_privilege = privilege
         request.state.mcp_subject   = payload.get("sub", "unknown")
+        # OA-7: set request.state.mcp_auth_model = "oidc_bearer" if
+        #       "preferred_username" in payload else "client_credentials"
         logger.info(
             "INT-2: Authenticated subject='%s' privilege='%s' scopes=%s",
             request.state.mcp_subject, privilege, scopes
@@ -293,6 +320,13 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlet
     """
     Wrap an MCP server in a Starlette app with OIDC bearer auth middleware.
     The MCP server's SSE handler is mounted at /mcp.
+
+    OA NOTE: The signature here reflects the INT-2 baseline. The updated
+    signature (adding jwks_ttl, introspection_endpoint, introspection_client_id,
+    introspection_client_secret, introspect_below_ttl, public_url) is specified
+    in `impl-security-oauth2.md § OA-2 / § OA-5 / § OA-6`. It also adds the
+    /.well-known/oauth-authorization-server (OA-1) and
+    /.well-known/oauth-protected-resource (OA-6) routes.
     """
     from mcp.server.sse import SseServerTransport
 
@@ -313,6 +347,8 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlet
     app = Starlette(
         routes=[
             Route("/health", health),
+            # OA-1: Route("/.well-known/oauth-authorization-server", as_metadata),
+            # OA-6: Route("/.well-known/oauth-protected-resource", protected_resource_metadata),
             Mount("/mcp", routes=[
                 Route("/sse",      handle_sse),
                 Mount("/messages", app=sse_transport.handle_post_message),
@@ -324,6 +360,9 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlet
         OIDCBearerMiddleware,
         issuer=oidc_issuer,
         audience=oidc_audience,
+        # OA-2: jwks_ttl=jwks_ttl,
+        # OA-5: introspection_endpoint=introspection_endpoint,
+        # OA-6: public_url=public_url,
     )
     return app
 ```

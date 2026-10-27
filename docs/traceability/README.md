@@ -11,12 +11,13 @@ Requirements traceability and security gap tracking for the IBM Storage Protect 
 | [`audit-report.md`](audit-report.md) | Independent consistency, correctness, completeness, and verification audit of the documentation, source code, tests, and traceability claims |
 | [`traceability-matrix.md`](traceability-matrix.md) | End-to-end requirements traceability matrix mapping security requirements to architecture, design, implementation, source files, and tests |
 | [`gap-analysis.md`](gap-analysis.md) | Historical security gap analysis and claimed remediation status; read with [`audit-report.md`](audit-report.md) for independent verification findings |
+| [`guides-gap-analysis.md`](guides-gap-analysis.md) | Consistency, correctness, and completeness assessment of `docs/guides/` against design specs, implementation specs, and source — 3 open findings (GGA-02, GGA-04, GGA-05) |
 
 ---
 
 ## Summary Status
 
-All 44 security requirements across seven domains are fully implemented, tested, and independently verified. The independent audit found no open findings. See [`audit-report.md`](audit-report.md) for the complete verification record (88 tests passing).
+All 51 security requirements across eight domains are fully implemented, tested, and independently verified. One open finding (AUD-F-01): 3 tests in `TestDynamicAuthentication` fail under default suite ordering due to `current_audit_user` ContextVar state pollution from a preceding test; all three pass in isolation — no security control is compromised. See [`audit-report.md`](audit-report.md) for the complete verification record (114 collected; 111 passing; 26 OAuth 2 tests in `tests/test_sec_oauth2.py` all pass; 10 test files).
 
 ---
 
@@ -42,4 +43,4 @@ Use the matrix to:
 - Security audit: [`../analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 - Design specs: [`../design/`](../design/)
 - Implementation specs: [`../implement/`](../implement/)
-- Tests: [`../../tests/test_security_controls.py`](../../tests/test_security_controls.py)
+- Tests: [`../../tests/test_sec_oauth2.py`](../../tests/test_sec_oauth2.py) · [`../../tests/test_sec_audit_trail.py`](../../tests/test_sec_audit_trail.py) · [`../../tests/`](../../tests/)
