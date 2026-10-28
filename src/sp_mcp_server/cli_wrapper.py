@@ -85,15 +85,10 @@ class DsmAdmcWrapper:
                 "PASSWORDACCESS=GENERATE in dsm.sys to eliminate this exposure."
             )
 
-        cmd_parts = command.split()
-        args.extend(cmd_parts)
+        args.extend(command.split())
 
+        # `args` may carry -PA=<password>, so it is never logged.
         logger.info("Executing dsmadmc command: %s", command)
-        logger.debug(
-            "Full command args: %s [credentials hidden] %s",
-            " ".join(a for a in args if not a.startswith("-PA=")),
-            " ".join(cmd_parts),
-        )
 
         try:
             try:
@@ -181,6 +176,11 @@ class DsmAdmcWrapper:
             f"-ID={effective_id}",
             "-COMMAdelimited",
         ]
+        # NET-3: same SERVERNAME stanza selection as execute(), so a command
+        # does not change target server when it is routed through the silent path.
+        sp_server_name = os.environ.get("SP_SERVER_NAME", "")
+        if sp_server_name:
+            args.append(f"-SE={sp_server_name}")
         if not use_stash:
             args.insert(4, f"-PA={effective_pwd}")
 

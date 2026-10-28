@@ -100,8 +100,9 @@ class DefineDataMover(BaseCommand):
         # Add optional ONLINE parameter (default is Yes)
         if arguments.get("online"):
             cmd += f" ONLINE={arguments['online']}"
-            
-        return self._execute_simple_query(cmd)
+
+        # Command string contains the plaintext password — do not log it.
+        return self._execute_silent_query(cmd)
 
 class UpdateDataMover(BaseCommand):
     @property
@@ -189,7 +190,10 @@ class UpdateDataMover(BaseCommand):
             cmd += f" PASSWORD=\"{arguments['password']}\""
         if arguments.get("online"):
             cmd += f" ONLINE={arguments['online']}"
-            
+
+        # Command string may contain the plaintext password — do not log it.
+        if arguments.get("password"):
+            return self._execute_silent_query(cmd)
         return self._execute_simple_query(cmd)
 
 class DeleteDataMover(BaseCommand):

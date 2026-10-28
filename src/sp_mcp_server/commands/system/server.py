@@ -44,7 +44,8 @@ class DefineServer(BaseCommand):
                f"HLADDRESS={arguments['hl_address']} LLADDRESS={arguments['ll_address']}")
         if arguments.get("description"):
              cmd += f" DESCRIPTION=\"{arguments['description']}\""
-        return self._execute_simple_query(cmd)
+        # Command string contains the plaintext password — do not log it.
+        return self._execute_silent_query(cmd)
 
 class DefineServerGroup(BaseCommand):
     @property
@@ -180,6 +181,9 @@ class UpdateServer(BaseCommand):
         if arguments.get("hl_address"): cmd += f" HLADDRESS={arguments['hl_address']}"
         if arguments.get("ll_address"): cmd += f" LLADDRESS={arguments['ll_address']}"
         if arguments.get("description"): cmd += f" DESCRIPTION=\"{arguments['description']}\""
+        # Command string may contain the plaintext password — do not log it.
+        if arguments.get("password"):
+            return self._execute_silent_query(cmd)
         return self._execute_simple_query(cmd)
 
 class UpdateServerGroup(BaseCommand):

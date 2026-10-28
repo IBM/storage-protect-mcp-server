@@ -45,10 +45,10 @@ def _resolve_secret(secret_ref: str) -> str:
         return value
 
     # Literal fallback — accepted for backward compatibility but not recommended
+    # Never log any part of the value: a literal here is the secret itself.
     logger.warning(
-        "INT-3: Secret reference '%s...' is not prefixed with 'keyring:' or 'env:'. "
-        "Treating as a literal value. Prefer 'keyring:<key>' for production.",
-        secret_ref[:20],
+        "INT-3: Secret reference is not prefixed with 'keyring:' or 'env:'. "
+        "Treating as a literal value. Prefer 'keyring:<key>' for production."
     )
     return secret_ref
 

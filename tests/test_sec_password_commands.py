@@ -11,6 +11,8 @@ from unittest.mock import MagicMock
 
 from sp_mcp_server.commands.system.admin import DefineAdmin, UpdateUser
 from sp_mcp_server.commands.clients.node import RegisterNode, UpdateNode
+from sp_mcp_server.commands.storage.datamover import DefineDataMover, UpdateDataMover
+from sp_mcp_server.commands.system.server import DefineServer, UpdateServer
 
 from tests.fixtures import (
     ADMIN_NAME_TEST,
@@ -92,5 +94,47 @@ class TestPasswordCommandsSilentExecution:
         cli = self._make_cli()
         cmd = UpdateNode(cli)
         cmd.execute({"node_name": NODE_NAME_MY, "domain_name": DOMAIN_NAME})
+        cli.execute.assert_called_once()
+        cli.execute_silent.assert_not_called()
+
+    def test_define_data_mover_uses_execute_silent(self):
+        cli = self._make_cli()
+        DefineDataMover(cli).execute({
+            "name": "DM1", "hl_address": "10.0.0.1", "data_format": "NETAPPDUMP",
+            "user_id": "nasuser", "password": TEST_PASSWORD_VALUE,
+        })
+        cli.execute_silent.assert_called_once()
+        cli.execute.assert_not_called()
+
+    def test_update_data_mover_with_password_uses_execute_silent(self):
+        cli = self._make_cli()
+        UpdateDataMover(cli).execute({"name": "DM1", "password": TEST_PASSWORD_NEW})
+        cli.execute_silent.assert_called_once()
+        cli.execute.assert_not_called()
+
+    def test_update_data_mover_without_password_uses_execute(self):
+        cli = self._make_cli()
+        UpdateDataMover(cli).execute({"name": "DM1", "online": "YES"})
+        cli.execute.assert_called_once()
+        cli.execute_silent.assert_not_called()
+
+    def test_define_server_uses_execute_silent(self):
+        cli = self._make_cli()
+        DefineServer(cli).execute({
+            "server_name": "SRV2", "password": TEST_PASSWORD_VALUE,
+            "hl_address": "10.0.0.2", "ll_address": "1500",
+        })
+        cli.execute_silent.assert_called_once()
+        cli.execute.assert_not_called()
+
+    def test_update_server_with_password_uses_execute_silent(self):
+        cli = self._make_cli()
+        UpdateServer(cli).execute({"server_name": "SRV2", "password": TEST_PASSWORD_NEW})
+        cli.execute_silent.assert_called_once()
+        cli.execute.assert_not_called()
+
+    def test_update_server_without_password_uses_execute(self):
+        cli = self._make_cli()
+        UpdateServer(cli).execute({"server_name": "SRV2", "description": "d"})
         cli.execute.assert_called_once()
         cli.execute_silent.assert_not_called()
