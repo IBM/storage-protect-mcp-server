@@ -123,3 +123,26 @@ def test_servermon_returns_busy_error_when_no_existing_output(monkeypatch):
     assert stdout == ""
     assert "Another servermon instance is currently running" in stderr
     assert code == 1
+
+
+def test_dsmadmc_execute_silent_passes_server_stanza(monkeypatch):
+    """NET-3: execute_silent must target the same SERVERNAME stanza as execute."""
+    captured = {}
+
+    class Result:
+        stdout = ""
+        stderr = ""
+        returncode = 0
+
+    def fake_run(args, capture_output, text, check, timeout):
+        captured["args"] = args
+        return Result()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setenv("SP_SERVER_NAME", "SERVER1")
+
+    wrapper = DsmAdmcWrapper(make_server_config())
+    wrapper.execute_silent(CMD_QUERY_STATUS)
+
+    assert "-SE=SERVER1" in captured["args"]
+    assert f"-PA={ADMIN_PASSWORD}" in captured["args"]
