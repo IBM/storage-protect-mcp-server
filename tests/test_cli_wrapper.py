@@ -146,3 +146,21 @@ def test_dsmadmc_execute_silent_passes_server_stanza(monkeypatch):
 
     assert "-SE=SERVER1" in captured["args"]
     assert f"-PA={ADMIN_PASSWORD}" in captured["args"]
+
+
+def test_dsmadmc_execute_does_not_log_command_or_password(monkeypatch, caplog):
+    """Command strings may embed passwords; only the verb may be logged."""
+    class Result:
+        stdout = ""
+        stderr = ""
+        returncode = 0
+
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: Result())
+
+    wrapper = DsmAdmcWrapper(make_server_config())
+    with caplog.at_level("DEBUG", logger="sp_mcp_server.cli_wrapper"):
+        wrapper.execute("UPDATE NODE N1 s3cretPassw0rd")
+
+    assert "s3cretPassw0rd" not in caplog.text
+    assert ADMIN_PASSWORD not in caplog.text
+    assert "UPDATE command" in caplog.text

@@ -15,6 +15,23 @@ current_execution_credentials: contextvars.ContextVar[Optional[Tuple[str, str]]]
 )
 
 
+# Command verbs that may be logged. The command string itself is never logged
+# because it can embed passwords (e.g. UPDATE NODE <name> <password>).
+_LOGGABLE_VERBS = (
+    "QUERY", "SELECT", "SHOW", "DEFINE", "UPDATE", "DELETE", "REGISTER",
+    "REMOVE", "RENAME", "LOCK", "UNLOCK", "SET", "BACKUP", "RESTORE",
+    "AUDIT", "CANCEL", "MOVE", "MIGRATE", "RECLAIM", "EXPIRE", "PREPARE",
+    "ENABLE", "DISABLE", "GRANT", "REVOKE", "HELP", "HALT",
+)
+
+
+def _loggable_verb(command: str) -> str:
+    """Return the allowlisted leading verb of *command*, or 'OTHER'."""
+    first = command.split(None, 1)[0].upper() if command.strip() else ""
+    # Return the constant from the allowlist, never a slice of the input.
+    return next((verb for verb in _LOGGABLE_VERBS if verb == first), "OTHER")
+
+
 class DsmAdmcWrapper:
     """Wrapper around dsmadmc for online IBM SP administration commands."""
 
@@ -87,8 +104,9 @@ class DsmAdmcWrapper:
 
         args.extend(command.split())
 
-        # `args` may carry -PA=<password>, so it is never logged.
-        logger.info("Executing dsmadmc command: %s", command)
+        # Neither `args` (-PA=<password>) nor `command` (may embed a password)
+        # is logged; only an allowlisted verb is.
+        logger.info("Executing dsmadmc %s command", _loggable_verb(command))
 
         try:
             try:
