@@ -8,15 +8,16 @@ Requirements traceability and security gap tracking for the IBM Storage Protect 
 
 | Document | Description |
 |---|---|
-| [`audit-report.md`](audit-report.md) | Independent consistency, correctness, completeness, and verification audit of the documentation, source code, tests, and traceability claims |
-| [`traceability-matrix.md`](traceability-matrix.md) | End-to-end requirements traceability matrix mapping security requirements to architecture, design, implementation, source files, and tests |
-| [`gap-analysis.md`](gap-analysis.md) | Historical security gap analysis and claimed remediation status; read with [`audit-report.md`](audit-report.md) for independent verification findings |
+| [`traceability-matrix.md`](traceability-matrix.md) | **End-to-End Requirements Traceability Matrix**: Mapping all 51 security requirements, 25 negative scenarios, 15 resilience scenarios, and 10 stress scenarios to architecture, design, code, and tests. |
+| [`gap-analysis.md`](gap-analysis.md) | **Consolidated Gap Analysis**: Unified assessment of security requirements (Domains 1–8) and documentation/guides (GGA-01..05) — 100% closed, 0 open gaps. |
+| [`audit-report.md`](audit-report.md) | **Consolidated Independent Audit & Verification Report**: Complete audit covering source code, runtime security, packaging metadata, documentation corpus (AUD-DOC-01..13), 8 sample prompt personas + negative prompts, and 266 automated tests with Allure reporting. |
 
 ---
 
 ## Summary Status
 
-All 44 security requirements across seven domains are fully implemented, tested, and independently verified. The independent audit found no open findings. See [`audit-report.md`](audit-report.md) for the complete verification record (88 tests passing).
+All 51 security requirements across eight domains, 8 sample prompt persona workflows, negative prompt scenarios, and all documentation audit findings are fully implemented, verified, and closed. AUD-F-01 test-isolation defect is fully resolved via `tests/conftest.py`. See [`audit-report.md`](audit-report.md) for the complete verification record (**266 collected tests across 15 test files: 248 passing, 18 skipped, 0 failing**; integrated with Allure reporting and containerized test-bed).
+
 
 ---
 
@@ -42,4 +43,4 @@ Use the matrix to:
 - Security audit: [`../analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 - Design specs: [`../design/`](../design/)
 - Implementation specs: [`../implement/`](../implement/)
-- Tests: [`../../tests/test_security_controls.py`](../../tests/test_security_controls.py)
+- Tests: [`../../tests/test_sec_oauth2.py`](../../tests/test_sec_oauth2.py) · [`../../tests/test_sec_audit_trail.py`](../../tests/test_sec_audit_trail.py) · [`../../tests/`](../../tests/)

@@ -13,8 +13,9 @@ Implementation specifications for each security domain of the IBM Storage Protec
 | [`impl-security-dynamic-authn.md`](impl-security-dynamic-authn.md) | Dynamic Authentication | `session.py`, `commands/system/auth.py`, `mcp_factory.py`, `cli_wrapper.py` |
 | [`impl-security-access.md`](impl-security-access.md) | Access Management | `commands/base.py`, `mcp_factory.py`, all `commands/**/*.py` |
 | [`impl-security-policy.md`](impl-security-policy.md) | Policy Management | `mcp_factory.py`, `commands/operations/approval.py`, `commands/operations/misc.py` |
-| [`impl-security-integrations.md`](impl-security-integrations.md) | Secure Integrations | `http_server.py`, `commands/system/conn.py`, `config.py` |
-| [`impl-security-non-repudiation.md`](impl-security-non-repudiation.md) | Non-Repudiation & Forensics | `mcp_factory.py`, `http_server.py`, `tests/test_security_controls.py` |
+| [`impl-security-integrations.md`](impl-security-integrations.md) | Secure Integrations (baseline) | `http_server.py`, `commands/system/conn.py`, `config.py` |
+| [`impl-security-oauth2.md`](impl-security-oauth2.md) | OAuth 2 Authorization (OA-1–OA-7) | `http_server.py`, `main.py`, `mcp_factory.py`, `commands/system/auth.py` |
+| [`impl-security-non-repudiation.md`](impl-security-non-repudiation.md) | Non-Repudiation & Forensics | `mcp_factory.py`, `http_server.py`, `tests/test_sec_audit_trail.py` |
 
 ---
 
@@ -24,7 +25,7 @@ Each implementation document corresponds directly to a design document in [`../d
 
 - The exact files and functions changed
 - Code-level rationale for decisions made during implementation
-- Test coverage references (`tests/test_security_controls.py`, `tests/test_cli_wrapper.py`)
+- Test coverage references (e.g. `tests/test_sec_oauth2.py`, `tests/test_sec_audit_trail.py`, `tests/test_cli_wrapper.py`)
 - Residual risk notes and assumptions
 
 ---

@@ -6,6 +6,33 @@ This guide helps operators and AI-assisted workflows get the most out of the IBM
 
 ---
 
+## Table of Contents
+
+- [What the MCP Server Does](#what-the-mcp-server-does)
+- [Authentication Models & Privilege Tiers](#authentication-models--privilege-tiers)
+  - [Authentication Models](#authentication-models)
+  - [Privilege Tiers and Tool Access](#privilege-tiers-and-tool-access)
+- [Starting the Server](#starting-the-server)
+  - [Topology A — manual test on an SP server host](#topology-a--manual-test-on-an-sp-server-host)
+  - [Topology B — manual test on the control host](#topology-b--manual-test-on-the-control-host)
+  - [Command-line arguments](#command-line-arguments)
+- [Server Modules](#server-modules)
+- [Managing Multiple SP Servers](#managing-multiple-sp-servers)
+  - [Addressing a specific server in prompts](#addressing-a-specific-server-in-prompts)
+  - [`isp_server_name` parameter note](#isp_server_name-parameter-note)
+- [How Passwords Are Protected](#how-passwords-are-protected)
+- [Audit Trail & Non-Repudiation](#audit-trail--non-repudiation)
+- [Command Approval Workflow](#command-approval-workflow)
+- [Example Prompts](#example-prompts)
+- [Safe Usage Guidance](#safe-usage-guidance)
+- [Basic Validation Checklist](#basic-validation-checklist)
+  - [Topology A — run on each SP server host](#topology-a--run-on-each-sp-server-host)
+  - [Topology B — run on the control host, once per SP server subdirectory](#topology-b--run-on-the-control-host-once-per-sp-server-subdirectory)
+- [Log File](#log-file)
+- [Related Documentation](#related-documentation)
+
+---
+
 ## What the MCP Server Does
 
 The IBM Storage Protect MCP Server exposes IBM SP administrative operations as structured tools that any MCP-compatible client (Claude, VS Code Copilot, an automated pipeline) can invoke. Instead of composing `dsmadmc` commands manually, you describe what you want in natural language and the AI agent translates that into the appropriate tool call.

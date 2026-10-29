@@ -11,18 +11,40 @@ import contextvars
 from typing import Any, Sequence, List, Dict, Optional, Set
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
+from mcp.types import (
+    Tool, TextContent, ImageContent, EmbeddedResource,
+    ListToolsRequest, CallToolRequest, ListToolsResult, CallToolResult
+)
 
 # NR-1: Context variable holding the authenticated end-user identity / subject
 current_audit_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_audit_user", default=None)
 current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_session_id", default=None)
 current_request_privilege: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_request_privilege", default=None)
+# OA-7: authentication model label ("local", "client_credentials", "oidc_bearer", "dynamic_session")
+current_auth_model: contextvars.ContextVar[str] = contextvars.ContextVar("current_auth_model", default="local")
 
 # Module-level session store — persists the active session ID across tool calls
 # within the same stdio process lifetime (ContextVars are per-async-task and do
 # not survive between separate MCP tool call invocations).
 _process_session_id: Optional[str] = None
 _process_audit_user: Optional[str] = None
+
+
+def reset_execution_state() -> None:
+    """Reset module-level process state and ContextVars between tests or sessions."""
+    global _process_session_id, _process_audit_user
+    _process_session_id = None
+    _process_audit_user = None
+    current_session_id.set(None)
+    current_audit_user.set(None)
+    current_execution_credentials.set(None)
+    current_auth_model.set("local")
+    current_request_privilege.set(None)
+    try:
+        from .session import global_session_manager
+        global_session_manager.clear()
+    except Exception:
+        pass
 
 import json
 from .session import global_session_manager
@@ -473,17 +495,12 @@ def create_mcp_server(
         len(commands), account_privilege,
     )
 
-    # Create MCP Server
-    server = Server(server_name)
-
-    @server.list_tools()
     async def handle_list_tools() -> list[Tool]:
         return [
             Tool(name=cmd.name, description=cmd.description, inputSchema=cmd.args_schema)
             for cmd in commands.values()
         ]
 
-    @server.call_tool()
     async def handle_call_tool(
         name: str, arguments: dict | None
     ) -> list[TextContent | ImageContent | EmbeddedResource]:
@@ -498,12 +515,12 @@ def create_mcp_server(
         if auth_mode == "dynamic" and name != "authenticate_session":
             # Prefer module-level store (survives across tool calls in stdio)
             # then ContextVar (set within same async task), then explicit arg.
-            active_sid = (
+            active_sid: Optional[str] = (
                 _process_session_id
                 or current_session_id.get()
-                or (arguments and arguments.get("_session_id"))
+                or (str(arguments["_session_id"]) if arguments and "_session_id" in arguments else None)
             )
-            session = global_session_manager.get_session(active_sid) if active_sid else None
+            session = global_session_manager.get_session(active_sid) if active_sid is not None else None
             if session is None:
                 logger.info(
                     "Dynamic auth challenge triggered for tool='%s' (no active session)",
@@ -540,7 +557,8 @@ def create_mcp_server(
                         "error_type": "AUTHORIZATION_DENIED",
                         "message": target_err,
                     }))]
-                current_execution_credentials.set((session.username, session.password))
+                if session.password is not None:
+                    current_execution_credentials.set((session.username, session.password))
 
         # ── INT-2: enforce OIDC request privilege at call time ────────────────
         request_privilege = current_request_privilege.get()
@@ -557,8 +575,11 @@ def create_mcp_server(
             correlation_id = uuid.uuid4().hex[:12]
             # NR-1: Bind authenticated end-user / subject or fallback to local account
             user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
+            # OA-7: include auth model in audit record for cross-model attribution
+            auth_model_label = current_auth_model.get()
             audit_msg = (
                 f"MCP_AUDIT user={user_id} "
+                f"authmodel={auth_model_label} "
                 f"tool={name} "
                 f"priv={tool_privilege} "
                 f"corr={correlation_id}"
@@ -616,6 +637,66 @@ def create_mcp_server(
             return [TextContent(type="text", text=f"Error: {str(e)}")]
         finally:
             current_execution_credentials.set(None)
+
+    from types import SimpleNamespace
+
+    async def _wire_list_tools(ctx=None, params=None):
+        tools = await handle_list_tools()
+        return ListToolsResult(tools=tools)
+
+    async def _wire_call_tool(ctx=None, params=None):
+        if params is None:
+            params = ctx
+        name = getattr(params, "name", None)
+        args = getattr(params, "arguments", None)
+        try:
+            res = await handle_call_tool(name, args)
+            return CallToolResult(content=res)
+        except Exception as exc:
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Error: {str(exc)}")],
+                isError=True,
+            )
+
+    try:
+        server = Server(
+            server_name,
+            on_list_tools=_wire_list_tools,
+            on_call_tool=_wire_call_tool,
+        )
+    except TypeError:
+        server = Server(server_name)
+
+    # Shims for backward compatibility with decorators
+    if not hasattr(server, "list_tools"):
+        server.list_tools = lambda: (lambda fn: fn)
+    if not hasattr(server, "call_tool"):
+        server.call_tool = lambda: (lambda fn: fn)
+
+    # Provide request_handlers dict for test introspection
+    async def _compat_list_handler(req=None):
+        tools = await handle_list_tools()
+        return SimpleNamespace(root=ListToolsResult(tools=tools))
+
+    async def _compat_call_handler(req):
+        params = getattr(req, "params", req)
+        name = getattr(params, "name", None)
+        args = getattr(params, "arguments", None)
+        try:
+            res = await handle_call_tool(name, args)
+            return SimpleNamespace(root=CallToolResult(content=res))
+        except Exception as exc:
+            return SimpleNamespace(
+                root=CallToolResult(
+                    content=[TextContent(type="text", text=f"Error: {str(exc)}")],
+                    isError=True,
+                )
+            )
+
+    server.request_handlers = {
+        ListToolsRequest: _compat_list_handler,
+        CallToolRequest: _compat_call_handler,
+    }
 
     return server
 
