@@ -13,7 +13,7 @@
 | Section | Domain / Category | Automated Test File | Tests | Focus Area |
 | :--- | :--- | :--- | :---: | :--- |
 | **Section 1** | Startup & Security Invariants | [`tests/test_sec_startup.py`](../../tests/test_sec_startup.py) | 23 | NET-1, RG-1, CRED-3, RG-2, ACC-2, POL-3 |
-| **Section 2** | Password Silent Execution | [`tests/test_sec_password_commands.py`](../../tests/test_sec_password_commands.py) | 6 | RG-3, CRED-2, Log sanitization |
+| **Section 2** | Password Silent Execution | [`tests/test_sec_password_commands.py`](../../tests/test_sec_password_commands.py) | 13 | RG-3, CRED-2, Log sanitization |
 | **Section 3** | Audit Trail & HTTP TLS | [`tests/test_sec_audit_trail.py`](../../tests/test_sec_audit_trail.py) | 8 | POL-4, RG-4, NR-1, NR-4, RG-5 |
 | **Section 4** | Dynamic Authentication | [`tests/test_sec_dynamic_auth.py`](../../tests/test_sec_dynamic_auth.py) | 17 | DAUTH-1, DAUTH-2, DAUTH-4, DAUTH-5, INT-1, INT-2 |
 | **Section 5** | Session Lifecycle & Server Binding | [`tests/test_sec_session_lifecycle.py`](../../tests/test_sec_session_lifecycle.py) | 14 | CRED-3b, DAUTH-3, DAUTH-7, DAUTH-8, DAUTH-9 |
@@ -83,18 +83,25 @@
 
 ---
 
-## Section 2: Password Silent Execution (`test_sec_password_commands.py` — 6 Tests)
+## Section 2: Password Silent Execution (`test_sec_password_commands.py` — 13 Tests)
 
 * **Objective**: Validate RG-3 silent execution for all password-bearing SP commands. Passwords must never appear in logs or process argument lists.
 
 | Case ID | Test Method | SP Command Tested | Assertion & Expected Behavior |
 | :--- | :--- | :--- | :--- |
-| **TC-RG3-01** | `test_define_admin_uses_silent_execution` | `REGISTER ADMIN <user> <pass>` | `execute_silent()` invoked. Password absent from `caplog`. |
-| **TC-RG3-02** | `test_update_user_password_uses_silent_execution` | `UPDATE ADMIN <user> <pass>` | `execute_silent()` invoked when password provided. |
-| **TC-RG3-03** | `test_update_user_without_password_uses_standard_execution` | `UPDATE ADMIN <user> CONTACT="..."` | Standard `execute()` invoked (no password present). |
-| **TC-RG3-04** | `test_register_node_uses_silent_execution` | `REGISTER NODE <node> <pass> DOMAIN=...` | `execute_silent()` invoked. Plaintext password not logged. |
-| **TC-RG3-05** | `test_update_node_password_uses_silent_execution` | `UPDATE NODE <node> <pass>` | `execute_silent()` invoked when updating password. |
-| **TC-RG3-06** | `test_update_node_without_password_uses_standard_execution` | `UPDATE NODE <node> DOMAIN=...` | Standard `execute()` invoked when updating metadata only. |
+| **TC-RG3-01** | `test_define_admin_uses_execute_silent` | `REGISTER ADMIN <user> <pass>` | `execute_silent()` invoked. Password absent from logs. |
+| **TC-RG3-02** | `test_register_node_uses_execute_silent` | `REGISTER NODE <node> <pass> DOMAIN=...` | `execute_silent()` invoked. Plaintext password not logged. |
+| **TC-RG3-03** | `test_update_user_with_password_uses_execute_silent` | `UPDATE ADMIN <user> <pass>` | `execute_silent()` invoked when password provided. |
+| **TC-RG3-04** | `test_update_user_without_password_uses_execute` | `UPDATE ADMIN <user> CONTACT="..."` | Standard `execute()` invoked (no password present). |
+| **TC-RG3-05** | `test_update_node_with_password_uses_execute_silent` | `UPDATE NODE <node> <pass>` | `execute_silent()` invoked when updating password. |
+| **TC-RG3-06** | `test_update_node_without_password_uses_execute` | `UPDATE NODE <node> DOMAIN=...` | Standard `execute()` invoked when updating metadata only. |
+| **TC-RG3-07** | `test_define_server_uses_execute_silent` | `DEFINE SERVER <srv> PASSWORD=...` | `execute_silent()` invoked. Server password omitted from logs. |
+| **TC-RG3-08** | `test_update_server_with_password_uses_execute_silent` | `UPDATE SERVER <srv> PASSWORD=...` | `execute_silent()` invoked when password provided. |
+| **TC-RG3-09** | `test_update_server_without_password_uses_execute` | `UPDATE SERVER <srv> HLADDRESS=...` | Standard `execute()` invoked when updating address only. |
+| **TC-RG3-10** | `test_define_data_mover_uses_execute_silent` | `DEFINE DATAMOVER ... PASSWORD=...` | `execute_silent()` invoked. Data mover password omitted from logs. |
+| **TC-RG3-11** | `test_update_data_mover_with_password_uses_execute_silent` | `UPDATE DATAMOVER ... PASSWORD=...` | `execute_silent()` invoked when updating data mover password. |
+| **TC-RG3-12** | `test_update_data_mover_without_password_uses_execute` | `UPDATE DATAMOVER ... HLADDRESS=...` | Standard `execute()` invoked when updating address only. |
+| **TC-RG3-13** | `test_redact_command_masks_passwords` | Multiple dsmadmc commands | `_redact_command()` masks `PASSWORD=***` and positional passwords. |
 
 ---
 
