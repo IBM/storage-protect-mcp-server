@@ -11,6 +11,7 @@ End-user guides for the IBM Storage Protect MCP Server. Read these in order when
 | **1** | [`planning-guide.md`](planning-guide.md) | **Before anything else** — Choose your deployment topology (co-located or centralised), inventory your SP servers, plan service accounts, SSH keys, and tool scope, and confirm prerequisites |
 | **2** | [`install-guide.md`](install-guide.md) | **After planning** — OS user setup, Python virtual environment, package install, `.env` files, SP service account provisioning, `dsm.sys` TLS configuration, and installation verification |
 | **3** | [`configure-guide.md`](configure-guide.md) | **After installing** — MCP client configuration for stdio/SSH and HTTP/OIDC transports, privilege-aware tool registration, command approval, and multi-server setup for both topologies |
+| **3a** *(optional)* | [`local-idp-oauth2-guide.md`](local-idp-oauth2-guide.md) | **Testing & demo only** — Stand up a local Keycloak-based OIDC identity provider with self-signed TLS; covers service-account and user identity creation, OAuth 2 metadata endpoints, auth-model ACTLOG verification, and PKCE protocol mapper setup |
 | **4** | [`user-guide.md`](user-guide.md) | **Before first use** — Privilege tiers, tool access control, `--mode` flag, managing multiple SP servers from prompts, audit trail, and safe usage guidance |
 | **Reference** | [`troubleshoot.md`](troubleshoot.md) | **When something goes wrong** — Error markers, startup failures, credential errors, offline command failures, Python import errors, and multi-server deployment issues |
 
@@ -51,7 +52,7 @@ Covers topology-specific installation steps — run after completing `planning-g
 Covers MCP client configuration — run after completing `install-guide.md`:
 
 - **stdio over SSH** (Part 1) — Ed25519 key generation and deployment, `StrictHostKeyChecking=yes`, MCP client JSON snippets for Linux/macOS and Windows, `sshd_config` hardening
-- **HTTP/OIDC transport** (Part 2) — TLS certificate setup, OIDC token scope, bearer token authentication, HTTP transport verification
+- **HTTP/OIDC transport** (Part 2) — TLS certificate setup, OIDC token scope, bearer token authentication, HTTP transport verification; grant type selection, AS metadata and RFC 9470 resource metadata endpoints, JWKS key-rotation, token introspection, auth-model ACTLOG attribution; `.env` reference for all OAuth 2 variables (see `local-idp-oauth2-guide.md` for Keycloak test setup)
 - **Dynamic & Delegated Authentication** (Part 3) — Challenge-response configuration, ephemeral session lease parameters (`SP_MCP_AUTH_MODE=dynamic`, `SP_MCP_SESSION_TTL`), chat sequence workflow, and zero-trace credential handling
 - **Privilege-aware tool registration** (Part 4) — How `--mode` and service account privilege combine to gate tool visibility
 - **Command approval** (Part 5) — `SET COMMANDAPPROVAL ON`, pending command queue, two-person integrity
@@ -59,6 +60,28 @@ Covers MCP client configuration — run after completing `install-guide.md`:
   - **Topology A** — Per-host SSH keys, per-host MCP client entries, per-host `.env` layout, provisioning checklist
   - **Topology B** — Single control-host SSH key, `cd`-based `.env` isolation, centralised MCP client config, security controls table, provisioning checklist
   - **Common** — Tool scoping per entry, prompt addressing, security controls summary
+
+### `local-idp-oauth2-guide.md`
+
+Optional guide for standing up a **local mock OIDC/OAuth 2 identity provider** using [Keycloak](https://www.keycloak.org/) in Docker, and verifying the full OAuth 2 feature set in a test or demo environment. Not for production use.
+
+- **Part A — Single server setup** (Steps 1–7) — Everything on `localhost`, no network access required:
+  - **Step 1** — Generate a self-signed CA and TLS certificates (CA, Keycloak cert, MCP server cert)
+  - **Step 2** — Start Keycloak in development mode via Docker; readiness poll and OIDC discovery check
+  - **Step 3** — Create the `mcp-demo` realm and configure identities:
+    - **3a–3e** — Create the five `mcp:*` client scopes and the `mcp-client` service account (`client_credentials` grant; machine identity)
+    - **3f** *(optional)* — Create the `mcp-user` human identity, set a password, and enable the `password` grant for named-user authentication
+    - **3g** *(optional)* — Add a `preferred_username` protocol mapper so user tokens carry `authmodel=oidc_bearer` in the SP ACTLOG
+  - **Step 4** — Add `SP_OIDC_ISSUER`, `SP_OIDC_AUDIENCE`, `SP_TLS_CERT`/`KEY`, `SP_MCP_PUBLIC_URL`, and `SP_OIDC_JWKS_TTL` to `.env`; add self-signed CA to the OS trust store
+  - **Step 5** — Start the MCP server; verify OA-1/OA-4 startup log lines
+  - **Step 6** — Obtain and verify tokens and OAuth 2 metadata end-to-end:
+    - **6A** — Service-account token via `client_credentials` grant
+    - **6B** — User identity token via `password` grant (`preferred_username`/`sub` claims)
+    - **6C** — Verify `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, and `resource_metadata` in `WWW-Authenticate`; verify ACTLOG `authmodel` attribution
+  - **Step 7** — MCP client configuration: pre-obtained token snippet and MCP 2025-03 auto-discovery snippet
+- **Part B — Multiple co-located servers / shared IdP** (Steps S-1–S-7) — One Keycloak instance on a designated `idp-host` serving multiple MCP servers; shared CA distribution, per-host TLS certificates, network reachability verification
+- **Teardown** — Docker container removal and cert cleanup for both scenarios
+- **Troubleshooting** — 20-row symptom table covering TLS trust errors, token grant errors, user credential issues, multi-host networking, and OAuth 2 metadata / PKCE / ACTLOG attribution issues
 
 ### `user-guide.md`
 

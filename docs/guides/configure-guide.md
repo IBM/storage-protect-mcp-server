@@ -1,21 +1,78 @@
 # Configuration Guide
 
-> **Before configuring:** Complete [`planning-guide.md`](planning-guide.md) to choose your deployment topology and plan your SP server inventory, service accounts, and SSH keys. Complete [`install-guide.md`](install-guide.md) to install the MCP server software. The steps in this guide assume both are done.
+> **Before configuring:** Complete [`planning-guide.md`](planning-guide.md) to choose your deployment topology (Step 1) and transport protocol (Step 1.5), and plan your SP server inventory, service accounts, and keys. Complete [`install-guide.md`](install-guide.md) to install the MCP server software and — if using Transport B — to provision TLS certificates. The steps in this guide assume both are done.
 
 This guide contains MCP client configuration examples for connecting to the IBM Storage Protect MCP Server, covering all supported transports and deployment scenarios.
 
-> **Security note**: All configurations use SSH key authentication with a dedicated non-root `mcp-runner` OS user (NET-2). The legacy `sshpass`/`StrictHostKeyChecking=no`/`root` pattern has been removed. See [`install-guide.md`](install-guide.md) for SSH key setup steps.
+> **Security note (Transport A — stdio over SSH):** All stdio configurations use SSH key authentication with a dedicated non-root `mcp-runner` OS user (NET-2). The legacy `sshpass`/`StrictHostKeyChecking=no`/`root` pattern has been removed. See Part 1 below for SSH key setup steps.
+>
+> **Security note (Transport B — streamable-http with TLS):** All HTTP configurations require TLS (`SP_TLS_CERT` / `SP_TLS_KEY`, rule RG-5) and OIDC Bearer token authentication (OAuth 2.1). TLS is mandatory — the server exits at startup if certificates are missing. See Part 2 below for configuration steps.
+
+---
+
+## Table of Contents
+
+- [Transport Options](#transport-options)
+- [Part 1 — stdio Transport (SSH)](#part-1--stdio-transport-ssh)
+  - [Step 1 — SSH key setup](#step-1--ssh-key-setup-one-time-from-the-mcp-client-workstation)
+  - [Step 2 — MCP client configuration](#step-2--mcp-client-configuration)
+    - [Linux / macOS — full access](#linux--macos--full-access)
+    - [Linux / macOS — read-only (monitoring and reporting)](#linux--macos--read-only-monitoring-and-reporting)
+    - [Linux / macOS — scoped to specific modules](#linux--macos--scoped-to-specific-modules)
+    - [Windows — remote access to a Linux SP server](#windows--remote-access-to-a-linux-sp-server)
+    - [Windows — remote access to a Windows SP server](#windows--remote-access-to-a-windows-sp-server)
+  - [`sshd_config` hardening on the SP server (recommended)](#sshd_config-hardening-on-the-sp-server-recommended)
+- [Part 2 — HTTP Transport (OIDC Bearer Token / OAuth 2)](#part-2--http-transport-oidc-bearer-token--oauth-2)
+  - [Token scope → privilege mapping](#token-scope--privilege-mapping)
+  - [Grant type quick-reference](#grant-type-quick-reference)
+  - [Required `.env` additions](#required-env-additions)
+  - [Starting the HTTP transport](#starting-the-http-transport)
+  - [Verify the HTTP transport and OAuth 2 metadata](#verify-the-http-transport-and-oauth-2-metadata)
+  - [Obtaining a token and calling the server](#obtaining-a-token-and-calling-the-server)
+  - [MCP client configuration for HTTP transport](#mcp-client-configuration-for-http-transport)
+  - [JWKS key-rotation resilience](#jwks-key-rotation-resilience)
+  - [Token introspection / revocation (optional)](#token-introspection--revocation-optional)
+  - [Auth model audit trail](#auth-model-audit-trail)
+  - [Complete `.env` reference — HTTP transport variables](#complete-env-reference--http-transport-variables)
+  - [Troubleshooting HTTP transport](#troubleshooting-http-transport)
+- [Part 3 — Dynamic & Delegated User Authentication (Challenge-Response)](#part-3--dynamic--delegated-user-authentication-challenge-response)
+  - [Enabling Dynamic Authentication](#enabling-dynamic-authentication)
+  - [How Challenge-Response Works in Chat](#how-challenge-response-works-in-chat)
+  - [Security Properties of Dynamic Authentication](#security-properties-of-dynamic-authentication)
+- [Part 4 — Privilege-Aware Tool Registration](#part-4--privilege-aware-tool-registration)
+  - [Combining `--mode` and service account privilege](#combining---mode-and-service-account-privilege)
+- [Part 5 — Command Approval (Optional but Recommended)](#part-5--command-approval-optional-but-recommended)
+- [Part 6 — Managing Multiple SP Servers](#part-6--managing-multiple-sp-servers)
+  - [Topology A — Co-located](#topology-a--co-located-mcp-server-on-each-sp-server-host)
+    - [Step A-1 — Install on each SP server host](#step-a-1--install-on-each-sp-server-host)
+    - [Step A-2 — SSH key setup](#step-a-2--ssh-key-setup-one-time-from-the-mcp-client-workstation)
+    - [Step A-3 — MCP client configuration](#step-a-3--mcp-client-configuration)
+    - [Step A-4 — Per-server `.env` layout](#step-a-4--per-server-env-layout)
+    - [Step A-5 — Provisioning checklist](#step-a-5--provisioning-checklist-repeat-per-sp-server-host)
+  - [Topology B — Centralised](#topology-b--centralised-all-mcp-servers-on-one-control-host)
+    - [Step B-1 — Install on the control host (once)](#step-b-1--install-on-the-control-host-once)
+    - [Step B-2 — SSH key setup](#step-b-2--ssh-key-setup-one-time-from-the-mcp-client-workstation)
+    - [Step B-3 — MCP client configuration](#step-b-3--mcp-client-configuration)
+    - [Step B-4 — Per-server `.env` layout on the control host](#step-b-4--per-server-env-layout-on-the-control-host)
+    - [Step B-5 — Security controls in Topology B](#step-b-5--security-controls-in-topology-b)
+    - [Step B-6 — Provisioning checklist (control host)](#step-b-6--provisioning-checklist-control-host)
+  - [Common — Scoping tools per server (both topologies)](#common--scoping-tools-per-server-both-topologies)
+  - [Common — Addressing multiple servers in prompts (both topologies)](#common--addressing-multiple-servers-in-prompts-both-topologies)
+  - [Common — Security controls applicable to both topologies](#common--security-controls-applicable-to-both-topologies)
+- [Related Documentation](#related-documentation)
 
 ---
 
 ## Transport Options
 
-The MCP server supports two transport modes:
+The MCP server supports two transport protocols. Choose the part of this guide that matches your decision from [`planning-guide.md`](planning-guide.md) Step 1.5:
 
-| Transport | Flag | Authentication | Typical use |
-|-----------|------|---------------|-------------|
-| `stdio` (default) | `--transport stdio` | SSH key / Tiered Service Accounts or Dynamic Challenge-Response | Local or single-client deployments (e.g. Claude Desktop) |
-| `http` | `--transport http` | OIDC bearer token (OAuth 2.1) / Dynamic session tokens | Enterprise / multi-client deployments (e.g. Web UIs, REST gateways) |
+| Transport | Planning guide name | CLI flag | Authentication | Typical use |
+|-----------|---------------------|----------|---------------|-------------|
+| `stdio` over SSH | **Transport A** | `--transport stdio` (default) | SSH Ed25519 key to host + SP service account credentials in `.env` (or Dynamic Challenge-Response) | Single-operator workstations, Claude Desktop, VS Code, CI/CD pipelines |
+| `streamable-http` with TLS | **Transport B** | `--transport http` | OIDC Bearer token (OAuth 2.1, `mcp:*` scopes) issued by an enterprise IdP | Enterprise web UIs (OpenWebUI), multi-client deployments, REST API gateways |
+
+> **Transport A** opens no network port on the MCP server — the SSH session *is* the MCP channel. **Transport B** listens on a TLS-secured HTTPS port (default `8443`) and requires `SP_TLS_CERT`, `SP_TLS_KEY`, and an OIDC-compliant IdP configured in advance. See [`planning-guide.md` Step 1.5](planning-guide.md#step-15--choose-a-transport-protocol) for the full comparison and prerequisite list.
 
 ---
 
@@ -182,9 +239,11 @@ systemctl reload sshd
 
 ---
 
-## Part 2 — HTTP Transport (OIDC Bearer Token)
+## Part 2 — HTTP Transport (OIDC Bearer Token / OAuth 2)
 
-The HTTP transport starts a local HTTPS/SSE server. Each MCP client authenticates with an OIDC bearer token issued by your enterprise identity provider. Token scopes map to IBM SP privilege tiers so each client only accesses the tools its token authorizes.
+The HTTP transport starts a local HTTPS/SSE server. Each MCP client authenticates with an OIDC bearer token issued by your enterprise identity provider. Token scopes map to IBM SP privilege tiers so each client only accesses the tools its token authorises.
+
+> **No enterprise IdP?** For testing, training, or demo purposes you can run a fully local Keycloak instance that issues real OIDC tokens with the `mcp:*` scopes used in this section. See [`local-idp-oauth2-guide.md`](local-idp-oauth2-guide.md) for the step-by-step setup. Do not use that setup in production.
 
 ### Token scope → privilege mapping
 
@@ -196,19 +255,42 @@ The HTTP transport starts a local HTTPS/SSE server. Each MCP client authenticate
 | `mcp:policy` | `policy` | Policy tools + read-only |
 | `mcp:system` | `system` | All tools |
 
+When a token carries multiple `mcp:*` scopes, the **highest** privilege is applied. Always request the minimum scope the task requires.
+
+### Grant type quick-reference
+
+| Use case | Grant type | `authmodel` in ACTLOG | Notes |
+|----------|-----------|----------------------|-------|
+| CI/CD, batch scripts, automation | `client_credentials` | `client_credentials` | Requires `client_secret`; suitable for confidential clients |
+| Interactive user (Claude Desktop, browser) | Authorization Code + PKCE | `oidc_bearer` | No `client_secret`; `preferred_username` must be in token |
+| Chat session with direct SP credential | Dynamic auth (`authenticate_session`) | `dynamic_session` | Model B; ephemeral 15-min lease; any transport |
+
 ### Required `.env` additions
 
+Add these variables to the existing `.env` that already contains your SP connection settings (`TCPSERVERADDRESS`, `SP_ADMIN_ID_*`, etc.):
+
 ```dotenv
-# OIDC issuer — the IdP discovery URL
+# ── OIDC — required for --transport http ─────────────────────────────────
+# Issuer discovery URL (replace <tenant> with your Azure AD / Entra tenant ID)
 SP_OIDC_ISSUER=https://login.microsoftonline.com/<tenant>/v2.0
 
-# Audience claim the token must carry
+# Audience claim that tokens must carry (must match what your IdP issues)
 SP_OIDC_AUDIENCE=sp-mcp-server
 
-# TLS certificate and private key (required — server refuses to start without them)
+# ── TLS — required; server exits with SECURITY [RG-5] without these ──────
 SP_TLS_CERT=/opt/sp-mcp-server/certs/server.crt
 SP_TLS_KEY=/opt/sp-mcp-server/certs/server.key
+
+# ── OA-6: public URL served in /.well-known/oauth-protected-resource ──────
+# Set to the externally reachable base URL of this MCP server instance.
+SP_MCP_PUBLIC_URL=https://sp-mcp-01.corp.example.com:8443
+
+# ── OA-2: JWKS cache lifetime — set to match your IdP's key-rotation policy
+# Azure AD rotates roughly every 6 weeks. Default is 3600 (1 hour).
+SP_OIDC_JWKS_TTL=3600
 ```
+
+> For a **local Keycloak** test environment substitute `SP_OIDC_ISSUER=https://localhost:8080/realms/mcp-demo`, `SP_OIDC_AUDIENCE=mcp-client`, and `SP_MCP_PUBLIC_URL=https://localhost:8443`. See [`local-idp-oauth2-guide.md` Step 4](local-idp-oauth2-guide.md).
 
 ### Starting the HTTP transport
 
@@ -224,19 +306,105 @@ python3 -m sp_mcp_server.main \
 
 > **TLS is mandatory.** The server exits with `SECURITY [RG-5]` if `SP_TLS_CERT` or `SP_TLS_KEY` are missing or the files do not exist. Set `SP_MCP_ALLOW_HTTP_PLAINTEXT=1` **only** for loopback-only test deployments (emits an `ERROR` log).
 
-### Verify the HTTP transport
+Expected startup log (no errors):
+
+```
+INFO:  OIDC: Loaded issuer metadata from https://.../.well-known/openid-configuration
+INFO:  OA-1: AS metadata cached from https://.../.well-known/openid-configuration
+INFO:  OA-4: IdP PKCE capability check passed (S256 supported).
+INFO:  RG-5: TLS configured — cert=/opt/sp-mcp-server/certs/server.crt
+INFO:  Uvicorn running on https://0.0.0.0:8443
+```
+
+> If the startup log shows `WARNING: OA-4: IdP does not advertise PKCE S256 support`, your IdP needs PKCE configured before interactive clients can authenticate. See [Troubleshooting](#troubleshooting-http-transport).
+
+### Verify the HTTP transport and OAuth 2 metadata
 
 ```bash
 # Health check (no token required)
-curl -k https://sp-mcp-01.example.com:8443/health
+curl --cacert /opt/sp-mcp-server/certs/ca.crt \
+  https://sp-mcp-01.example.com:8443/health
 # Expected: {"status":"ok"}
 
-# Tool call with a valid bearer token
-curl -k -H "Authorization: Bearer <oidc-access-token>" \
+# OA-1: AS metadata — MCP 2025-03 auto-discovery endpoint
+curl --cacert /opt/sp-mcp-server/certs/ca.crt \
+  https://sp-mcp-01.example.com:8443/.well-known/oauth-authorization-server \
+  | python3 -m json.tool
+# Expected: JSON with token_endpoint, jwks_uri, scopes_supported, code_challenge_methods_supported
+
+# OA-6: Protected-resource metadata (RFC 9470)
+curl --cacert /opt/sp-mcp-server/certs/ca.crt \
+  https://sp-mcp-01.example.com:8443/.well-known/oauth-protected-resource \
+  | python3 -m json.tool
+# Expected: JSON with authorization_servers, scopes_supported
+
+# OA-6: Verify resource_metadata appears in a 401 WWW-Authenticate header
+curl -v --cacert /opt/sp-mcp-server/certs/ca.crt \
+  https://sp-mcp-01.example.com:8443/mcp/sse 2>&1 | grep "WWW-Authenticate"
+# Expected: Bearer realm="sp-mcp-server", resource_metadata="https://.../.well-known/oauth-protected-resource"
+```
+
+### Obtaining a token and calling the server
+
+#### Headless / automation: `client_credentials` grant
+
+**Azure AD / Entra ID:**
+
+```bash
+TOKEN=$(curl -s -X POST \
+  "https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token" \
+  -d "client_id=${CLIENT_ID}" \
+  -d "client_secret=${CLIENT_SECRET}" \
+  -d "scope=api://${SP_OIDC_AUDIENCE}/mcp:read" \
+  -d "grant_type=client_credentials" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl --cacert /opt/sp-mcp-server/certs/ca.crt \
+  -H "Authorization: Bearer ${TOKEN}" \
   https://sp-mcp-01.example.com:8443/mcp/sse
 ```
 
+**Programmatic token refresh (shell script):**
+
+```bash
+#!/usr/bin/env bash
+SP_MCP_ACCESS_TOKEN=$(curl -s -X POST \
+  "${TOKEN_ENDPOINT}" \
+  -d "client_id=${CLIENT_ID}" \
+  -d "client_secret=${CLIENT_SECRET}" \
+  -d "scope=api://${SP_OIDC_AUDIENCE}/mcp:system" \
+  -d "grant_type=client_credentials" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+export SP_MCP_ACCESS_TOKEN
+```
+
+Tokens from this grant carry `authmodel=client_credentials` in the SP ACTLOG.
+
+#### Interactive users: Authorization Code + PKCE
+
+The MCP server accepts Authorization Code tokens without extra configuration — PKCE verification is the IdP's responsibility. Requirements at the IdP:
+
+- Public client (no `client_secret`) with Authorization Code grant and `code_challenge_method=S256`.
+- Redirect URI matching the MCP client's callback.
+- The five `mcp:*` scopes as optional scopes on the client.
+- `preferred_username` claim included in the access token (see table below).
+
+**Token claim profile:**
+
+| Claim | `client_credentials` token | Authorization Code token |
+|-------|--------------------------|--------------------------|
+| `sub` | client ID | human user ID (e.g. `alice@corp.com`) |
+| `preferred_username` | absent | **present** — required for `authmodel=oidc_bearer` |
+| `scope` | requested `mcp:*` | requested `mcp:*` |
+| `aud` | `SP_OIDC_AUDIENCE` | `SP_OIDC_AUDIENCE` |
+
+> For MCP clients implementing MCP 2025-03 auto-discovery, only the MCP server URL is needed in the client config — the client fetches `/.well-known/oauth-authorization-server` and performs the Authorization Code + PKCE flow automatically.
+
+Tokens from this grant carry `authmodel=oidc_bearer` in the SP ACTLOG.
+
 ### MCP client configuration for HTTP transport
+
+**Headless / service-account token (pre-obtained):**
 
 ```json
 {
@@ -244,14 +412,124 @@ curl -k -H "Authorization: Bearer <oidc-access-token>" \
     "sp-mcp-http": {
       "url": "https://sp-mcp-01.example.com:8443/mcp/sse",
       "headers": {
-        "Authorization": "Bearer <oidc-access-token>"
+        "Authorization": "Bearer <token-from-client-credentials-flow>"
       }
     }
   }
 }
 ```
 
-> Replace `<oidc-access-token>` with a token obtained from your IdP with the appropriate `mcp:*` scope. Tokens are short-lived — automate refresh in your deployment tooling.
+**Interactive user — MCP 2025-03 auto-discovery (client handles OAuth flow):**
+
+```json
+{
+  "mcpServers": {
+    "sp-mcp-http": {
+      "url": "https://sp-mcp-01.example.com:8443"
+    }
+  }
+}
+```
+
+> Replace `<token-from-client-credentials-flow>` with a token obtained from your IdP. Tokens are short-lived — automate refresh in your deployment tooling.
+
+### JWKS key-rotation resilience
+
+IdPs periodically rotate their signing keys. `SP_OIDC_JWKS_TTL` (already set above) controls the cache lifetime. If a token arrives signed with a key not yet in the cache, the server re-fetches the JWKS once (rate-limited to once per 60 s) before failing. No server restart is needed.
+
+To verify recovery after a forced key rotation on a test IdP, check for this log pattern:
+
+```
+WARNING: OA-2: kid 'new-kid-value' not in JWKS cache — forcing re-fetch
+INFO:    OA-2: JWKS refreshed from https://... (2 keys)
+```
+
+### Token introspection / revocation (optional)
+
+By default, tokens are validated by JWKS signature only and remain accepted until `exp`. To enforce immediate revocation, enable token introspection:
+
+```dotenv
+# OA-5: RFC 7662 token introspection.
+# Leave unset to disable. When set, tokens below SP_OIDC_INTROSPECT_BELOW_TTL
+# seconds remaining are verified live against the IdP.
+SP_OIDC_INTROSPECTION_ENDPOINT=https://login.microsoftonline.com/<tenant>/oauth2/v2.0/introspect
+
+# Client ID authorised to call the introspection endpoint (defaults to SP_OIDC_AUDIENCE).
+SP_OIDC_INTROSPECTION_CLIENT_ID=sp-mcp-server
+
+# Introspect tokens with less than N seconds remaining lifetime (default 300).
+SP_OIDC_INTROSPECT_BELOW_TTL=300
+```
+
+**Store the introspection client secret securely:**
+
+`SP_OIDC_INTROSPECTION_CLIENT_SECRET` is read from the environment variable of the same name — add it to the `.env` file (already restricted to `0600`) or inject it via a secrets manager at process startup:
+
+```dotenv
+# Add to .env (permissions 600) — or inject via systemd EnvironmentFile / Vault agent sidecar
+SP_OIDC_INTROSPECTION_CLIENT_SECRET=<your-introspection-client-secret>
+```
+
+> **Note:** Keyring-based resolution is **not** currently implemented for this variable. Unlike SP service account passwords (which use `_get_password()` / OS keyring via `config.py`), `SP_OIDC_INTROSPECTION_CLIENT_SECRET` is read only from `os.environ`. Storing it in the OS keyring will have no effect. If you require keyring storage for this credential, inject the value at process startup via a wrapper script:
+> ```bash
+> export SP_OIDC_INTROSPECTION_CLIENT_SECRET=$(python3 -c \
+>   "import keyring; print(keyring.get_password('ibm-sp-mcp-server', 'introspection-secret'), end='')")
+> python3 -m sp_mcp_server.main --transport http ...
+> ```
+
+### Auth model audit trail
+
+Every write-operation tool call records an `authmodel` field in the SP ACTLOG `DEFINE SCRATCHPADENTRY`. Use these queries to verify attribution:
+
+```
+QUERY ACTLOG SEARCH=authmodel=client_credentials BEGINDATE=TODAY
+QUERY ACTLOG SEARCH=authmodel=oidc_bearer BEGINDATE=TODAY
+QUERY ACTLOG SEARCH=authmodel=dynamic_session BEGINDATE=TODAY
+```
+
+Example ACTLOG entries:
+
+```
+MCP_AUDIT user=mcp-client    authmodel=client_credentials tool=query_status  priv=any    corr=3a9f1c00
+MCP_AUDIT user=alice@corp.com authmodel=oidc_bearer        tool=delete_node  priv=policy corr=e8f7a192
+MCP_AUDIT user=alice          authmodel=dynamic_session    tool=delete_node  priv=policy corr=c3b2a191
+```
+
+Use `QUERY ACTLOG SEARCH=corr=<correlation-id>` to trace a specific tool call across both the MCP server log and the SP ACTLOG.
+
+### Complete `.env` reference — HTTP transport variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SP_OIDC_ISSUER` | **Yes** | — | OIDC issuer base URL |
+| `SP_OIDC_AUDIENCE` | No | `sp-mcp-server` | Token audience claim |
+| `SP_TLS_CERT` | **Yes** | — | Path to TLS certificate (RG-5) |
+| `SP_TLS_KEY` | **Yes** | — | Path to TLS private key (RG-5) |
+| `SP_MCP_PUBLIC_URL` | Recommended | derived | Externally reachable MCP server URL (OA-6) |
+| `SP_OIDC_JWKS_TTL` | No | `3600` | JWKS cache lifetime in seconds (OA-2) |
+| `SP_OIDC_INTROSPECTION_ENDPOINT` | No | unset | RFC 7662 introspection URL (OA-5) |
+| `SP_OIDC_INTROSPECTION_CLIENT_ID` | No | `SP_OIDC_AUDIENCE` | Introspection Basic-auth client ID (OA-5) |
+| `SP_OIDC_INTROSPECTION_CLIENT_SECRET` | No | unset | Set in `.env` (0600) or inject via secrets manager (OA-5) |
+| `SP_OIDC_INTROSPECT_BELOW_TTL` | No | `300` | Introspect tokens with < N seconds remaining (OA-5) |
+| `SP_MCP_ALLOW_HTTP_PLAINTEXT` | No | unset | Set to `1` for loopback-only test only — always logs ERROR |
+
+### Troubleshooting HTTP transport
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| `SECURITY [RG-5]` at startup | `SP_TLS_CERT` / `SP_TLS_KEY` missing or file not found | Verify paths in `.env`; run `ls -l` on both files |
+| `WARNING: OA-4: IdP does not advertise PKCE S256 support` | IdP PKCE not configured | Enable PKCE on the IdP client; for Keycloak set `PKCE Code Challenge Method = S256` in client Advanced settings |
+| `WARNING: OA-4: IdP advertises insecure PKCE 'plain' method` | IdP allows `plain` | Disable `plain` on the IdP; enforce `S256` only |
+| `/.well-known/oauth-authorization-server` returns `503` | `SP_OIDC_ISSUER` unreachable | Verify network path from MCP server host to IdP; check TLS trust for IdP cert |
+| `/.well-known/oauth-protected-resource` shows `"resource": ""` | `SP_MCP_PUBLIC_URL` not set | Set `SP_MCP_PUBLIC_URL` in `.env` |
+| `WWW-Authenticate` header missing `resource_metadata` | `SP_MCP_PUBLIC_URL` not set | Same fix as above |
+| `401 invalid_token` | Expired, wrong audience, or wrong issuer | Inspect token claims: `echo $TOKEN \| cut -d'.' -f2 \| base64 -d \| python3 -m json.tool` |
+| `401 token_revoked` for an apparently valid token | Introspection returning `active=false` | Token was revoked at IdP; obtain a new token |
+| `WARNING: OA-5: SP_OIDC_INTROSPECTION_CLIENT_SECRET is missing` | Secret not in keyring | Run the `keyring.set_password` snippet in the introspection section above |
+| `WARNING: OA-2: kid '...' not in JWKS cache — forcing re-fetch` | IdP rotated signing key | Expected behaviour; single re-fetch logged. If persistent, verify IdP configuration |
+| `authmodel=local` in ACTLOG | stdio transport in use | Start with `--transport http` for HTTP; `local` is correct for stdio |
+| `preferred_username` absent, `authmodel=client_credentials` for interactive user | IdP not including claim | Add `preferred_username` protocol mapper to IdP client |
+| All tools return `403 insufficient privilege` | Token scope too narrow | Request a higher `mcp:*` scope when obtaining the token |
 
 ---
 
@@ -363,6 +641,8 @@ Two deployment topologies are supported — see [`planning-guide.md`](planning-g
 
 Each MCP server process runs on the same host as the IBM SP server it manages. The MCP client SSH-es to each SP server host independently. See [`planning-guide.md`](planning-guide.md) for the full topology diagram and comparison.
 
+> **Using HTTP transport + OIDC across multiple co-located servers?** A single local Keycloak instance can serve all MCP servers in this topology. One Keycloak runs on a designated host; every MCP server's `.env` points `SP_OIDC_ISSUER` at it; each host gets its own TLS cert signed by a shared demo CA. See [`local-idp-oauth2-guide.md — Part B`](local-idp-oauth2-guide.md#part-b--multiple-co-located-servers-shared-idp) for the step-by-step procedure. This applies to testing, training, and demo environments only.
+
 #### Step A-1 — Install on each SP server host
 
 Follow [`install-guide.md` — Topology A](install-guide.md) on every SP server host. Each host gets:
@@ -453,11 +733,20 @@ SP_SERVERMON_PATH=/opt/tivoli/tsm/server/bin/servermon
 SP_SERVERMON_XML_DIR=/tmp/servermon
 SP_INSTANCE_USER=tsminst1
 SP_MCP_ENV=production
+# Optional server identity and fallback audit subject (NR-1)
+# SP_SERVER_NAME=ibm-storage-protect-mcp
+# SP_MCP_USER=local
+# HTTP transport + OIDC (omit if using SSH/stdio transport)
+# SP_OIDC_ISSUER=https://idp.corp.example.com/realms/mcp
+# SP_OIDC_AUDIENCE=sp-mcp-server
+# SP_MCP_PUBLIC_URL=https://spsvr01.corp.example.com:8443
+# SP_OIDC_JWKS_TTL=3600
 ```
 
 **`/opt/sp-mcp-server/.env` on `spsvr02.corp.example.com`:** — identical except:
 ```dotenv
 TCPSERVERADDRESS=spsvr02.corp.example.com
+# SP_MCP_PUBLIC_URL=https://spsvr02.corp.example.com:8443
 ```
 
 #### Step A-5 — Provisioning checklist (repeat per SP server host)
@@ -563,10 +852,18 @@ SP_ADMIN_ID_READONLY=mcp-svc-readonly
 SP_MCP_USE_PASSWORD_STASH=1
 DSM_CONFIG=/opt/sp-mcp/config/dsm.sys
 SP_MCP_ENV=production
+# Optional server identity and fallback audit subject (NR-1)
+# SP_SERVER_NAME=ibm-storage-protect-mcp
+# SP_MCP_USER=local
 # SP_INSTANCE_USER / SP_DSMSERV_PATH / SP_SERVERMON_PATH — omit in Topology B
+# HTTP transport + OIDC (omit if using SSH/stdio transport)
+# SP_OIDC_ISSUER=https://idp.corp.example.com/realms/mcp
+# SP_OIDC_AUDIENCE=sp-mcp-server
+# SP_MCP_PUBLIC_URL=https://ctrl.corp.example.com:8443/spsvr01
+# SP_OIDC_JWKS_TTL=3600
 ```
 
-`/opt/sp-mcp/spsvr02/.env` — identical except `TCPSERVERADDRESS=spsvr02.corp.example.com`.
+`/opt/sp-mcp/spsvr02/.env` — identical except `TCPSERVERADDRESS=spsvr02.corp.example.com` (and `SP_MCP_PUBLIC_URL` suffix if used).
 
 #### Step B-5 — Security controls in Topology B
 
@@ -650,12 +947,14 @@ Every security control applies independently per MCP server process regardless o
 
 ## Related Documentation
 
-- Deployment planning: [`planning-guide.md`](planning-guide.md)
-- Installation steps: [`install-guide.md`](install-guide.md)
+- Deployment planning (topology + transport choice): [`planning-guide.md`](planning-guide.md)
+- Installation steps (including Transport B TLS provisioning): [`install-guide.md`](install-guide.md)
+- Local IdP / OAuth 2 test environment (Transport B): [`local-idp-oauth2-guide.md`](local-idp-oauth2-guide.md)
 - User guide: [`user-guide.md`](user-guide.md)
 - Troubleshooting: [`troubleshoot.md`](troubleshoot.md)
 - Security — Identity & Credentials: [`../design/security-identity-credentials.md`](../design/security-identity-credentials.md)
-- Security — Network: [`../design/security-network.md`](../design/security-network.md)
+- Security — Network & TLS: [`../design/security-network.md`](../design/security-network.md)
+- Security — OAuth 2 / OIDC (Transport B): [`../design/security-oauth2.md`](../design/security-oauth2.md)
 - Security — Implementation (Credentials): [`../implement/impl-security-identity-credentials.md`](../implement/impl-security-identity-credentials.md)
 - Security — Implementation (Network): [`../implement/impl-security-network.md`](../implement/impl-security-network.md)
 - Security — Integrations: [`../implement/impl-security-integrations.md`](../implement/impl-security-integrations.md)

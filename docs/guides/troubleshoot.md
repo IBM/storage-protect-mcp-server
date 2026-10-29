@@ -10,6 +10,30 @@ This guide covers every error condition the IBM Storage Protect MCP Server can p
 
 ---
 
+## Table of Contents
+
+- [Quick Reference — Error Markers](#quick-reference--error-markers)
+- [1. `.env` File Permission Errors (CRED-3)](#1-env-file-permission-errors-cred-3)
+- [2. Production Bypass Guard (RG-1)](#2-production-bypass-guard-rg-1)
+- [3. Session Security Check (NET-1)](#3-session-security-check-net-1)
+- [4. HTTP Transport TLS (RG-5)](#4-http-transport-tls-rg-5)
+- [5. Account Lockout Advisory (POL-3)](#5-account-lockout-advisory-pol-3)
+- [6. Audit Write Failure (POL-4 / RG-4)](#6-audit-write-failure-pol-4--rg-4)
+- [7. `dsmadmc` Not Found](#7-dsmadmc-not-found)
+- [8. Missing Credentials](#8-missing-credentials)
+- [9. Tool Not Registered / Privilege Errors](#9-tool-not-registered--privilege-errors)
+- [10. Offline Command Failures (`dsmserv` / `servermon`) — Topology A only](#10-offline-command-failures-dsmserv--servermon--topology-a-only)
+- [11. Python and Import Errors](#11-python-and-import-errors)
+- [12. Password Stash Issues](#12-password-stash-issues)
+- [13. Connection to IBM SP Server Fails](#13-connection-to-ibm-sp-server-fails)
+- [14. SSH Connection Issues (stdio Transport)](#14-ssh-connection-issues-stdio-transport)
+- [15. Multi-Server Deployment Issues](#15-multi-server-deployment-issues)
+- [16. Dynamic Authentication & Session Lease Issues](#16-dynamic-authentication--session-lease-issues)
+- [17. Log File Access](#17-log-file-access)
+- [Related Documentation](#related-documentation)
+
+---
+
 ## Quick Reference — Error Markers
 
 | Log marker | Exit? | Topology | Section |

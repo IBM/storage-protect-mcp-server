@@ -3,6 +3,7 @@ import shutil
 import os
 import glob
 import contextvars
+import re
 from typing import List, Tuple, Dict, Any, Optional
 import logging
 
@@ -30,6 +31,15 @@ def _loggable_verb(command: str) -> str:
     first = command.split(None, 1)[0].upper() if command.strip() else ""
     # Return the constant from the allowlist, never a slice of the input.
     return next((verb for verb in _LOGGABLE_VERBS if verb == first), "OTHER")
+
+
+def _redact_command(cmd: str) -> str:
+    """Mask any embedded passwords or credentials before logging command strings."""
+    # Mask PASSWORD=... (quoted or unquoted)
+    sanitized = re.sub(r'(?i)(PASSWORD=["\']?)[^"\'\s]+(["\']?)', r'\1***\2', cmd)
+    # Mask positional passwords in REGISTER/UPDATE NODE/ADMIN/USER <name> <password>
+    sanitized = re.sub(r'(?i)\b((?:REGISTER|UPDATE)\s+(?:NODE|ADMIN|USER)\s+\S+\s+)\S+', r'\1***', sanitized)
+    return sanitized
 
 
 class DsmAdmcWrapper:
@@ -104,9 +114,16 @@ class DsmAdmcWrapper:
 
         args.extend(command.split())
 
-        # Neither `args` (-PA=<password>) nor `command` (may embed a password)
-        # is logged; only an allowlisted verb is.
+        # Log allowlisted verb at INFO level; log sanitized args at DEBUG
         logger.info("Executing dsmadmc %s command", _loggable_verb(command))
+        safe_args = [
+            "-PA=***" if a.startswith("-PA=") else a
+            for a in args
+        ]
+        logger.debug(
+            "Full command args: %s [credentials hidden]",
+            _redact_command(" ".join(safe_args)),
+        )
 
         try:
             try:
@@ -143,7 +160,7 @@ class DsmAdmcWrapper:
             logger.error("dsmadmc executable not found in PATH")
             return "", "dsmadmc executable not found. Please ensure it is in your PATH.", 127
         except Exception as e:
-            logger.exception("Unexpected error executing command: %s", e)
+            logger.exception("Unexpected error executing command %s: %s", _redact_command(command), e)
             return "", str(e), 1
 
     def execute_silent(
@@ -264,7 +281,7 @@ class DsmServWrapper:
                 logger.info(
                     "Executing offline command as %s (sudo): %s",
                     self.config.instance_user,
-                    " ".join(args),
+                    _redact_command(" ".join(args)),
                 )
                 run_args = sudo_args
             else:
@@ -272,7 +289,7 @@ class DsmServWrapper:
                     "SP_INSTANCE_USER not configured. "
                     "Running dsmserv as current user may fail."
                 )
-                logger.info("Executing offline command: %s", " ".join(args))
+                logger.info("Executing offline command: %s", _redact_command(" ".join(args)))
                 run_args = args
 
             try:

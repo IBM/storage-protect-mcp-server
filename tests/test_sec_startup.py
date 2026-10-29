@@ -12,6 +12,7 @@ Controls covered:
 
 import logging
 import os
+import sys
 import pytest
 
 from sp_mcp_server.config import (
@@ -120,6 +121,7 @@ class TestProductionGuard:
 class TestEnvFilePermissions:
     """CRED-3 — .env file permission enforcement."""
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permission bits not supported on Windows")
     def test_rejects_world_readable_env(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text(f"SP_ADMIN_ID={SVC_ADMIN_ID}\n")
@@ -128,6 +130,7 @@ class TestEnvFilePermissions:
             check_env_file_permissions(str(env))
         assert exc.value.code == 1
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permission bits not supported on Windows")
     def test_rejects_group_readable_env(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text(f"SP_ADMIN_ID={SVC_ADMIN_ID}\n")
@@ -154,6 +157,7 @@ class TestEnvFilePermissions:
 class TestSecureStartup:
     """RG-2 — secure_startup() is atomic guard + loader."""
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permission bits not supported on Windows")
     def test_secure_startup_rejects_insecure_env(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text(f"SP_ADMIN_ID={SVC_ADMIN_ID}\n")
