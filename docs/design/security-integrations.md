@@ -1,9 +1,10 @@
 # Security Design: Secure Integrations
 
 * **Domain**: Secure Integrations
-* **Status**: Implemented baseline — token validation and call-time scope authorization are present
+* **Status**: Implemented baseline — token validation and call-time scope authorization are present; OAuth 2 extension gaps OA-1 through OA-7 are open (see [`security-oauth2.md`](security-oauth2.md))
 * **Implementation spec**: [`docs/implement/impl-security-integrations.md`](../implement/impl-security-integrations.md)
 * **Gaps closed**: SI1, SI2, SI3, SI4, RG-5 (from [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md))
+* **OAuth 2 extension**: [`docs/design/security-oauth2.md`](security-oauth2.md) · [`docs/analysis/security-oauth2-analysis.md`](../analysis/security-oauth2-analysis.md)
 
 ---
 
@@ -42,6 +43,10 @@ sequenceDiagram
 Deployment steps are documented in [`docs/implement/impl-security-integrations.md § INT-1`](../implement/impl-security-integrations.md).
 
 ---
+
+## INT-2: OAuth 2.1 / OIDC HTTP/SSE Transport — Resource Server Baseline
+
+> **Extension**: The design changes required to bring this baseline into full OAuth 2 / MCP 2025-03 compliance (AS metadata endpoint, JWKS key rotation, PKCE flow, token introspection, RFC 9470 resource metadata, and auth-model audit attribution) are specified in [`docs/design/security-oauth2.md`](security-oauth2.md) and analysed in [`docs/analysis/security-oauth2-analysis.md`](../analysis/security-oauth2-analysis.md).
 
 ## INT-2: OAuth 2.1 / OIDC HTTP/SSE Transport
 

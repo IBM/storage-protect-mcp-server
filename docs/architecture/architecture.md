@@ -1,6 +1,6 @@
 # IBM Storage Protect MCP Server — System Architecture & Design
 
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
+* **Revision**: 2026-10 (OA-1–OA-7 OAuth 2 Authorization implemented)
 * **Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/audit-report.md`](../traceability/audit-report.md)
 * **Source reference**: `src/sp_mcp_server/`
 
@@ -32,10 +32,10 @@ The architecture provides two operating models:
 
 3. **Defense-in-Depth Session & Transport Security**:
    - **Local Stdio Transport**: Secured via SSH Ed25519 key authentication, dedicated non-privileged OS user (`mcp-runner`), and explicit strict host key checking.
-   - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) with call-time scope enforcement; per-scope privilege mapping (`mcp:*`) and `AUTHORIZATION_DENIED` rejection validated by `TestOIDCAuthorization` (7 scopes).
-   - **Dynamic Authentication (Challenge-Response)**: Allows interactive AI chat users to receive structured `AUTHENTICATION_REQUIRED` responses, verifies credentials via zero-trace `execute_silent()`, issues bounded ephemeral leases, enforces lease privileges, applies delegated credentials to command execution, and supports explicit session revocation via `logout_session`.
-   - **Session Lifecycle**: `SessionManager` uses `RLock` and bounds TTLs to `MAX_SESSION_TTL_SECONDS`. Cleanup is opportunistic (on create / explicit call). `SessionLease.password` is zeroed on every removal path — explicit revocation, inactivity/absolute TTL expiry, bulk sweep, and server shutdown (AUD-08, closed).
-   - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`. Service account provisioning script (`scripts/provision-sp-service-accounts.sh`) registers all five tiered accounts with `SESSIONSECURITY=STRICT` and `MFAREQUIRED=NO` (AUD-07, closed).
+    - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates (`SP_TLS_CERT` / `SP_TLS_KEY`, RG-5) and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) with call-time scope enforcement; per-scope privilege mapping (`mcp:*`) and `AUTHORIZATION_DENIED` rejection. The HTTP layer implements the full OAuth 2 resource-server specification: AS metadata endpoint (OA-1), TTL-based JWKS cache with `kid`-miss re-fetch (OA-2), Authorization Code + PKCE support (OA-3/OA-4), optional token introspection (OA-5), RFC 9470 protected-resource metadata (OA-6), and `authmodel=` ACTLOG attribution (OA-7) — see [`module-security.md`](module-security.md).
+    - **Dynamic Authentication (Challenge-Response)**: Allows interactive AI chat users to receive structured `AUTHENTICATION_REQUIRED` responses, verifies credentials via zero-trace `execute_silent()`, issues bounded ephemeral leases, enforces lease privileges, applies delegated credentials to command execution, and supports explicit session revocation via `logout_session`.
+    - **Session Lifecycle**: `SessionManager` uses `RLock` and bounds TTLs to `MAX_SESSION_TTL_SECONDS`. Cleanup is opportunistic (on create / explicit call). `SessionLease.password` is zeroed on every removal path — explicit revocation, inactivity/absolute TTL expiry, bulk sweep, and server shutdown (AUD-08, closed).
+    - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`. Service account provisioning script (`scripts/provision-sp-service-accounts.sh`) registers all five tiered accounts with `SESSIONSECURITY=STRICT` and `MFAREQUIRED=NO` (AUD-07, closed).
 
 4. **Two-Person Integrity & Policy Controls**:
    - Destructive operations support IBM SP native Command Approval (`SET COMMANDAPPROVAL ON`, `APPROVE PENDINGCMD`, `REJECT PENDINGCMD`, `WITHDRAW PENDINGCMD`).
@@ -58,39 +58,48 @@ graph TD
 
     subgraph IngressTier ["2. Ingress & Protocol Layer"]
         STDIO_EP["stdio Entry Point\n(Subprocess stdin/stdout over SSH)"]
-        HTTP_EP["HTTP / SSE Entry Point\n(FastAPI / Uvicorn with TLS & OIDC Auth)"]
+        HTTP_EP["HTTP / SSE Entry Point\n(Uvicorn + Starlette, TLS 1.2/1.3)"]
     end
 
-    subgraph CoreTier ["3. MCP Server Core & Security Gates"]
+    subgraph OAuthTier ["3. OAuth 2 / OIDC Layer (http_server.py)"]
+        WK1["GET /.well-known/oauth-authorization-server\n(OA-1: AS Metadata Proxy — RFC 8414)"]
+        WK2["GET /.well-known/oauth-protected-resource\n(OA-6: Protected Resource Metadata — RFC 9470)"]
+        OIDC_MW["OIDCBearerMiddleware\n• TTL JWKS cache + kid-miss re-fetch (OA-2)\n• Authorization Code + PKCE accepted (OA-3)\n• IdP PKCE capability check at startup (OA-4)\n• Optional token introspection (OA-5)\n• resource_metadata in WWW-Authenticate (OA-6)\n• authmodel= detection + ContextVar (OA-7)"]
+    end
+
+    subgraph CoreTier ["4. MCP Server Core & Security Gates"]
         SEC_START["secure_startup()\n• .env POSIX 0600 permission check"]
         CONFIG_MGR["config.py: ServerConfig\n• 5-Tier Service Account Credentials\n• Keyring / Secrets Resolution"]
         SESS_MGR["session.py: SessionManager\n• Dynamic ephemeral leases (TTL=15m)\n• Zero-trace auth verification\n• Password zeroed on all removal paths (AUD-08)\n• logout_session explicit revocation tool\n• current_audit_user contextvar"]
-        FACTORY["mcp_factory.py\n• _validate_session_security() (SESSIONSECURITY=STRICT)\n• _check_lockout_policy() (SET INVALIDPWLIMIT)\n• _parse_sp_privilege() (QUERY ADMIN)\n• Tool Privilege Filtering (_PRIVILEGE_SATISFIES)\n• _check_session_target_server() (DAUTH-7)\n• Tool Invocation & POL-4 ACTLOG Audit Attribution"]
+        FACTORY["mcp_factory.py\n• _validate_session_security() (SESSIONSECURITY=STRICT)\n• _check_lockout_policy() (SET INVALIDPWLIMIT)\n• _parse_sp_privilege() (QUERY ADMIN)\n• Tool Privilege Filtering (_PRIVILEGE_SATISFIES)\n• _check_session_target_server() (DAUTH-7)\n• current_auth_model ContextVar (OA-7)\n• Tool Invocation & POL-4 ACTLOG Audit (authmodel= field)"]
     end
 
-    subgraph ModuleTier ["4. Command & Tool Abstraction Layer"]
+    subgraph ModuleTier ["5. Command & Tool Abstraction Layer"]
         GROUPS["server_groups.py\n• ISP_CLIENTS_* • ISP_STORAGE_* • ISP_POLICIES_*\n• ISP_SYSTEM_* • ISP_OPS_* • ISP_VOLUMES"]
         BASE_CMD["commands/base.py\n• BaseCommand (dsmadmc tools)\n• BaseOfflineCommand (dsmserv offline tools)\n• BaseServermonCommand (servermon diagnostic tools)"]
         IMPL_CMD["Command Implementations\n• commands/clients/ • commands/storage/\n• commands/policies/ • commands/system/\n• commands/operations/ • commands/offline.py • commands/servermon.py"]
     end
 
-    subgraph WrapperTier ["5. CLI & Execution Wrapper Layer"]
+    subgraph WrapperTier ["6. CLI & Execution Wrapper Layer"]
         ADMC_WRAP["DsmAdmcWrapper\n• Stash authentication (PASSWORDACCESS GENERATE)\n• execute() & execute_silent() password masking"]
         SERV_WRAP["DsmServWrapper\n• sudo -u instance_user dsmserv execution"]
         MON_WRAP["ServermonWrapper\n• sudo -u instance_user servermon execution"]
     end
 
-    subgraph StorageProtectTier ["6. IBM Storage Protect Server"]
+    subgraph StorageProtectTier ["7. IBM Storage Protect Server"]
         DSMADMC["dsmadmc (Port 1500, TLS 1.2/1.3)"]
         DSMSERV["dsmserv binary"]
         SERVERMON["servermon binary"]
-        ACTLOG["Activity Log & Scratchpad Entries"]
+        ACTLOG["Activity Log & Scratchpad Entries\n(MCP_AUDIT … authmodel=<label>)"]
     end
 
     AGENT -->|stdio| STDIO_EP
-    AGENT -->|HTTP/SSE| HTTP_EP
+    AGENT -->|HTTPS/SSE| HTTP_EP
+    HTTP_EP --> WK1
+    HTTP_EP --> WK2
+    HTTP_EP --> OIDC_MW
     STDIO_EP --> SEC_START
-    HTTP_EP --> SEC_START
+    OIDC_MW --> SEC_START
     SEC_START --> FACTORY
     FACTORY --> SESS_MGR
     FACTORY --> CONFIG_MGR
@@ -118,7 +127,9 @@ sequenceDiagram
     participant Main as Entry Point (main*.py)
     participant Config as config.py
     participant Factory as mcp_factory.py
+    participant HTTP as http_server.py
     participant CLI as DsmAdmcWrapper
+    participant IDP as Identity Provider
     participant SP as IBM Storage Protect Server
 
     OS->>Main: Launch Process
@@ -151,6 +162,27 @@ sequenceDiagram
     Factory->>CLI: execute("QUERY STATUS")
     CLI-->>Factory: Status output (Invalid Sign-on Attempt Limit)
 
+    opt HTTP/SSE transport (--transport http)
+        note over Main: RG-5: Validate TLS cert/key files
+        Main->>Main: Validate SP_TLS_CERT / SP_TLS_KEY
+
+        note over Main: OA-4: IdP PKCE capability check
+        Main->>HTTP: _check_idp_pkce_capability(SP_OIDC_ISSUER)
+        HTTP->>IDP: GET {issuer}/.well-known/openid-configuration
+        IDP-->>HTTP: OIDC discovery doc
+        alt S256 missing or plain present
+            HTTP-->>Main: log WARNING (non-fatal)
+        else S256 supported
+            HTTP-->>Main: log INFO (check passed)
+        end
+
+        note over Main: OA-1: Prime AS metadata cache
+        Main->>HTTP: _fetch_as_metadata(SP_OIDC_ISSUER)
+        HTTP->>IDP: GET {issuer}/.well-known/openid-configuration (cached)
+        IDP-->>HTTP: discovery doc
+        HTTP-->>Main: RFC 8414 metadata cached
+    end
+
     Factory-->>Main: Ready Server instance
     Main->>Main: run_server() (stdio or HTTP/SSE)
 ```
@@ -164,17 +196,26 @@ When an MCP client invokes a tool:
 ```mermaid
 sequenceDiagram
     participant Client as MCP Client
+    participant MW as OIDCBearerMiddleware
     participant Server as MCP Server (handle_call_tool)
     participant BaseCmd as BaseCommand Subclass
     participant Wrapper as DsmAdmcWrapper
     participant SP as IBM Storage Protect Server
 
+    Client->>MW: GET /mcp/sse  Authorization: Bearer <token>
+    note over MW: OA-2: Resolve signing key (TTL cache / kid-miss re-fetch)
+    note over MW: OA-5: Optional token introspection (if near expiry)
+    MW->>MW: Map scopes → privilege tier
+    note over MW: OA-7: Detect authmodel (oidc_bearer / client_credentials)
+    MW->>MW: Set current_auth_model ContextVar
+    MW->>Server: Forward request (mcp_privilege, mcp_subject, mcp_auth_model injected)
+
     Client->>Server: call_tool(name, arguments)
     Server->>Server: Verify tool exists and arguments match JSON Schema
 
     opt Write Operation (tool required_privilege in {system, policy, storage, operator})
-        note over Server: POL-4: Audit Record Generation
-        Server->>Wrapper: execute('DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT tool=... corr=<uuid>"')
+        note over Server: POL-4 / OA-7: Audit Record with authmodel= field
+        Server->>Wrapper: execute('DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<sub> authmodel=<label> tool=... corr=<uuid>"')
         Wrapper->>SP: dsmadmc DEFINE SCRATCHPADENTRY ...
         SP-->>Wrapper: OK / Error
         alt Audit write fails
@@ -223,9 +264,9 @@ The codebase provides multiple dedicated Micro-MCP entry points categorized acro
 ### 7.1 Entry Points (`main.py` / `main_*.py`)
 
 **Responsibilities:**
-- Parse command-line arguments (`--enable-servers`, `--mode`)
-- Invoke `secure_startup()` for `.env` permission and credential checks
-- Select and enable server modules based on configuration
+- Unified entry point (`main.py`): Parses command-line arguments (`--enable-servers`, `--mode`, `--transport`, `--port`, `--host`), runs PKCE checks, and enables selected micro-MCP modules
+- Micro-MCP entry points (25 `main_*.py` files): Standalone servers registering predefined command groups
+- Invoke `secure_startup()` across all 26 entry points for `.env` permission and credential checks
 - Initialize the async runtime and start the MCP server
 
 ### 7.2 MCP Factory (`mcp_factory.py`)
@@ -464,7 +505,7 @@ graph TD
 | :--- | :--- | :--- |
 | **Unit** | Individual classes and functions | Command validation logic, output parsing, JSON Schema validation |
 | **Integration** | CLI wrapper functionality | End-to-end command execution, error handling, mode filtering |
-| **Security Regression** | `tests/test_security_controls.py` | 88 tests covering all audit remediation items (AUD-07, AUD-08, DAUTH-7, POL-4, OIDC scopes) |
+| **Security Regression** | `tests/test_sec_*.py` (6 files) | 114 tests covering all audit remediation items (AUD-07, AUD-08, DAUTH-7, POL-4, OIDC scopes, OA-1–OA-7) |
 | **System** | Full server operation | Multi-command workflows, mode switching, session lifecycle |
 
 Run the full test suite:
@@ -483,8 +524,17 @@ For domain-specific detailed security control specifications:
 - [`docs/design/security-identity-credentials.md`](../design/security-identity-credentials.md) — Tiered Credentials, Stash Mode & Keyring Integration.
 - [`docs/design/security-access.md`](../design/security-access.md) — Tool Privilege Gating & Sudoers Execution.
 - [`docs/design/security-policy.md`](../design/security-policy.md) — Command Approval, Password Policies & ACTLOG Audit Trail.
-- [`docs/design/security-integrations.md`](../design/security-integrations.md) — OAuth 2.1 / OIDC HTTP Transport & Secrets Reference Resolution.
+- [`docs/design/security-integrations.md`](../design/security-integrations.md) — OAuth 2.1 / OIDC HTTP Transport (resource-server baseline) & Secrets Reference Resolution.
+- [`docs/design/security-oauth2.md`](../design/security-oauth2.md) — OAuth 2 Authorization: AS metadata endpoint (OA-1), JWKS key rotation (OA-2), Authorization Code + PKCE (OA-3/OA-4), token introspection (OA-5), RFC 9470 protected-resource metadata (OA-6), and auth-model audit attribution (OA-7). All implemented.
 - [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) — Non-Repudiation, Activity Log Attribution & Forensic Correlation.
+
+Security analysis documents (requirement analysis and control verification):
+- [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) — Comprehensive cross-domain analysis; 114 regression tests passing.
+- [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md) — Dynamic authentication requirement analysis.
+- [`docs/analysis/security-oauth2-analysis.md`](../analysis/security-oauth2-analysis.md) — OAuth 2 requirement analysis; OA-1–OA-7 all implemented and tested (26 tests).
+
+Module architecture documents:
+- [`docs/architecture/module-security.md`](module-security.md) — HTTP/SSE layer and OAuth 2 component reference (`http_server.py`, `main.py` HTTP branch).
 
 ---
 
@@ -520,7 +570,13 @@ storage-protect-mcp-server/
 │   ├── test_commands.py
 │   ├── test_config.py
 │   ├── test_core_components.py
-│   └── test_security_controls.py      # Security regression tests — 88 tests passing post-remediation
+│   ├── fixtures.py                    # Shared test constants and helpers
+│   ├── test_sec_startup.py            # NET-1, CRED-3, ACC-1–3, POL-3
+│   ├── test_sec_dynamic_auth.py       # DAUTH-1–9, OIDC scope enforcement
+│   ├── test_sec_session_lifecycle.py  # Session TTL, revocation, zero-trace
+│   ├── test_sec_audit_trail.py        # POL-4, RG-4, NR-4, RG-5 TLS
+│   ├── test_sec_password_commands.py  # POL-2, INT-3a
+│   └── test_sec_oauth2.py             # OA-1–OA-7 — 26 tests passing
 └── docs/                              # Comprehensive documentation
     ├── design/                        # Domain-specific security design specifications
     ├── architecture/                  # System & module-specific architecture docs

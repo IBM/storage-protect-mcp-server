@@ -30,7 +30,7 @@ The architecture and operational configurations leverage native IBM Storage Prot
 The MCP server connects to IBM Storage Protect via the `dsmadmc` CLI over TCP (default port 1500). Communications and remote access are secured via the following mechanisms:
 
 1. **Mandatory Session Security Validation (NET-1)**:
-   - At startup, [`mcp_factory._validate_session_security()`](../../src/sp_mcp_server/mcp_factory.py:72) inspects every distinct configured administrator account using `QUERY ADMIN <admin_id> FORMAT=DETAILED`.
+   - At startup, [`mcp_factory._validate_session_security()`](../../src/sp_mcp_server/mcp_factory.py#L72) inspects every distinct configured administrator account using `QUERY ADMIN <admin_id> FORMAT=DETAILED`.
    - The server verifies that `Session Security` is set to `Strict` and that the transport method enforces TLS.
    - If session security is not `Strict`, the server halts startup immediately with `sys.exit(1)`.
    - In production environments (`SP_MCP_ENV=production`), any attempt to bypass checks via `SP_MCP_SKIP_SECURITY_CHECKS=1` is blocked with an explicit error and immediate process termination (`sys.exit(1)`).
@@ -82,22 +82,22 @@ To maintain compliance with the MCP server network security controls, configure 
 ### 2.1 Implemented Controls & Specifications
 
 1. **Privilege-Tiered Service Accounts (CRED-1)**:
-   - [`config.ServerConfig`](../../src/sp_mcp_server/config.py:33) maintains an isolated `credentials` map indexed by SP privilege class: `system`, `policy`, `storage`, `operator`, and `readonly` (`any`).
-   - [`ServerConfig.credential_for(tier)`](../../src/sp_mcp_server/config.py:54) returns the least-privileged credential matching the required tier.
+   - [`config.ServerConfig`](../../src/sp_mcp_server/config.py#L33) maintains an isolated `credentials` map indexed by SP privilege class: `system`, `policy`, `storage`, `operator`, and `readonly` (`any`).
+   - [`ServerConfig.credential_for(tier)`](../../src/sp_mcp_server/config.py#L54) returns the least-privileged credential matching the required tier.
 
 2. **Process Argument Password Elimination (CRED-2)**:
-   - In password stash mode (`SP_MCP_USE_PASSWORD_STASH=1`), [`DsmAdmcWrapper.execute()`](../../src/sp_mcp_server/cli_wrapper.py:24) omits `-PA=` from subprocess arguments, using the local encrypted password stash created by `PASSWORDACCESS GENERATE`.
+   - In password stash mode (`SP_MCP_USE_PASSWORD_STASH=1`), [`DsmAdmcWrapper.execute()`](../../src/sp_mcp_server/cli_wrapper.py#L24) omits `-PA=` from subprocess arguments, using the local encrypted password stash created by `PASSWORDACCESS GENERATE`.
    - Subprocess loggers filter sensitive parameters before writing to debug files.
 
 3. **Atomic File Permission Verification (CRED-3)**:
-   - [`config.secure_startup()`](../../src/sp_mcp_server/config.py:117) performs an atomic POSIX permission check (`check_env_file_permissions()`) ensuring the `.env` file is restricted to owner read/write (e.g., `0600`) before calling `load_dotenv()`.
+   - [`config.secure_startup()`](../../src/sp_mcp_server/config.py#L117) performs an atomic POSIX permission check (`check_env_file_permissions()`) ensuring the `.env` file is restricted to owner read/write (e.g., `0600`) before calling `load_dotenv()`.
    - All 16 entry points (`main.py` and all `main_*.py` domain entry points) execute `secure_startup()` at initialization.
 
 4. **Masked Command Execution for Password-Bearing Operations**:
-   - Password-bearing administrative commands (`REGISTER ADMIN`, `UPDATE ADMIN ... PASSWORD=`, `REGISTER NODE`, `UPDATE NODE ... PASSWORD=`, `DEFINE CONNECTION`) use [`BaseCommand._execute_silent_query()`](../../src/sp_mcp_server/commands/base.py:92) and [`DsmAdmcWrapper.execute_silent()`](../../src/sp_mcp_server/cli_wrapper.py:119), preventing plaintext credentials from leaking into application logs.
+   - Password-bearing administrative commands (`REGISTER ADMIN`, `UPDATE ADMIN ... PASSWORD=`, `REGISTER NODE`, `UPDATE NODE ... PASSWORD=`, `DEFINE CONNECTION`) use [`BaseCommand._execute_silent_query()`](../../src/sp_mcp_server/commands/base.py#L92) and [`DsmAdmcWrapper.execute_silent()`](../../src/sp_mcp_server/cli_wrapper.py#L119), preventing plaintext credentials from leaking into application logs.
 
 5. **Keyring-First Credential Resolution**:
-   - [`config._get_password()`](../../src/sp_mcp_server/config.py:134) queries the OS keyring under service `ibm-sp-mcp-server` prior to reading plain environment variables.
+   - [`config._get_password()`](../../src/sp_mcp_server/config.py#L134) queries the OS keyring under service `ibm-sp-mcp-server` prior to reading plain environment variables.
 
 ### 2.2 IBM Storage Protect Native Controls & Recommendations
 
@@ -148,8 +148,8 @@ To maintain compliance with the MCP server network security controls, configure 
 ### 3.1 Implemented Controls & Specifications
 
 1. **Privilege-Gated Tool Registration (ACC-1, ACC-2)**:
-   - Every tool command derives from [`BaseCommand`](../../src/sp_mcp_server/commands/base.py:15), [`BaseOfflineCommand`](../../src/sp_mcp_server/commands/base.py:147), or [`BaseServermonCommand`](../../src/sp_mcp_server/commands/base.py:200), specifying its required privilege (`system`, `policy`, `storage`, `operator`, `any`).
-   - [`mcp_factory._parse_sp_privilege()`](../../src/sp_mcp_server/mcp_factory.py:196) queries the connected account's SP privilege class at startup.
+   - Every tool command derives from [`BaseCommand`](../../src/sp_mcp_server/commands/base.py#L15), [`BaseOfflineCommand`](../../src/sp_mcp_server/commands/base.py#L147), or [`BaseServermonCommand`](../../src/sp_mcp_server/commands/base.py#L200), specifying its required privilege (`system`, `policy`, `storage`, `operator`, `any`).
+   - [`mcp_factory._parse_sp_privilege()`](../../src/sp_mcp_server/mcp_factory.py#L196) queries the connected account's SP privilege class at startup.
    - Tools are registered if and only if the configured service account satisfies the privilege mapping defined in `_PRIVILEGE_SATISFIES`:
 
      | SP Account Privilege | Accessible Tool Privilege Tiers |
@@ -161,7 +161,7 @@ To maintain compliance with the MCP server network security controls, configure 
      | `any` (or read-only) | `any` |
 
 2. **Controlled Offline Privilege Escalation (ACC-4)**:
-   - [`DsmServWrapper`](../../src/sp_mcp_server/cli_wrapper.py:178) and [`ServermonWrapper`](../../src/sp_mcp_server/cli_wrapper.py:250) execute offline server commands using `sudo -u <instance_user> -- <binary>`, avoiding shell wrapper scripts and uncontrolled `su` execution.
+   - [`DsmServWrapper`](../../src/sp_mcp_server/cli_wrapper.py#L178) and [`ServermonWrapper`](../../src/sp_mcp_server/cli_wrapper.py#L250) execute offline server commands using `sudo -u <instance_user> -- <binary>`, avoiding shell wrapper scripts and uncontrolled `su` execution.
 
 ### 3.2 IBM Storage Protect Native Controls & Recommendations
 
@@ -192,14 +192,14 @@ To maintain compliance with the MCP server network security controls, configure 
      - `WithdrawPendingCmd` (`WITHDRAW PENDINGCMD <cmd_id>`) — Accessible by `any` administrator.
 
 2. **Password Policy Pre-Validation (POL-2)**:
-   - [`BaseCommand._validate_password_policy()`](../../src/sp_mcp_server/commands/base.py:126) queries the server option `MINPWLENGTH` via `QUERY OPTION MINPWLENGTH`.
+   - [`BaseCommand._validate_password_policy()`](../../src/sp_mcp_server/commands/base.py#L126) queries the server option `MINPWLENGTH` via `QUERY OPTION MINPWLENGTH`.
    - Passwords submitted in `DefineAdmin` or `RegisterNode` are pre-validated before issuing commands to the server.
 
 3. **Account Lockout Policy Auditing (POL-3)**:
-   - [`mcp_factory._check_lockout_policy()`](../../src/sp_mcp_server/mcp_factory.py:217) queries `QUERY STATUS` at startup and logs a prominent security warning if `Invalid Sign-on Attempt Limit` is set to `0` (disabled).
+   - [`mcp_factory._check_lockout_policy()`](../../src/sp_mcp_server/mcp_factory.py#L217) queries `QUERY STATUS` at startup and logs a prominent security warning if `Invalid Sign-on Attempt Limit` is set to `0` (disabled).
 
 4. **Activity Log Correlation & Audit Trail (POL-4)**:
-   - Before executing write operations (`system`, `policy`, `storage`, `operator`), [`handle_call_tool()`](../../src/sp_mcp_server/mcp_factory.py:361) records an audit entry to the SP Activity Log using `DEFINE SCRATCHPADENTRY`:
+   - Before executing write operations (`system`, `policy`, `storage`, `operator`), [`handle_call_tool()`](../../src/sp_mcp_server/mcp_factory.py#L361) records an audit entry to the SP Activity Log using `DEFINE SCRATCHPADENTRY`:
      `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<user_id> tool=<name> priv=<priv> corr=<uuid>"`
    - If writing the audit record fails, the failure is immediately logged at `ERROR` level (`SECURITY [POL-4 / RG-4]`) with correlation metadata for SIEM detection.
 
@@ -243,11 +243,11 @@ To maintain compliance with the MCP server network security controls, configure 
 ### 5.1 Implemented Controls & Specifications
 
 1. **OAuth 2.1 / OIDC Bearer Token Authentication (INT-2)**:
-   - When deployed over HTTP SSE (`--transport http`), [`http_server.OIDCBearerMiddleware`](../../src/sp_mcp_server/http_server.py:43) validates JWT access tokens against identity provider JWKS endpoints (`SP_OIDC_ISSUER`).
+   - When deployed over HTTP SSE (`--transport http`), [`http_server.OIDCBearerMiddleware`](../../src/sp_mcp_server/http_server.py#L43) validates JWT access tokens against identity provider JWKS endpoints (`SP_OIDC_ISSUER`).
    - Token scopes (`mcp:read`, `mcp:operator`, `mcp:storage`, `mcp:policy`, `mcp:system`) map directly to server privilege tiers.
 
 2. **Transport Layer Security Enforcement for HTTP (RG-5)**:
-   - [`main.py`](../../src/sp_mcp_server/main.py:104) validates certificate and key file presence (`SP_TLS_CERT`, `SP_TLS_KEY`) when `--transport http` is selected.
+   - [`main.py`](../../src/sp_mcp_server/main.py#L104) validates certificate and key file presence (`SP_TLS_CERT`, `SP_TLS_KEY`) when `--transport http` is selected.
    - Startup fails with `sys.exit(1)` unless `SP_MCP_ALLOW_HTTP_PLAINTEXT=1` is explicitly set for local non-production testing.
 
 3. **Secrets Reference Resolution for External Integrations (INT-3, INT-4)**:
@@ -351,11 +351,11 @@ flowchart TD
 
 | Forensic Dimension | Implemented Mechanism | Source File & Lines | Forensic Capability & Status |
 |:---|:---|:---|:---|
-| **Who** (Identity) | **HTTP/SSE Mode**: `OIDCBearerMiddleware` extracts `sub` claim and binds it to `current_audit_user` ContextVar.<br>**Audit Payload**: `handle_call_tool()` reads `current_audit_user` (or `SP_MCP_USER`/`local`) and writes `user=<user_id>` into SP `DEFINE SCRATCHPADENTRY`. | [`http_server.py:144`](../../src/sp_mcp_server/http_server.py:144)<br>[`mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py:16)<br>[`mcp_factory.py:380`](../../src/sp_mcp_server/mcp_factory.py:380) | ✅ **Full Identity Binding (NR-1)**: End-user identity is irrevocably bound to the SP ACTLOG scratchpad entry, eliminating shared service account ambiguity. |
-| **What** (Action & Arguments) | MCP tool name, required privilege, user identity, and CLI command string logged in `mcp-server.log`. Write operations emit `MCP_AUDIT user=<id> tool=<name> priv=<priv> corr=<id>` to SP ACTLOG. Sensitive commands execute via `execute_silent()`. | [`mcp_factory.py:380-395`](../../src/sp_mcp_server/mcp_factory.py:380-395)<br>[`cli_wrapper.py:74`](../../src/sp_mcp_server/cli_wrapper.py:74)<br>[`cli_wrapper.py:153`](../../src/sp_mcp_server/cli_wrapper.py:153) | ✅ **Strong**: Complete tool name, arguments, and downstream command strings are logged locally, with correlation markers in ACTLOG. |
-| **When** (Time) | Local log formatted with standardized ISO 8601 UTC timestamp format (`%Y-%m-%dT%H:%M:%SZ`) using `time.gmtime`. SP server records microsecond timestamps on ACTLOG messages. | [`mcp_factory.py:38-42`](../../src/sp_mcp_server/mcp_factory.py:38-42) | ✅ **Standardized UTC (NR-5)**: Timezone ambiguity and skew eliminated across multi-region server correlations. |
-| **Where** (Source & Target) | Hostname/IP in `config.ServerConfig`. Remote execution logs SSH targets. Process PID and file/line logged in `mcp-server.log`. HTTP client remote IP available in ASGI scope. | [`config.py:33`](../../src/sp_mcp_server/config.py:33)<br>[`cli_wrapper.py:220`](../../src/sp_mcp_server/cli_wrapper.py:220) | ✅ **Good**: Target SP server instance, client transport, and host context are recorded. |
-| **Outcome** (Result & Code) | Return code, execution duration/timeout, stdout length, and stderr error messages logged in `mcp-server.log`. In strict mode (`SP_MCP_STRICT_AUDIT=1`), audit write failures abort execution immediately. | [`mcp_factory.py:397-425`](../../src/sp_mcp_server/mcp_factory.py:397-425)<br>[`cli_wrapper.py:97-110`](../../src/sp_mcp_server/cli_wrapper.py:97-110) | ✅ **Fail-Closed Audit Option (NR-4)**: Comprehensive diagnostics with optional strict non-repudiation enforcement. |
+| **Who** (Identity) | **HTTP/SSE Mode**: `OIDCBearerMiddleware` extracts `sub` claim and binds it to `current_audit_user` ContextVar.<br>**Audit Payload**: `handle_call_tool()` reads `current_audit_user` (or `SP_MCP_USER`/`local`) and writes `user=<user_id>` into SP `DEFINE SCRATCHPADENTRY`. | [`http_server.py:144`](../../src/sp_mcp_server/http_server.py#L144)<br>[`mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py#L16)<br>[`mcp_factory.py:380`](../../src/sp_mcp_server/mcp_factory.py#L380) | ✅ **Full Identity Binding (NR-1)**: End-user identity is irrevocably bound to the SP ACTLOG scratchpad entry, eliminating shared service account ambiguity. |
+| **What** (Action & Arguments) | MCP tool name, required privilege, user identity, and CLI command string logged in `mcp-server.log`. Write operations emit `MCP_AUDIT user=<id> tool=<name> priv=<priv> corr=<id>` to SP ACTLOG. Sensitive commands execute via `execute_silent()`. | [`mcp_factory.py:380-395`](../../src/sp_mcp_server/mcp_factory.py#L380-L395)<br>[`cli_wrapper.py:74`](../../src/sp_mcp_server/cli_wrapper.py#L74)<br>[`cli_wrapper.py:153`](../../src/sp_mcp_server/cli_wrapper.py#L153) | ✅ **Strong**: Complete tool name, arguments, and downstream command strings are logged locally, with correlation markers in ACTLOG. |
+| **When** (Time) | Local log formatted with standardized ISO 8601 UTC timestamp format (`%Y-%m-%dT%H:%M:%SZ`) using `time.gmtime`. SP server records microsecond timestamps on ACTLOG messages. | [`mcp_factory.py:38-42`](../../src/sp_mcp_server/mcp_factory.py#L38-L42) | ✅ **Standardized UTC (NR-5)**: Timezone ambiguity and skew eliminated across multi-region server correlations. |
+| **Where** (Source & Target) | Hostname/IP in `config.ServerConfig`. Remote execution logs SSH targets. Process PID and file/line logged in `mcp-server.log`. HTTP client remote IP available in ASGI scope. | [`config.py:33`](../../src/sp_mcp_server/config.py#L33)<br>[`cli_wrapper.py:220`](../../src/sp_mcp_server/cli_wrapper.py#L220) | ✅ **Good**: Target SP server instance, client transport, and host context are recorded. |
+| **Outcome** (Result & Code) | Return code, execution duration/timeout, stdout length, and stderr error messages logged in `mcp-server.log`. In strict mode (`SP_MCP_STRICT_AUDIT=1`), audit write failures abort execution immediately. | [`mcp_factory.py:397-425`](../../src/sp_mcp_server/mcp_factory.py#L397-L425)<br>[`cli_wrapper.py:97-110`](../../src/sp_mcp_server/cli_wrapper.py#L97-L110) | ✅ **Fail-Closed Audit Option (NR-4)**: Comprehensive diagnostics with optional strict non-repudiation enforcement. |
 
 ---
 

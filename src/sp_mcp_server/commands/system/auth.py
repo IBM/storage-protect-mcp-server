@@ -158,10 +158,11 @@ class AuthenticateSession(BaseCommand):
         # Set identity context for audit & forensics
         # ContextVar: valid within this async task only
         # Module-level: persists across all tool calls in this stdio process
-        from ...mcp_factory import current_audit_user, current_session_id
+        from ...mcp_factory import current_audit_user, current_session_id, current_auth_model
         import sp_mcp_server.mcp_factory as _factory
         current_audit_user.set(username)
         current_session_id.set(lease.session_id)
+        current_auth_model.set("dynamic_session")   # OA-7
         _factory._process_session_id = lease.session_id
         _factory._process_audit_user = username
 

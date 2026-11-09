@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # 1. System Under Test (IBM Storage Protect MCP Server)
+  sp-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: sp-mcp-under-test
+    environment:
+      - TCPSERVERADDRESS=mock-sp-server
+      - SP_SERVER_PORT=1500
+      - SP_ADMIN_ID_SYSTEM=mcp-svc-system
+      - SP_ADMIN_PASSWORD_SYSTEM=SecretPassword123!
+      - SP_MCP_ENV=test
+      - SP_OIDC_ISSUER=http://mock-idp:8080/realms/mcp-test
+      - SP_OIDC_AUDIENCE=sp-mcp-server
+      - SP_MCP_PUBLIC_URL=http://localhost:8000
+      - SP_FAULT_INJECTOR_CONFIG=/tmp/sp_fault_injection.json
+      - SP_MCP_STRICT_AUDIT=1
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./tests/testbed/fault_dsmadmc.py:/usr/local/bin/dsmadmc:ro
+      - ./artifacts:/artifacts
+    depends_on:
+      - mock-idp
+      - toxiproxy
+      - mock-sp-server
+    networks:
+      - testbed-net
+
+  # 2. Network Fault Injection Proxy (Toxiproxy)
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: testbed-toxiproxy
+    ports:
+      - "8474:8474" # Management HTTP API
+      - "8444:8444" # Proxied IdP port
+      - "1501:1501" # Proxied SP backend port
+    networks:
+      - testbed-net
+
+  # 3. Mock Identity Provider (OIDC / OAuth 2.0 AS)
+  mock-idp:
+    build:
+      context: .
+      dockerfile: Dockerfile.idp
+    container_name: testbed-mock-idp
+    ports:
+      - "8080:8080"
+    networks:
+      - testbed-net
+
+  # 4. Mock IBM Storage Protect Daemon Emulator
+  mock-sp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.sp
+    container_name: testbed-mock-sp
+    ports:
+      - "1500:1500"
+    networks:
+      - testbed-net
+
+  # 5. Distributed Load Generator (Locust)
+  locust-load-injector:
+    image: locustio/locust:2.24.0
+    container_name: testbed-locust
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./tests/load:/mnt/locust
+      - ./artifacts:/artifacts
+    command: -f /mnt/locust/locustfile.py --host http://sp-mcp-server:8000
+    depends_on:
+      - sp-mcp-server
+    networks:
+      - testbed-net
+
+networks:
+  testbed-net:
+    driver: bridge

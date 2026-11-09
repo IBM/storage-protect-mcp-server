@@ -4,13 +4,52 @@ This guide helps you plan your IBM Storage Protect MCP Server deployment **befor
 
 ---
 
+## Table of Contents
+
+- [Step 1 — Choose a Deployment Topology](#step-1--choose-a-deployment-topology)
+  - [Topology A — Co-located](#topology-a--co-located)
+    - [Topology A — Transport A (stdio over SSH)](#topology-a--transport-a-stdio-over-ssh)
+    - [Topology A — Transport B (streamable-http with TLS)](#topology-a--transport-b-streamable-http-with-tls)
+  - [Topology B — Centralised](#topology-b--centralised)
+    - [Topology B — Transport A (stdio over SSH)](#topology-b--transport-a-stdio-over-ssh)
+    - [Topology B — Transport B (streamable-http with TLS)](#topology-b--transport-b-streamable-http-with-tls)
+  - [Topology comparison](#topology-comparison)
+- [Step 1.5 — Choose a Transport Protocol](#step-15--choose-a-transport-protocol)
+  - [Transport A — stdio over SSH](#transport-a--stdio-over-ssh)
+  - [Transport B — streamable-http with TLS](#transport-b--streamable-http-with-tls)
+  - [Transport comparison](#transport-comparison)
+  - [Topology × Transport matrix](#topology--transport-matrix)
+- [Step 2 — Choose an Authentication Model](#step-2--choose-an-authentication-model)
+  - [Authentication Models Comparison](#authentication-models-comparison)
+- [Step 3 — Inventory Your SP Servers](#step-3--inventory-your-sp-servers)
+- [Step 4 — Prerequisites Checklist](#step-4--prerequisites-checklist)
+  - [Topology A — prerequisites per SP server host](#topology-a--prerequisites-per-sp-server-host)
+  - [Topology B — prerequisites on the control host](#topology-b--prerequisites-on-the-control-host)
+  - [Common prerequisites (both topologies)](#common-prerequisites-both-topologies)
+- [Step 5 — Plan Your Service Accounts](#step-5--plan-your-service-accounts)
+- [Step 6 — Plan Your `dsm.sys` SERVERNAME Labels](#step-6--plan-your-dsmsys-servername-labels)
+- [Step 7 — Plan Your SSH Keys](#step-7--plan-your-ssh-keys)
+- [Step 8 — Plan Your MCP Client Configuration Entry Names](#step-8--plan-your-mcp-client-configuration-entry-names)
+- [Step 9 — Plan Your Tool Scope per SP Server](#step-9--plan-your-tool-scope-per-sp-server)
+- [Step 10 — Pre-Installation Sign-off](#step-10--pre-installation-sign-off)
+- [Next Steps](#next-steps)
+- [Related Documentation](#related-documentation)
+
+---
+
 ## Step 1 — Choose a Deployment Topology
 
 The MCP server is a **one-process-to-one-SP-server** unit. Before installing anything, decide where those processes will run.
 
+> Each topology diagram below is shown for **both transport options** — `stdio over SSH` (Transport A) and `streamable-http with TLS` (Transport B). You will choose your transport in [Step 1.5](#step-15--choose-a-transport-protocol); the topology and transport decisions are independent.
+
 ### Topology A — Co-located
 
-The MCP server process runs **on the same host as the IBM SP server** it manages. The MCP client SSH-es directly to each SP server host to start a process there.
+The MCP server process runs **on the same host as the IBM SP server** it manages.
+
+#### Topology A — Transport A (stdio over SSH)
+
+The MCP client SSH-es directly to each SP server host and spawns a server subprocess there. The SSH stdin/stdout pipe is the MCP protocol channel — no listening port is opened by the MCP server.
 
 ```mermaid
 graph TB
@@ -21,30 +60,72 @@ graph TB
     end
 
     subgraph SPSVR01["SP Server Host — spsvr01"]
-        subgraph MCP1["MCP Server Process  (mcp-runner)"]
+        subgraph MCP1["MCP Server Process  (mcp-runner)\nstdio transport"]
             P1["/opt/sp-mcp-server/.env\nTCPSERVERADDRESS=spsvr01\nSP_MCP_ENV=production"]
         end
         SP1["IBM SP Server\n(dsmserv)"]
-        P1 -->|"dsmadmc  TLS 1.2"| SP1
+        P1 -->|"dsmadmc  TLS 1.2/1.3"| SP1
     end
 
     subgraph SPSVR02["SP Server Host — spsvr02"]
-        subgraph MCP2["MCP Server Process  (mcp-runner)"]
+        subgraph MCP2["MCP Server Process  (mcp-runner)\nstdio transport"]
             P2["/opt/sp-mcp-server/.env\nTCPSERVERADDRESS=spsvr02\nSP_MCP_ENV=production"]
         end
         SP2["IBM SP Server\n(dsmserv)"]
-        P2 -->|"dsmadmc  TLS 1.2"| SP2
+        P2 -->|"dsmadmc  TLS 1.2/1.3"| SP2
     end
 
-    CLIENT -->|"SSH key: id_ed25519_spsvr01"| MCP1
-    CLIENT -->|"SSH key: id_ed25519_spsvr02"| MCP2
+    CLIENT -->|"SSH · Ed25519 key\nstdin/stdout = MCP channel"| MCP1
+    CLIENT -->|"SSH · Ed25519 key\nstdin/stdout = MCP channel"| MCP2
     K1 -.->|"auth"| CLIENT
     K2 -.->|"auth"| CLIENT
 ```
 
+#### Topology A — Transport B (streamable-http with TLS)
+
+Each SP server host runs its own MCP server process listening on HTTPS port `8443`. The MCP client presents an OIDC Bearer token; no SSH connection is required for MCP traffic.
+
+```mermaid
+graph TB
+    subgraph WORKSTATION["Operator Workstation / Web UI / AI Agent"]
+        CLIENT["MCP Client\n(Claude / OpenWebUI / pipeline)"]
+        IDP_TOKEN["OIDC Bearer token\n(mcp:* scopes from enterprise IdP)"]
+    end
+
+    subgraph IDP["Enterprise Identity Provider\n(Azure AD / Keycloak / Okta)"]
+        OIDC["OAuth 2.1 token endpoint\nJWKS endpoint"]
+    end
+
+    subgraph SPSVR01["SP Server Host — spsvr01"]
+        subgraph MCP1["MCP Server Process  (mcp-runner)\nstreamable-http · TLS 1.2/1.3 · :8443"]
+            P1["SP_TLS_CERT + SP_TLS_KEY\nSP_OIDC_ISSUER · SP_MCP_PUBLIC_URL\nTCPSERVERADDRESS=spsvr01"]
+        end
+        SP1["IBM SP Server\n(dsmserv)"]
+        P1 -->|"dsmadmc  TLS 1.2/1.3"| SP1
+    end
+
+    subgraph SPSVR02["SP Server Host — spsvr02"]
+        subgraph MCP2["MCP Server Process  (mcp-runner)\nstreamable-http · TLS 1.2/1.3 · :8443"]
+            P2["SP_TLS_CERT + SP_TLS_KEY\nSP_OIDC_ISSUER · SP_MCP_PUBLIC_URL\nTCPSERVERADDRESS=spsvr02"]
+        end
+        SP2["IBM SP Server\n(dsmserv)"]
+        P2 -->|"dsmadmc  TLS 1.2/1.3"| SP2
+    end
+
+    IDP_TOKEN -.->|"obtained via OAuth 2.1 flow"| CLIENT
+    MCP1 -->|"JWKS fetch · OIDC discovery"| OIDC
+    MCP2 -->|"JWKS fetch · OIDC discovery"| OIDC
+    CLIENT -->|"HTTPS Bearer token\nhttps://spsvr01:8443/mcp/sse"| MCP1
+    CLIENT -->|"HTTPS Bearer token\nhttps://spsvr02:8443/mcp/sse"| MCP2
+```
+
 ### Topology B — Centralised
 
-All MCP server processes run on a **single dedicated control host**. The MCP client SSH-es only to that one host. Each process runs from its own working directory containing its own `.env` pointing **remotely** at its respective SP server over TCP 1500.
+All MCP server processes run on a **single dedicated control host**. Each process runs from its own working directory containing its own `.env` pointing **remotely** at its respective SP server over TCP 1500.
+
+#### Topology B — Transport A (stdio over SSH)
+
+The MCP client SSH-es only to the control host. The control host spawns one subprocess per SP server on demand — no listening port is opened by the MCP server.
 
 ```mermaid
 graph TB
@@ -54,10 +135,10 @@ graph TB
     end
 
     subgraph CTRL["Control Host  —  ctrl.corp.example.com"]
-        subgraph MCP1["Process: sp-mcp-spsvr01\n(mcp-runner, cwd: /opt/sp-mcp/spsvr01)"]
+        subgraph MCP1["Process: sp-mcp-spsvr01\n(mcp-runner, cwd: /opt/sp-mcp/spsvr01)\nstdio transport"]
             E1[".env\nTCPSERVERADDRESS=spsvr01\nSP_MCP_ENV=production"]
         end
-        subgraph MCP2["Process: sp-mcp-spsvr02\n(mcp-runner, cwd: /opt/sp-mcp/spsvr02)"]
+        subgraph MCP2["Process: sp-mcp-spsvr02\n(mcp-runner, cwd: /opt/sp-mcp/spsvr02)\nstdio transport"]
             E2[".env\nTCPSERVERADDRESS=spsvr02\nSP_MCP_ENV=production"]
         end
         VENV["/opt/sp-mcp/shared/.venv\n(shared Python environment)"]
@@ -67,10 +148,52 @@ graph TB
     SP1["IBM SP Server\nspsvr01  TCP 1500"]
     SP2["IBM SP Server\nspsvr02  TCP 1500"]
 
-    CLIENT -->|"SSH  BatchMode=yes"| CTRL
+    CLIENT -->|"SSH  BatchMode=yes\nstdin/stdout = MCP channel"| CTRL
     KEY -.->|"auth"| CLIENT
     MCP1 --> VENV
     MCP2 --> VENV
+    MCP1 --> DSMADMC
+    MCP2 --> DSMADMC
+    DSMADMC -->|"TLS 1.2 / 1.3"| SP1
+    DSMADMC -->|"TLS 1.2 / 1.3"| SP2
+```
+
+#### Topology B — Transport B (streamable-http with TLS)
+
+Each MCP server process on the control host listens on its own HTTPS port. A reverse proxy (optional) can consolidate them behind a single hostname. The MCP client presents an OIDC Bearer token; no SSH connection is needed.
+
+```mermaid
+graph TB
+    subgraph WORKSTATION["Operator Workstation / Web UI / AI Agent"]
+        CLIENT["MCP Client\n(Claude / OpenWebUI / pipeline)"]
+        IDP_TOKEN["OIDC Bearer token\n(mcp:* scopes from enterprise IdP)"]
+    end
+
+    subgraph IDP["Enterprise Identity Provider\n(Azure AD / Keycloak / Okta)"]
+        OIDC["OAuth 2.1 token endpoint\nJWKS endpoint"]
+    end
+
+    subgraph CTRL["Control Host  —  ctrl.corp.example.com"]
+        PROXY["Reverse Proxy  (optional)\nnginx / Caddy — single hostname\nTLS termination or passthrough"]
+
+        subgraph MCP1["Process: sp-mcp-spsvr01\n(mcp-runner, cwd: /opt/sp-mcp/spsvr01)\nstreamable-http · TLS 1.2/1.3 · :8443"]
+            E1["SP_TLS_CERT + SP_TLS_KEY\nSP_OIDC_ISSUER · SP_MCP_PUBLIC_URL\nTCPSERVERADDRESS=spsvr01"]
+        end
+        subgraph MCP2["Process: sp-mcp-spsvr02\n(mcp-runner, cwd: /opt/sp-mcp/spsvr02)\nstreamable-http · TLS 1.2/1.3 · :8444"]
+            E2["SP_TLS_CERT + SP_TLS_KEY\nSP_OIDC_ISSUER · SP_MCP_PUBLIC_URL\nTCPSERVERADDRESS=spsvr02"]
+        end
+        DSMADMC["dsmadmc CLI\ndsm.sys  (multi-stanza)\n~/.tsm/ stash"]
+    end
+
+    SP1["IBM SP Server\nspsvr01  TCP 1500"]
+    SP2["IBM SP Server\nspsvr02  TCP 1500"]
+
+    IDP_TOKEN -.->|"obtained via OAuth 2.1 flow"| CLIENT
+    MCP1 -->|"JWKS fetch · OIDC discovery"| OIDC
+    MCP2 -->|"JWKS fetch · OIDC discovery"| OIDC
+    CLIENT -->|"HTTPS Bearer token"| PROXY
+    PROXY -->|"route :8443"| MCP1
+    PROXY -->|"route :8444"| MCP2
     MCP1 --> DSMADMC
     MCP2 --> DSMADMC
     DSMADMC -->|"TLS 1.2 / 1.3"| SP1
@@ -94,6 +217,131 @@ graph TB
 | **Recommended for** | Environments where SSH access to SP hosts is acceptable and offline tools are needed | Environments with a dedicated management network and no direct access to SP server hosts |
 
 > **Offline tools note:** The `dsmserv` and `servermon` offline diagnostic tools invoke local binaries on the SP server host via `sudo`. They require the SP server binaries to be present on the same machine as the MCP process. Topology B cannot support these tools because the control host does not have the SP server binaries installed.
+
+---
+
+## Step 1.5 — Choose a Transport Protocol
+
+Before configuring the MCP client you must decide **how** it communicates with the MCP server process. The server supports two transport protocols:
+
+| | **Transport A — stdio over SSH** | **Transport B — streamable-http with TLS** |
+|---|---|---|
+| **MCP protocol channel** | stdin / stdout of the server subprocess, tunnelled through SSH | HTTP (Streamable HTTP / SSE), secured with TLS 1.2/1.3 |
+| **Authentication layer** | SSH Ed25519 key to the host; SP service account credentials in `.env` | OAuth 2.1 OIDC Bearer token issued by an enterprise IdP |
+| **TLS provided by** | SSH session (no separate certificate required for MCP traffic) | Requires `SP_TLS_CERT` / `SP_TLS_KEY` (rule RG-5); server exits on startup if missing |
+| **Network port opened** | None — the MCP server opens **no** listening socket | `--port 8443` (or as configured) must be reachable from MCP clients |
+| **Typical use** | Single-operator workstations, Claude Desktop, VS Code, CI/CD pipelines | Enterprise web UIs (OpenWebUI), multi-client deployments, REST API gateways |
+
+The choice of transport is **independent** of the deployment topology: both Transport A and Transport B can be used with either Topology A (co-located) or Topology B (centralised).
+
+### Transport A — stdio over SSH
+
+The MCP client launches the server as a remote subprocess over SSH. The SSH session itself carries the MCP protocol messages; no extra port or certificate is needed on the server side.
+
+```mermaid
+sequenceDiagram
+    participant CLIENT as MCP Client<br/>(Claude Desktop / VS Code)
+    participant SSH as SSH Daemon<br/>(sshd on MCP server host)
+    participant PROC as MCP Server Process<br/>(mcp-runner user)
+    participant SP as IBM SP Server<br/>(dsmadmc · TCP 1500 · TLS)
+
+    CLIENT->>SSH: SSH connect<br/>Ed25519 key auth
+    SSH->>PROC: Spawn subprocess<br/>python -m sp_mcp_server.main
+    note over PROC: secure_startup() — .env 0600 check
+    note over PROC: SESSIONSECURITY=STRICT validated
+    PROC-->>SSH: stdio ready (MCP channel open)
+    SSH-->>CLIENT: stdin/stdout tunnel established
+
+    CLIENT->>PROC: MCP initialize (via stdio)
+    PROC-->>CLIENT: capabilities
+
+    CLIENT->>PROC: tools/call  query_status
+    PROC->>SP: dsmadmc QUERY STATUS (TLS 1.2/1.3)
+    SP-->>PROC: output
+    PROC-->>CLIENT: TextContent result
+```
+
+**Key properties:**
+- No network port opened by the MCP server — the SSH session *is* the channel.
+- The MCP client config entry uses `command: ssh` with the server's `python -m sp_mcp_server.main` as the remote command.
+- Authentication is SSH key only; SP credentials are pre-loaded in `.env` (service account mode) or provided interactively (dynamic challenge-response mode).
+- Compatible with both Topology A (key per SP server host) and Topology B (single key to the control host).
+
+### Transport B — streamable-http with TLS
+
+The MCP server listens on a TLS-protected HTTPS port. Each MCP client authenticates with an OIDC Bearer token. The protocol uses HTTP streaming (Streamable HTTP / SSE) as the MCP transport layer.
+
+```mermaid
+sequenceDiagram
+    participant CLIENT as MCP Client<br/>(Web UI / AI Agent)
+    participant IDP as Enterprise IdP<br/>(Azure AD / Keycloak)
+    participant SERVER as MCP Server<br/>(Uvicorn · TLS 1.2/1.3 · :8443)
+    participant SP as IBM SP Server<br/>(dsmadmc · TCP 1500 · TLS)
+
+    note over SERVER: Startup: RG-5 — SP_TLS_CERT + SP_TLS_KEY required
+    note over SERVER: OA-4 — IdP PKCE capability check
+    note over SERVER: OA-1 — AS metadata cached from IdP
+
+    CLIENT->>IDP: OAuth 2.1 flow<br/>(client_credentials or Auth Code + PKCE)
+    IDP-->>CLIENT: Access token (mcp:* scopes)
+
+    CLIENT->>SERVER: HTTPS GET /mcp/sse<br/>Authorization: Bearer <token>
+    note over SERVER: OA-2 — JWKS signature verification<br/>(TTL cache + kid-miss re-fetch)
+    note over SERVER: Scope → privilege tier mapping
+    SERVER-->>CLIENT: 200 OK  SSE stream open
+
+    CLIENT->>SERVER: tools/call  query_status
+    note over SERVER: Privilege + session binding check
+    note over SERVER: POL-4 / OA-7 — ACTLOG audit record
+    SERVER->>SP: dsmadmc QUERY STATUS (TLS 1.2/1.3)
+    SP-->>SERVER: output
+    SERVER-->>CLIENT: TextContent result  (SSE event)
+```
+
+**Key properties:**
+- Server listens on a configurable HTTPS port (default `8443`).
+- TLS is **mandatory** — `SP_TLS_CERT` and `SP_TLS_KEY` must be present; the process exits with `SECURITY [RG-5]` otherwise.
+- Each connecting client presents a Bearer token; scopes (`mcp:read`, `mcp:operator`, `mcp:storage`, `mcp:policy`, `mcp:system`) map to SP privilege tiers.
+- Supports multiple simultaneous clients with independent privilege levels on a single server process.
+- MCP client config entry uses a plain `url:` key pointing at the HTTPS endpoint — no `command:` or SSH required.
+- Compatible with both Topology A and Topology B.
+
+**Prerequisites specific to this transport:**
+
+| Requirement | Detail |
+|-------------|--------|
+| TLS certificate & key | Issued for the MCP server hostname; path set in `SP_TLS_CERT` / `SP_TLS_KEY` |
+| Enterprise IdP | Must issue OIDC tokens with `mcp:*` scopes; Azure AD, Keycloak, Okta, or local Keycloak test instance |
+| Network port open | TCP `8443` (or your chosen port) from every MCP client host to the MCP server host |
+| Firewall rules | MCP server host must be able to reach the IdP's OIDC discovery and JWKS endpoints |
+| `SP_MCP_PUBLIC_URL` | Set to the externally reachable HTTPS base URL (used in RFC 9470 `/.well-known/oauth-protected-resource`) |
+
+### Transport comparison
+
+| Dimension | Transport A — stdio over SSH | Transport B — streamable-http with TLS |
+|---|---|---|
+| **MCP channel** | SSH stdin/stdout | HTTPS / SSE (Streamable HTTP) |
+| **TLS scope** | SSH session only (no separate MCP certificate) | Full TLS on the MCP HTTPS port — certificate required |
+| **Authentication** | SSH key to host + SP service account in `.env` | OIDC Bearer token (OAuth 2.1) issued by enterprise IdP |
+| **Multi-client** | One SSH process per client connection | Multiple simultaneous clients on one HTTPS port |
+| **IdP required** | No | Yes — enterprise IdP or local Keycloak |
+| **Port exposure** | None — no new listening socket | TCP `8443` (or configured) must be reachable |
+| **Firewall change** | Usually none — uses existing SSH port | New inbound rule for `8443` (or chosen port) |
+| **Dynamic auth (challenge-response)** | ✅ Supported | ✅ Supported (any transport) |
+| **Offline tools (dsmserv / servermon)** | ✅ Supported | ✅ Supported |
+| **Per-scope privilege** | ❌ Not applicable — full `.env` account privilege | ✅ Token scopes map to SP privilege tiers |
+| **Recommended for** | Single-operator, Claude Desktop, CI/CD, simple deployments | Enterprise web UIs, shared AI platforms, multi-client or multi-tenant deployments |
+
+### Topology × Transport matrix
+
+All four combinations are supported. Choose the row that matches your decisions from Step 1 and this step:
+
+| | **Transport A — stdio / SSH** | **Transport B — streamable-http / TLS** |
+|---|---|---|
+| **Topology A (co-located)** | MCP client SSH-es to each SP server host; server subprocess started per connection. **Simplest setup.** | MCP server on each SP host listens on `8443`; clients present Bearer tokens. Requires cert per host and IdP. |
+| **Topology B (centralised)** | MCP client SSH-es to the control host; one subprocess per SP server, launched on demand. **Recommended for most enterprises.** | MCP server processes on the control host each listen on distinct ports; a reverse proxy can consolidate them behind a single hostname. Requires one cert (or SAN cert) and IdP. |
+
+> **Recommendation:** Start with **Transport A + Topology B** if you are new to the platform. It requires only an SSH key and avoids the IdP and certificate infrastructure. Move to **Transport B** when you need shared multi-user access, per-user identity attribution, or browser / web UI clients.
 
 ---
 
@@ -186,9 +434,21 @@ Verify all prerequisites before starting installation. The required location dif
 | System-privileged SP admin | Required to run `REGISTER ADMIN`, `GRANT AUTHORITY`, and `UPDATE ADMIN` on each SP server |
 | MCP client workstation | Where the AI agent (Claude / VS Code / pipeline) runs and where SSH keys are generated |
 
+### Additional prerequisites for Transport B — streamable-http with TLS
+
+These apply **only** if you chose Transport B in Step 1.5:
+
+| Requirement | Detail |
+|-------------|--------|
+| TLS certificate & key | Issued for the MCP server hostname (or control host for Topology B); paths set via `SP_TLS_CERT` / `SP_TLS_KEY`. Use your PKI CA, Let's Encrypt, or a self-signed cert for lab use |
+| Enterprise IdP | An OIDC-compliant IdP (Azure AD / Entra ID, Keycloak, Okta) configured with the five `mcp:*` custom scopes. For lab testing a local Keycloak container is sufficient — see [`local-idp-oauth2-guide.md`](local-idp-oauth2-guide.md) |
+| Inbound TCP port `8443` | Open from every MCP client host to the MCP server host(s); confirm with `nc -zv <mcp-server-host> 8443` |
+| Outbound HTTPS from MCP server host | The MCP server must reach the IdP's OIDC discovery URL (`/.well-known/openid-configuration`) and JWKS endpoint at startup and during token validation |
+| `SP_MCP_PUBLIC_URL` | Set to the externally reachable HTTPS base URL (e.g. `https://sp-mcp-01.corp.example.com:8443`) so that RFC 9470 `WWW-Authenticate` headers are correctly populated |
+
 ---
 
-## Step 4 — Plan Your Service Accounts
+## Step 5 — Plan Your Service Accounts
 
 Five IBM SP service accounts are provisioned on each SP server. Plan the account names and privilege assignments before running `scripts/provision-sp-service-accounts.sh`.
 
@@ -206,7 +466,7 @@ The same account names are reused across SP servers for consistency. They are di
 
 ---
 
-## Step 5 — Plan Your `dsm.sys` SERVERNAME Labels
+## Step 6 — Plan Your `dsm.sys` SERVERNAME Labels
 
 Each SP server needs a unique `SERVERNAME` label in `dsm.sys`. The password stash key is `SERVERNAME` + account ID — collisions cause authentication failures.
 
@@ -223,7 +483,7 @@ Use the short SP server hostname, prefixed with `SP_`, uppercased:
 
 ---
 
-## Step 6 — Plan Your SSH Keys
+## Step 7 — Plan Your SSH Keys
 
 | Topology | Keys needed | Key naming convention |
 |---|---|---|
@@ -234,7 +494,7 @@ Use the short SP server hostname, prefixed with `SP_`, uppercased:
 
 ---
 
-## Step 7 — Plan Your MCP Client Configuration Entry Names
+## Step 8 — Plan Your MCP Client Configuration Entry Names
 
 The name you give each entry in the MCP client configuration (`mcpServers`) becomes the routing key the AI agent uses to target that SP server in prompts:
 
@@ -249,7 +509,7 @@ Choose names that are:
 
 ---
 
-## Step 8 — Plan Your Tool Scope per SP Server
+## Step 9 — Plan Your Tool Scope per SP Server
 
 Each MCP client config entry can independently set `--mode` and `--enable-servers`. Plan this before configuring:
 
@@ -261,17 +521,19 @@ Each MCP client config entry can independently set `--mode` and `--enable-server
 
 ---
 
-## Step 9 — Pre-Installation Sign-off
+## Step 10 — Pre-Installation Sign-off
 
 Complete the following before moving to [`install-guide.md`](install-guide.md):
 
 ```
 [ ] Deployment topology chosen: Topology A (co-located) or Topology B (centralised)
+[ ] Transport protocol chosen: Transport A (stdio over SSH) or Transport B (streamable-http with TLS)
 [ ] SP server inventory complete — hostname, port, SERVERNAME label, MCP entry name, scope
 [ ] Prerequisites verified for chosen topology (Python, dsmadmc, TCP 1500, access)
 [ ] Five service account names confirmed; System-privileged SP admin available to provision them
 [ ] dsm.sys SERVERNAME labels planned — unique per SP server, no collisions
-[ ] SSH key naming convention decided
+[ ] SSH key naming convention decided (Transport A)
+[ ]   — OR — TLS certificate obtained and IdP configured for mcp:* scopes (Transport B)
 [ ] MCP client config entry names decided
 [ ] Tool scope (--mode / --enable-servers) decided per SP server
 [ ] Offline tools requirement confirmed — if yes, Topology A is required
@@ -291,8 +553,11 @@ Once this checklist is complete:
 ## Related Documentation
 
 - Installation: [`install-guide.md`](install-guide.md)
-- MCP client configuration: [`configure-guide.md`](configure-guide.md)
+- MCP client configuration (stdio + HTTP transport): [`configure-guide.md`](configure-guide.md)
+- Local IdP / OAuth 2 test environment (Transport B): [`local-idp-oauth2-guide.md`](local-idp-oauth2-guide.md)
 - User guide: [`user-guide.md`](user-guide.md)
 - Troubleshooting: [`troubleshoot.md`](troubleshoot.md)
 - Security — Identity & Credentials: [`../design/security-identity-credentials.md`](../design/security-identity-credentials.md)
-- Security — Network: [`../design/security-network.md`](../design/security-network.md)
+- Security — Network & TLS: [`../design/security-network.md`](../design/security-network.md)
+- Security — OAuth 2 / OIDC (Transport B): [`../design/security-oauth2.md`](../design/security-oauth2.md)
+- Architecture overview: [`../architecture/architecture.md`](../architecture/architecture.md)

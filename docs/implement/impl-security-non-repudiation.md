@@ -5,7 +5,7 @@
 * **Analysis reference**: [`docs/analysis/security-design-analysis.md § 7`](../analysis/security-design-analysis.md)
 * **Design reference**: [`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md)
 * **Gaps addressed**: NR-1, NR-2, NR-3, NR-4, NR-5
-* **Files changed**: `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/http_server.py`, `tests/test_security_controls.py`
+* **Files changed**: `src/sp_mcp_server/mcp_factory.py`, `src/sp_mcp_server/http_server.py`, `tests/test_sec_audit_trail.py`
 
 ---
 
@@ -104,5 +104,5 @@ The command below is a verification procedure, not a passing-result claim. The c
 Verify non-repudiation and audit controls:
 ```bash
 # Run security test suite including NR-1, NR-4, NR-5
-.venv/bin/pytest tests/test_security_controls.py -k "TestAuditTrail"
+.venv/bin/pytest tests/test_sec_audit_trail.py -k "TestAuditTrail"
 ```

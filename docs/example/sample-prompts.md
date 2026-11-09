@@ -25,6 +25,28 @@ A collection of naturalistic, task-oriented prompts for the IBM Storage Protect 
 
 ---
 
+## Prompt Anatomy
+
+Every prompt below is written in plain English and follows the same structure, so that the model has
+the information it needs and the answer is predictable and reviewable. Copy the structure when
+writing your own.
+
+| Part | Introduced by | Purpose | Example |
+|---|---|---|---|
+| **Role** | `You are a ...` (opening sentence) | Persona and responsibility the model should adopt | `You are a Data Protection Operator ...` |
+| **Context** | Opening paragraph, after the role | Environment, MCP server, and the situation that triggered the request | `SPSVR01 ... DBSQL01_NODE missed its last three runs ...` |
+| **Task** | `Do the following:` | Numbered, single-purpose actions, naming the exact MCP tools where known | `1. Retrieve ... using query_activity_log.` |
+| **Constraints** | `The following constraints apply:` | Scope limits, safety rules, and whether changes may be executed | `Read-only: run queries only ...` |
+| **Output Format** | `Generate the output with the following format:` | Shape of the answer: table columns, ordered steps, or ratings | `Table with columns: node, schedule, return code.` |
+
+Three constraint profiles are used throughout:
+
+- **Read-only** — queries only; no configuration change is made.
+- **Change with confirmation** — commands are shown first and executed only after approval.
+- **Advisory** — guidance only; nothing is executed.
+
+---
+
 ## Sample Deployment Topology
 
 All prompts in this document are written against the following named environment. Use this topology as a reference when adapting prompts to your own infrastructure.
@@ -162,79 +184,322 @@ SPSVR02 (DR replica)
 ### Discovery & status
 
 ```text
-What micro-MCP servers and tools are available in sp-mcp-server-remote-tumbleweed?
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am starting a shift and need an inventory of what this MCP server
+exposes.
+
+Do the following:
+- List the micro-MCP servers and tools available in sp-mcp-server-remote-tumbleweed.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: micro-MCP server, tool name, one-line purpose.
 ```
 
 ```text
-List all IBM Storage Protect commands called by the tools in sp-mcp-server-remote-tumbleweed.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am auditing which server-side operations the MCP tools can
+trigger.
+
+Do the following:
+- List all IBM Storage Protect commands called by the tools in sp-mcp-server-remote-tumbleweed.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table mapping each tool to the Storage Protect commands it issues.
 ```
 
 ```text
-On sp-mcp-server-remote-tumbleweed, run run_servermon and tell me how many threads are active, what the DB status is (almost full, fragmented, locked), and highlight any immediate risks.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I need a quick health read of the server before the backup window
+opens.
+
+Do the following:
+1. Run run_servermon on sp-mcp-server-remote-tumbleweed.
+2. Report how many threads are active and the DB status (almost full, fragmented, locked).
+3. Highlight any immediate risks.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Short summary with a Risks list ordered by severity.
 ```
 
 ```text
-Show me all active client sessions on SPSVR01 right now — node name, session type, bytes sent, and start time.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I need a live view of client activity on SPSVR01.
+
+Do the following:
+- Show all active client sessions on SPSVR01 right now.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node name, session type, bytes sent, start time.
 ```
 
 ```text
-What is the current utilisation of all storage pools on SPSVR01? Flag any pool above 80% capacity — specifically check POOL_DISK_PRIMARY and POOL_CLOUD_TIER.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am checking storage headroom ahead of tonight's backups.
+
+Do the following:
+1. Report current utilisation of all storage pools on SPSVR01.
+2. Flag any pool above 80% capacity, specifically POOL_DISK_PRIMARY and POOL_CLOUD_TIER.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: pool, type, utilisation %, status (OK or Above 80%).
 ```
 
 ### Backup policy & scheduling
 
 ```text
-Create a management class named MC_WEB_60 in policy domain DOM_GENERAL with a backup copy group that retains 5 versions and 60 days of data, sending data to POOL_DISK_PRIMARY. Show me the DEFINE MGMTCLASS and DEFINE COPYGROUP commands before executing them.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Web workloads in DOM_GENERAL need a 60-day retention class.
+
+Do the following:
+1. Create management class MC_WEB_60 in policy domain DOM_GENERAL.
+2. Add a backup copy group that keeps 5 versions for 60 days and sends data to POOL_DISK_PRIMARY.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The DEFINE MGMTCLASS and DEFINE COPYGROUP commands, then the verification query results.
 ```
 
 ```text
-Define a daily incremental backup schedule named SCHED_WEB_DAILY in policy domain DOM_GENERAL, starting at 22:30 with a one-hour duration window, and associate it with nodes WEB01_NODE and WEB02_NODE.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The web servers need a nightly incremental backup in DOM_GENERAL.
+
+Do the following:
+1. Define daily incremental schedule SCHED_WEB_DAILY in policy domain DOM_GENERAL.
+2. Start it at 22:30 with a one-hour duration window.
+3. Associate it with nodes WEB01_NODE and WEB02_NODE.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The commands to be run, then the schedule and association details after execution.
 ```
 
 ```text
-What backup schedules are currently defined for policy domain DOM_DATABASE? Show the schedule name, type, start time, and last result for each.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am reviewing the database backup schedules for DOM_DATABASE.
+
+Do the following:
+- List the backup schedules defined for policy domain DOM_DATABASE.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: schedule name, type, start time, last result.
 ```
 
 ```text
-Node DBSQL01_NODE missed its last three runs of SCHED_DB_NIGHTLY. Pull the activity log for that node over the last 72 hours, narrow to ±60 minutes around each missed window, and categorise the likely root cause for each miss.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. DBSQL01_NODE missed its last three runs of SCHED_DB_NIGHTLY (23:30
+window).
+
+Do the following:
+1. Retrieve the activity log for DBSQL01_NODE for the last 72 hours.
+2. Narrow the search to +/-60 minutes around each missed window.
+3. Categorise the likely root cause of each miss.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+- Use query_activity_log with an exact node name and a bounded time window only.
+
+Generate the output with the following format:
+Table with columns: missed window, evidence message, root-cause category, next action.
 ```
 
 ### Storage pool configuration
 
 ```text
-Create a PRIMARY container storage pool named POOL_DISK_EXT01 using DCLASS_DISK with deduplication enabled and a description of "Extended primary deduplicated disk pool". Show me the DEFINE STGPOOL command before executing.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. POOL_DISK_PRIMARY is nearly full and I need a second deduplicated
+container pool.
+
+Do the following:
+1. Create PRIMARY container storage pool POOL_DISK_EXT01 on device class DCLASS_DISK.
+2. Enable deduplication and set the description to "Extended primary deduplicated disk pool".
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The DEFINE STGPOOL command before execution, then the pool details after creation.
 ```
 
 ```text
-What are the steps to tier data from POOL_DISK_PRIMARY to POOL_CLOUD_TIER on SPSVR01? Walk me through the migration policy configuration and MOVE DATA trigger settings.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. We plan to tier cold data from POOL_DISK_PRIMARY to POOL_CLOUD_TIER
+on SPSVR01.
+
+Do the following:
+1. Explain the steps to tier data from POOL_DISK_PRIMARY to POOL_CLOUD_TIER.
+2. Cover the migration policy configuration and the MOVE DATA trigger settings.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Numbered procedure with the commands for each step.
 ```
 
 ```text
-POOL_DISK_PRIMARY is at 83% utilisation on SPSVR01. Add a new storage pool directory /tsm/containers/ext02 to the pool using DEFINE STGPOOL DIRECTORY. What post-definition checks should I run to confirm the directory is active?
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. POOL_DISK_PRIMARY is at 83% utilisation on SPSVR01.
+
+Do the following:
+1. Add storage pool directory /tsm/containers/ext02 to the pool using DEFINE STGPOOL DIRECTORY.
+2. List the post-definition checks that confirm the directory is active.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The command to run, then a checklist of verification queries with expected results.
 ```
 
 ### Node lifecycle
 
 ```text
-Register a new client node named APPSVR02_NODE in policy domain DOM_GENERAL on SPSVR01. Show the REGISTER NODE command.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A new application server must be onboarded to DOM_GENERAL.
+
+Do the following:
+- Register client node APPSVR02_NODE in policy domain DOM_GENERAL on SPSVR01.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The REGISTER NODE command before execution, then the node details after registration.
 ```
 
 ```text
-Lock node LEGACY01_NODE immediately — it has been decommissioned. Confirm the node is locked and no active sessions remain on SPSVR01.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. LEGACY01_NODE has been decommissioned and must stop sending data.
+
+Do the following:
+1. Lock node LEGACY01_NODE immediately.
+2. Confirm the node is locked and that no active sessions remain on SPSVR01.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Confirmation of lock state and the active-session check result.
 ```
 
 ```text
-Rename node APPSVR01_NODE to APPSVR01_RHEL9. What IBM Storage Protect commands are required, and are there any schedule associations under DOM_GENERAL or SCHED_GENERAL_DAILY that I need to update?
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. APPSVR01_NODE is being renamed as part of a RHEL 9 rebuild.
+
+Do the following:
+1. Rename node APPSVR01_NODE to APPSVR01_RHEL9.
+2. List the Storage Protect commands required.
+3. Identify schedule associations under DOM_GENERAL or SCHED_GENERAL_DAILY that need updating.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Ordered command list plus a table of associations to update.
 ```
 
 ### Backup & restore operations
 
 ```text
-Show me all failed backup operations on SPSVR01 from the last 24 hours. For each failure include the node name, schedule name, return code, and a one-line description of the likely cause based on the ANS error code.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am preparing the morning failure report for SPSVR01.
+
+Do the following:
+1. List all failed backup operations from the last 24 hours.
+2. Explain the likely cause of each failure from its ANS error code.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, schedule, return code, one-line likely cause.
 ```
 
 ```text
-Run a server-side database backup on SPSVR01 to POOL_DBBACKUP using SCHED_DBBACKUP_DAILY and confirm it completed successfully using query_volume_history with TYPE=DBBACKUP.
+You are a Data Protection Operator responsible for the day-to-day operation, monitoring, and failure
+triage of an IBM Storage Protect environment.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A manual database backup is needed outside the normal
+SCHED_DBBACKUP_DAILY run.
+
+Do the following:
+1. Run a server-side database backup on SPSVR01 to POOL_DBBACKUP.
+2. Confirm completion with query_volume_history using TYPE=DBBACKUP.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Backup command issued, completion status, and the volume history record as evidence.
 ```
 
 ---
@@ -246,65 +511,262 @@ Run a server-side database backup on SPSVR01 to POOL_DBBACKUP using SCHED_DBBACK
 ### Performance tuning
 
 ```text
-On sp-mcp-server-remote-tumbleweed, migration from POOL_DISK_PRIMARY to POOL_CLOUD_TIER is completing below 200 MB/s. Retrieve the current TXNGROUPMAX, MOVEBATCHSIZE, RESOURCEUTILIZATION, and MAXSESSIONS settings using query_server_option. Compare against IBM recommended values for a deduplicated disk-to-cloud migration path and suggest specific tuning changes with justification.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Migration from POOL_DISK_PRIMARY to POOL_CLOUD_TIER completes below
+200 MB/s.
+
+Do the following:
+1. Retrieve TXNGROUPMAX, MOVEBATCHSIZE, RESOURCEUTILIZATION, and MAXSESSIONS using
+   query_server_option.
+2. Compare them with IBM recommended values for a deduplicated disk-to-cloud path.
+3. Recommend specific tuning changes with justification.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Table with columns: option, current value, recommended value, justification.
 ```
 
 ```text
-I am seeing high CPU on SPSVR01 during the 22:00–01:00 backup window when SCHED_GENERAL_DAILY and SCHED_DB_NIGHTLY overlap. Analyse current active session counts using query_active_session and MAXSESSIONS from query_server_option. Recommend MAXSESSIONS and RESOURCEUTILIZATION changes to reduce CPU contention without degrading throughput.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 shows high CPU from 22:00 to 01:00 when SCHED_GENERAL_DAILY
+and SCHED_DB_NIGHTLY overlap.
+
+Do the following:
+1. Analyse active session counts using query_active_session.
+2. Read MAXSESSIONS from query_server_option.
+3. Recommend MAXSESSIONS and RESOURCEUTILIZATION changes that reduce CPU contention without lowering
+   throughput.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Findings, then a table of recommended changes with expected impact.
 ```
 
 ```text
-What is the current TXNGROUPMAX value on SPSVR01, and what impact does increasing it to 4096 have on deduplicated backup performance to POOL_DISK_PRIMARY versus memory consumption?
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am considering raising TXNGROUPMAX on SPSVR01 to 4096.
+
+Do the following:
+1. Report the current TXNGROUPMAX value.
+2. Explain the impact of 4096 on deduplicated backup performance to POOL_DISK_PRIMARY versus memory
+   consumption.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Current value, trade-off table (benefit versus cost), and a go/no-go recommendation.
 ```
 
 ### Capacity expansion
 
 ```text
-POOL_DISK_PRIMARY is at 91% utilisation on SPSVR01. Add two new volumes — /data/tsm/vol003 and /data/tsm/vol004 — using DEFINE VOLUME and confirm the pool utilisation drops below 80% after expansion.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. POOL_DISK_PRIMARY is at 91% utilisation on SPSVR01.
+
+Do the following:
+1. Add volumes /data/tsm/vol003 and /data/tsm/vol004 using DEFINE VOLUME.
+2. Confirm pool utilisation drops below 80% after the expansion.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Commands before execution, then before and after utilisation figures.
 ```
 
 ```text
-Add a new storage pool directory /tsm/containers/ext01 to POOL_DISK_PRIMARY on SPSVR01 using DEFINE STGPOOL DIRECTORY. What post-definition checks should I run to confirm the directory is active and deduplication is enabled?
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. POOL_DISK_PRIMARY needs more capacity through a container
+directory.
+
+Do the following:
+1. Add storage pool directory /tsm/containers/ext01 to POOL_DISK_PRIMARY using DEFINE STGPOOL
+   DIRECTORY.
+2. List the post-definition checks that confirm the directory is active and deduplication is
+   enabled.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The command, then a verification checklist with expected results.
 ```
 
 ### Operational anti-pattern audit
 
 ```text
-Audit SPSVR01 for operational anti-patterns. Check: (1) when SCHED_DBBACKUP_DAILY last ran successfully, (2) schedule miss rate for SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY over the last 7 days, (3) activity log utilisation, and (4) nodes with no backup activity in 30 days — starting with LEGACY01_NODE. Present findings as a table with severity ratings.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am running a periodic operational health review of SPSVR01.
+
+Do the following:
+1. Check when SCHED_DBBACKUP_DAILY last ran successfully.
+2. Calculate the miss rate for SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY over the last 7 days.
+3. Check activity log utilisation.
+4. List nodes with no backup activity in 30 days, starting with LEGACY01_NODE.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Findings table with columns: check, result, severity (High, Medium, Low), recommended action.
 ```
 
 ```text
-Identify all nodes across DOM_GENERAL and DOM_DATABASE on SPSVR01 that have not completed a successful backup in the last 30 days. For each, show the node name, policy domain, last access date from query_client, and recommended remediation action.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Stale nodes may be consuming licences and hiding protection gaps in
+DOM_GENERAL and DOM_DATABASE.
+
+Do the following:
+1. Identify nodes in both domains with no successful backup in the last 30 days.
+2. Use the last access date from query_client.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, policy domain, last access date, recommended remediation.
 ```
 
 ### Database diagnostics
 
 ```text
-The SPSVR01 active log is reported at 78% utilisation. Retrieve the current log space allocation using query_recovery_log and retrieve active log-related server options using query_server_option. Identify how close the server is to the threshold and what manual steps are needed outside the MCP server to extend capacity.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The SPSVR01 active log is reported at 78% utilisation.
+
+Do the following:
+1. Retrieve the log space allocation using query_recovery_log.
+2. Retrieve active-log-related options using query_server_option.
+3. State how close the server is to the threshold.
+4. List the manual steps needed outside the MCP server to extend capacity.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Short status summary followed by a numbered list of manual steps.
 ```
 
 ```text
-Run a full database diagnostic check on SPSVR01: retrieve DB and log space using query_recovery_log and query_server_option. Report log pool percentage used, archive log directory status, and flag any values that exceed IBM-recommended thresholds for an 8.1.22 server protecting 45 registered nodes.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 (v8.1.22) protects 45 registered nodes and I need a full
+database diagnostic.
+
+Do the following:
+1. Retrieve DB and log space using query_recovery_log and query_server_option.
+2. Report the log pool percentage used and the archive log directory status.
+3. Flag any value that exceeds IBM-recommended thresholds.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: metric, value, IBM threshold, status.
 ```
 
 ### Tape library management
 
 ```text
-Define a tape library named LIB_LTO8_02 of type SCSI with device /dev/sg4 on SPSVR01, then define drives DRIVE_LTO8_05 and DRIVE_LTO8_06 in that library. Show the complete DEFINE LIBRARY and DEFINE DRIVE commands before executing.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A second tape library is being added to SPSVR01.
+
+Do the following:
+1. Define SCSI tape library LIB_LTO8_02 with device /dev/sg4.
+2. Define drives DRIVE_LTO8_05 and DRIVE_LTO8_06 in that library.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The complete DEFINE LIBRARY and DEFINE DRIVE commands before execution.
 ```
 
 ```text
-Walk me through the complete IBM Storage Protect configuration on SPSVR01 to add a new LTO-8 drive DRIVE_LTO8_04 to existing library LIB_LTO8_01: DEFINE DRIVE, DEFINE PATH, and the verification steps to confirm the drive is online and usable by POOL_TAPE_COPY.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A new LTO-8 drive DRIVE_LTO8_04 is being added to existing library
+LIB_LTO8_01.
+
+Do the following:
+1. Walk through the configuration on SPSVR01: DEFINE DRIVE and DEFINE PATH.
+2. Provide verification steps proving the drive is online and usable by POOL_TAPE_COPY.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Numbered procedure with commands and expected output for each verification step.
 ```
 
 ### VTL & NDMP
 
 ```text
-I am integrating an IBM ProtecTIER VTL as an additional copy target on SPSVR01. What DEFINE LIBRARY, DEFINE DRIVE, and DEFINE DEVCLASS commands do I need, and what VTL-specific parameters differ from the physical LIB_LTO8_01 configuration already in place?
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. An IBM ProtecTIER VTL will become an additional copy target on
+SPSVR01.
+
+Do the following:
+1. List the DEFINE LIBRARY, DEFINE DRIVE, and DEFINE DEVCLASS commands required.
+2. Explain which VTL-specific parameters differ from physical library LIB_LTO8_01.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Comparison table (parameter, physical library, VTL) followed by the command list.
 ```
 
 ```text
-Configure NDMP backup for the NetApp NAS filer on NASSVR01_NODE: update the datamover NAS_MOVER_01 configuration if needed, confirm the filespace definition, and explain the NDMP topology SPSVR01 uses to move data into POOL_DISK_PRIMARY.
+You are a Data Protection Administrator responsible for advanced administration, tuning, capacity
+expansion, and diagnostics of IBM Storage Protect servers.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The NetApp filer behind NASSVR01_NODE must be backed up with NDMP.
+
+Do the following:
+1. Update the NAS_MOVER_01 datamover configuration if needed.
+2. Confirm the filespace definition.
+3. Explain the NDMP topology SPSVR01 uses to move data into POOL_DISK_PRIMARY.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Configuration steps with commands, plus a short data-flow description.
 ```
 
 ---
@@ -316,67 +778,274 @@ Configure NDMP backup for the NetApp NAS filer on NASSVR01_NODE: update the data
 ### Environment sizing & architecture
 
 ```text
-The SPSVR01 environment currently protects 45 nodes and 28 TB of front-end data. We are planning to add 80 database nodes over the next 12 months, growing front-end data to 120 TB. What CPU, RAM, database size, and network bandwidth changes should I plan for? Use IBM Blueprint guidelines and show the sizing rationale.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 protects 45 nodes and 28 TB front-end data; we will add 80
+database nodes in 12 months and reach 120 TB.
+
+Do the following:
+1. Determine the CPU, RAM, database size, and network bandwidth changes to plan for.
+2. Base the sizing on IBM Blueprint guidelines.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Sizing table (resource, current, target, rationale) followed by assumptions.
 ```
 
 ```text
-Compare single-server (like current SPSVR01), scale-out, and container-based IBM Storage Protect deployment topologies for the planned 125-node environment. For each topology list the pros, cons, and recommended use case given our mix of Oracle, SQL Server, SAP HANA, and VMware workloads.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The planned environment will protect 125 nodes with Oracle, SQL
+Server, SAP HANA, and VMware workloads.
+
+Do the following:
+1. Compare single-server, scale-out, and container-based deployment topologies.
+2. List pros, cons, and recommended use case for each.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Comparison table plus a one-paragraph recommendation.
 ```
 
 ```text
-What are the IBM Storage Protect Blueprint recommendations for database sizing when protecting 120 TB of front-end data with deduplication enabled across POOL_DISK_PRIMARY and POOL_CLOUD_TIER?
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. We will protect 120 TB of front-end data with deduplication across
+POOL_DISK_PRIMARY and POOL_CLOUD_TIER.
+
+Do the following:
+- State the IBM Storage Protect Blueprint recommendations for database sizing.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Recommended DB size, active log and archive log sizes, and the calculation behind them.
 ```
 
 ### Server installation & upgrade
 
 ```text
-Walk me through the pre-installation checklist for a second IBM Storage Protect server on Red Hat Enterprise Linux 9 to be named SPSVR02: kernel parameters, filesystem layout, user and group setup, and ulimit settings aligned to our existing SPSVR01 configuration.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A second server named SPSVR02 will be built on Red Hat Enterprise
+Linux 9, aligned with SPSVR01.
+
+Do the following:
+1. Provide the pre-installation checklist.
+2. Cover kernel parameters, filesystem layout, user and group setup, and ulimit settings.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Checklist table with columns: item, required value, how to verify.
 ```
 
 ```text
-SPSVR01 is currently on version 8.1.17 and needs to be upgraded to 8.1.22 to match target. What is the supported upgrade path, what pre-upgrade checks must I run, and in what order should server and client upgrades be sequenced to minimise risk to SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY?
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 runs 8.1.17 and must reach 8.1.22.
+
+Do the following:
+1. Identify the supported upgrade path.
+2. List the pre-upgrade checks to run.
+3. Define the sequence of server and client upgrades that minimises risk to SCHED_DB_NIGHTLY and
+   SCHED_SAP_LOG_HOURLY.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Ordered upgrade plan with checks, sequence, and rollback considerations.
 ```
 
 ```text
-What pre-upgrade checks should I run on sp-mcp-server-remote-tumbleweed before applying the next fix pack? Retrieve current server version via query_server_status, active log utilisation via query_recovery_log, active sessions via query_active_session, and any in-progress migration or maintenance jobs via query_background_job.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A fix pack will be applied to SPSVR01.
+
+Do the following:
+1. Retrieve the server version using query_server_status.
+2. Retrieve active log utilisation using query_recovery_log.
+3. Retrieve active sessions using query_active_session.
+4. Retrieve in-progress migration or maintenance jobs using query_background_job.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Pre-upgrade checklist with columns: check, result, pass or fail.
 ```
 
 ### Cloud tiering strategy
 
 ```text
-Design a cloud tiering strategy for SPSVR01 to extend POOL_DISK_PRIMARY to POOL_CLOUD_TIER using IBM Cloud Object Storage at cos.us-south.example.com. Include the DEFINE DEVCLASS for DCLASS_COS, DEFINE STGPOOL for POOL_CLOUD_TIER, and the migration threshold configuration. What credential configuration is required in the MCP server's connection store?
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 must extend POOL_DISK_PRIMARY into IBM Cloud Object Storage
+at cos.us-south.example.com.
+
+Do the following:
+1. Design the cloud tiering strategy.
+2. Include DEFINE DEVCLASS for DCLASS_COS, DEFINE STGPOOL for POOL_CLOUD_TIER, and the migration
+   threshold configuration.
+3. State the credential configuration required in the MCP server's connection store.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Design summary followed by the commands in execution order.
 ```
 
 ```text
-I want to archive data from POOL_TAPE_COPY to a deep archive cloud tier backed by S3 Glacier Deep Archive as a third copy for DOM_DATABASE nodes. What IBM Storage Protect DEFINE DEVCLASS parameters, DEFINE COPYGROUP settings, and migration thresholds should I configure? Show a worked example aligned to MC_DB_90.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. DOM_DATABASE nodes need a third copy in a deep archive tier on S3
+Glacier Deep Archive, sourced from POOL_TAPE_COPY.
+
+Do the following:
+1. Specify the DEFINE DEVCLASS parameters, DEFINE COPYGROUP settings, and migration thresholds.
+2. Provide a worked example aligned to MC_DB_90.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Worked example with commands and a short explanation of each parameter.
 ```
 
 ```text
-What are the complete steps to tier data from POOL_DISK_PRIMARY to POOL_CLOUD_TIER on SPSVR01? Show the MOVE DATA trigger configuration and the storage rule that automates migration when POOL_DISK_PRIMARY exceeds 80%.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Cold data on SPSVR01 should automatically move to the cloud tier.
+
+Do the following:
+1. Give the complete steps to tier data from POOL_DISK_PRIMARY to POOL_CLOUD_TIER.
+2. Show the MOVE DATA trigger configuration.
+3. Show the storage rule that automates migration when POOL_DISK_PRIMARY exceeds 80%.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Numbered procedure with commands.
 ```
 
 ### Copy strategy & gap analysis
 
 ```text
-I need to implement a 3-2-1-1-0 copy strategy for DOM_DATABASE nodes on SPSVR01. Map each copy to an existing storage pool (POOL_DISK_PRIMARY, POOL_DISK_COPY, POOL_TAPE_COPY, POOL_CLOUD_TIER), define any missing copy groups in MC_DB_90, and identify any gaps in the current configuration.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. DOM_DATABASE nodes on SPSVR01 require a 3-2-1-1-0 copy strategy.
+
+Do the following:
+1. Map each copy to an existing pool: POOL_DISK_PRIMARY, POOL_DISK_COPY, POOL_TAPE_COPY,
+   POOL_CLOUD_TIER.
+2. Define any missing copy groups in MC_DB_90.
+3. Identify gaps in the current configuration.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Mapping table (copy, pool, media type, location) followed by a gap list.
 ```
 
 ```text
-Audit the copy group configuration for all policy domains on sp-mcp-server-remote-tumbleweed against a 3-2-1 strategy. List each domain, its active copy groups, destination pool types, and any domains where fewer than two distinct physical copy destinations exist.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am auditing copy groups against a 3-2-1 strategy.
+
+Do the following:
+1. Review all policy domains on sp-mcp-server-remote-tumbleweed.
+2. List each domain's active copy groups and destination pool types.
+3. Flag domains with fewer than two distinct physical copy destinations.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: domain, copy groups, destination pool types, 3-2-1 status.
 ```
 
 ### Licensing & TCO
 
 ```text
-SPSVR01 currently protects 28 TB front-end data across 45 nodes including Oracle, SQL Server, SAP HANA, and VMware workloads. Explain the difference between front-end TB and processor-based IBM Storage Protect licensing for this workload mix. Which model is likely more cost-effective as we grow to 120 TB?
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 protects 28 TB front-end data across 45 nodes (Oracle, SQL
+Server, SAP HANA, VMware) and will grow to 120 TB.
+
+Do the following:
+1. Explain the difference between front-end TB and processor-based licensing.
+2. State which model is likely more cost-effective at 120 TB.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Comparison table and a recommendation with the assumptions it depends on.
 ```
 
 ```text
-Prepare a licence consumption audit for sp-mcp-server-remote-tumbleweed: retrieve total protected front-end capacity using query_occupancy, number of licensed nodes using query_client, and licence status using query_license_info. Identify any compliance gaps.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A licence consumption audit is due for
+sp-mcp-server-remote-tumbleweed.
+
+Do the following:
+1. Retrieve total protected front-end capacity using query_occupancy.
+2. Retrieve the number of licensed nodes using query_client.
+3. Retrieve licence status using query_license_info.
+4. Identify compliance gaps.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: metric, value, entitlement, gap.
 ```
 
 ```text
-I am presenting a TCO optimisation analysis for SPSVR01. Retrieve current storage pool utilisation across POOL_DISK_PRIMARY and POOL_CLOUD_TIER, deduplication ratios using query_deduplication_stats, and active node count using query_client. Identify the top three cost optimisation levers across storage capacity, licensing, and cloud egress.
+You are an Infrastructure Solution Architect responsible for sizing, designing, upgrading, and
+costing IBM Storage Protect deployments.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am presenting a TCO optimisation analysis for SPSVR01.
+
+Do the following:
+1. Retrieve storage pool utilisation for POOL_DISK_PRIMARY and POOL_CLOUD_TIER.
+2. Retrieve deduplication ratios using query_deduplication_stats.
+3. Retrieve the active node count using query_client.
+4. Identify the top three cost levers across storage capacity, licensing, and cloud egress.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Ranked list of three levers with evidence, estimated saving direction, and effort.
 ```
 
 ---
@@ -388,39 +1057,153 @@ I am presenting a TCO optimisation analysis for SPSVR01. Retrieve current storag
 ### Database backup integration
 
 ```text
-I am the DBA responsible for Oracle 19c on DBORA01_NODE. What IBM Storage Protect agent or API method should I use for application-consistent Oracle backup via RMAN backint, what IBM Storage Protect parameters control the backup channel count, and how should the node be bound to MC_DB_90 in DOM_DATABASE?
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am the DBA for Oracle 19c on DBORA01_NODE, bound to policy domain
+DOM_DATABASE.
+
+Do the following:
+1. Identify the agent or API method for application-consistent RMAN backint backup.
+2. State which parameters control the backup channel count.
+3. Explain how to bind the node to MC_DB_90.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Numbered setup guide with parameter names and sample values.
 ```
 
 ```text
-Configure IBM Storage Protect backup for SQL Server 2022 on DBSQL01_NODE using the VSS agent. What DEFINE SCHEDULE parameters should I set under SCHED_DB_NIGHTLY for a daily full plus transaction log backup chain, and what server-side policy settings in MC_DB_90 govern retention?
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SQL Server 2022 on DBSQL01_NODE must be protected with the VSS
+agent.
+
+Do the following:
+1. Specify the DEFINE SCHEDULE parameters under SCHED_DB_NIGHTLY for a daily full plus transaction
+   log backup chain.
+2. Identify the server-side policy settings in MC_DB_90 that govern retention.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Parameter table (setting, value, purpose) plus a short note on the retention settings.
 ```
 
 ```text
-I need to protect the Db2 11.5 database on DBDB201_NODE using IBM Storage Protect API-based backup. Walk me through the Db2 BACKUP DATABASE command syntax using the IBM Storage Protect API, and what server-side policy parameters in DOM_DATABASE govern retention of these backup objects?
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The Db2 11.5 database on DBDB201_NODE must be protected with
+API-based backup.
+
+Do the following:
+1. Show the Db2 BACKUP DATABASE syntax using the IBM Storage Protect API.
+2. Identify the DOM_DATABASE policy parameters that govern retention of the backup objects.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Sample command with annotated options, then the retention parameters.
 ```
 
 ```text
-What is the IBM Storage Protect configuration for SAP HANA backint integration on SAPHANA01_NODE? Show the relevant parameters in the hdbbackint profile and how they map to MC_SAP_FULL and MC_SAP_LOG in DOM_SAP.
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SAP HANA 2.0 on SAPHANA01_NODE uses backint with domain DOM_SAP.
+
+Do the following:
+1. Show the relevant hdbbackint profile parameters.
+2. Explain how they map to MC_SAP_FULL and MC_SAP_LOG.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Mapping table with columns: profile parameter, value, management class, effect.
 ```
 
 ### SAP & ERP backup
 
 ```text
-Walk me through the IBM Storage Protect BRTOOLS/backint configuration for SAP S/4HANA on SAPABAP01_NODE: the initSAPSID.utl parameter file, redo-log archiving bound to MC_SAP_LOG, and how to verify a successful BRBACKUP run is recorded against SPSVR01.
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SAP S/4HANA ABAP on SAPABAP01_NODE uses BRTOOLS with backint.
+
+Do the following:
+1. Explain the initSAPSID.utl parameter file.
+2. Describe redo-log archiving bound to MC_SAP_LOG.
+3. Explain how to verify that a BRBACKUP run is recorded against SPSVR01.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Numbered procedure with example parameter lines and a verification query.
 ```
 
 ```text
-What IBM Storage Protect management class and copy group settings are recommended for SAP redo-log archiving on SAPABAP01_NODE to meet a 15-minute RPO? Show the DEFINE COPYGROUP command for MC_SAP_LOG in DOM_SAP, specifying destination pool POOL_DISK_PRIMARY.
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SAP redo-log archiving on SAPABAP01_NODE must meet a 15-minute RPO.
+
+Do the following:
+1. Recommend management class and copy group settings.
+2. Show the DEFINE COPYGROUP command for MC_SAP_LOG in DOM_SAP with destination pool
+   POOL_DISK_PRIMARY.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Recommended settings table and the command, shown but not executed.
 ```
 
 ### Hypervisor VM backup
 
 ```text
-VMPROXY01_NODE is the SPVE proxy for our VMware vSphere 8 environment protecting 120 VMs. What are the prerequisites for VADP-based backup, how do I enable changed block tracking (CBT) at scale, and what is the recommended policy difference between instant access restore and full VM restore under MC_VM_14?
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. VMPROXY01_NODE is the SPVE proxy for vSphere 8 and protects 120
+VMs.
+
+Do the following:
+1. List the prerequisites for VADP-based backup.
+2. Explain how to enable changed block tracking (CBT) at scale.
+3. Compare instant access restore and full VM restore policy under MC_VM_14.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Prerequisite checklist, CBT steps, and a comparison table for the two restore types.
 ```
 
 ```text
-One of our VMware production VMs needs to be restored to its state at 2024-11-10 03:00 using IBM Storage Protect for Virtual Environments via VMPROXY01_NODE. Walk me through the server-side checks to confirm the backup exists and the conditions under which instant access restore is preferred over a full VM restore.
+You are a Workload and Application Owner (database, SAP, or virtualisation administrator)
+integrating an application workload with IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A production VM must be restored to its 2024-11-10 03:00 state
+using VMPROXY01_NODE.
+
+Do the following:
+1. Describe the server-side checks that confirm the backup exists.
+2. Explain when instant access restore is preferred over a full VM restore.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Checks as a numbered list, then a decision table for the restore method.
 ```
 
 ---
@@ -432,63 +1215,264 @@ One of our VMware production VMs needs to be restored to its state at 2024-11-10
 ### Security hardening
 
 ```text
-Review the TLS/SSL configuration on sp-mcp-server-remote-tumbleweed: retrieve the current SSL-related server options using query_server_option. Identify which protocol versions and cipher suites are configured on SPSVR01, and flag any that deviate from IBM hardening guidance.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am reviewing transport security on SPSVR01.
+
+Do the following:
+1. Retrieve SSL-related server options using query_server_option.
+2. Identify the configured protocol versions and cipher suites.
+3. Flag deviations from IBM hardening guidance.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: option, value, guidance, status.
 ```
 
 ```text
-Audit administrator account privilege classes on sp-mcp-server-remote-tumbleweed using query_admin_user. List each admin ID (ADMIN, mcp-svc-system, mcp-svc-operator, OPS_READER, DBA_ADMIN), its privilege class, last login date, and flag any accounts with more privileges than their stated role requires.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am performing a privileged-access review.
+
+Do the following:
+1. Audit administrator accounts using query_admin_user: ADMIN, mcp-svc-system, mcp-svc-operator,
+   OPS_READER, DBA_ADMIN.
+2. Report each account's privilege class and last login date.
+3. Flag accounts holding more privilege than their stated role needs.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: admin ID, privilege class, last login, finding.
 ```
 
 ```text
-What is the current node password expiry policy on SPSVR01? Retrieve password-related server options using query_server_option and recommend changes to enforce 90-day rotation with complexity requirements across all 45 registered nodes.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Policy requires 90-day password rotation with complexity across all
+45 registered nodes.
+
+Do the following:
+1. Retrieve password-related server options using query_server_option.
+2. Report the current node password expiry policy.
+3. Recommend changes to enforce the policy.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Current versus required settings table and the recommended commands (not executed).
 ```
 
 ### WORM & immutable backup
 
 ```text
-I need to configure WORM retention on POOL_TAPE_WORM for regulatory compliance. What DEFINE COPYGROUP RETMIN and RETMAX parameters should be set in MC_WORM_7YR under DOM_GENERAL's PSET_WORM policy set, and how do I verify that a volume in LIB_LTO8_01 is WORM-protected after data is written?
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Regulation requires WORM retention on POOL_TAPE_WORM for 7 years.
+
+Do the following:
+1. Specify the DEFINE COPYGROUP RETMIN and RETMAX values for MC_WORM_7YR in PSET_WORM of
+   DOM_GENERAL.
+2. Explain how to verify that a volume in LIB_LTO8_01 is WORM-protected after data is written.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Recommended parameter values and a verification procedure.
 ```
 
 ```text
-Design an immutable backup configuration using IBM Cloud Object Storage object lock at cos.us-south.example.com as the WORM target in addition to POOL_TAPE_WORM. Compare hardware WORM tape versus object-lock cloud — list the trade-offs for each in terms of retention enforcement, tamper evidence, and audit trail suitability for a 7-year compliance hold.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. We need an immutable backup target in addition to POOL_TAPE_WORM
+for a 7-year hold.
+
+Do the following:
+1. Design an immutable configuration using IBM Cloud Object Storage object lock at
+   cos.us-south.example.com.
+2. Compare hardware WORM tape with object-lock cloud on retention enforcement, tamper evidence, and
+   audit trail suitability.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Comparison table followed by a recommended design.
 ```
 
 ```text
-What is retset and how is it related to a retention pool in IBM Storage Protect? Show me an example of how to define a retention set for DOM_DATABASE nodes on SPSVR01, assign DBORA01_NODE data to it, and verify the retention hold is enforced using query_retention_set.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Retention sets are being considered for DOM_DATABASE on SPSVR01.
+
+Do the following:
+1. Explain what a retention set is and how it relates to a retention pool.
+2. Show how to define a retention set for DOM_DATABASE nodes and assign DBORA01_NODE data.
+3. Show how to verify enforcement using query_retention_set.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Concept summary, then an example command sequence with expected verification output.
 ```
 
 ### Verified recovery
 
 ```text
-Design a verified recovery test procedure for DOM_DATABASE on SPSVR01. Define pass/fail criteria, the server-side checks to run using query_scheduled_event for SCHED_DB_NIGHTLY and query_client_backup_volume for DBORA01_NODE, and a recommended test cadence aligned to a 4-hour RTO.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. We must prove DOM_DATABASE can be recovered within a 4-hour RTO.
+
+Do the following:
+1. Design a verified recovery test procedure.
+2. Define pass and fail criteria.
+3. Specify server-side checks using query_scheduled_event for SCHED_DB_NIGHTLY and
+   query_client_backup_volume for DBORA01_NODE.
+4. Recommend a test cadence.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Test plan with columns: step, check, pass criterion, fail criterion.
 ```
 
 ### Configuration drift detection
 
 ```text
-Compare the current SPSVR01 configuration against our approved security baseline using sp-mcp-server-remote-tumbleweed. Check: SSL options via query_server_option, admin privilege classes for all five admin IDs via query_admin_user, node lock status for LEGACY01_NODE via query_client, and RETMIN/RETMAX values for MC_WORM_7YR via query_protection_policy. Present deviations as a table with severity ratings.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am checking SPSVR01 against the approved security baseline.
+
+Do the following:
+1. Check SSL options via query_server_option.
+2. Check privilege classes for all five admin IDs via query_admin_user.
+3. Check node lock status for LEGACY01_NODE via query_client.
+4. Check RETMIN and RETMAX for MC_WORM_7YR via query_protection_policy.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Deviation table with columns: item, expected, actual, severity (High, Medium, Low).
 ```
 
 ```text
-Detect configuration drift in storage pool and policy definitions on SPSVR01: flag any pool missing a copy destination (check POOL_DISK_PRIMARY for a COPY pool link), any management class with RETONLY incorrectly set, and any schedule in DOM_DATABASE with no active node associations.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am detecting drift in storage pool and policy definitions on
+SPSVR01.
+
+Do the following:
+1. Flag pools missing a copy destination, starting with POOL_DISK_PRIMARY.
+2. Flag management classes with RETONLY incorrectly set.
+3. Flag schedules in DOM_DATABASE with no active node associations.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: object, issue, expected, actual, recommended fix.
 ```
 
 ### Regulatory compliance mapping
 
 ```text
-Map the current SPSVR01 configuration on sp-mcp-server-remote-tumbleweed to NIST SP 800-53 controls CP-9 (information system backup) and CP-10 (recovery and reconstitution). For each control, state: current configuration evidence drawn from query_protection_policy and query_volume_history, any gap, and a remediation recommendation.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. An audit requires mapping SPSVR01 to NIST SP 800-53 CP-9 and CP-10.
+
+Do the following:
+1. Gather evidence from query_protection_policy and query_volume_history.
+2. For each control, state the evidence, any gap, and a remediation recommendation.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: control, evidence, gap, remediation.
 ```
 
 ```text
-Produce an EU DORA resilience assessment for the SPSVR01 environment. Map current capabilities to Articles 9 (ICT risk management), 12 (backup policies), and 17 (ICT-related incident response). For Article 12, reference the active schedule set (SCHED_DB_NIGHTLY, SCHED_SAP_LOG_HOURLY) and copy group configuration (POOL_DISK_PRIMARY, POOL_TAPE_COPY, POOL_CLOUD_TIER). List the evidence artefacts needed and flag any gaps.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. An EU DORA resilience assessment is due for the SPSVR01
+environment.
+
+Do the following:
+1. Map capabilities to Articles 9, 12, and 17.
+2. For Article 12, cite SCHED_DB_NIGHTLY, SCHED_SAP_LOG_HOURLY, and the copy groups on
+   POOL_DISK_PRIMARY, POOL_TAPE_COPY, POOL_CLOUD_TIER.
+3. List the evidence artefacts needed and flag gaps.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: article, capability, evidence artefact, gap.
 ```
 
 ```text
-Generate a BSI C5 and ISO 27001 compliance checklist for SPSVR01. Map OPS-09, OPS-10 (BSI C5) and A.12.3, A.12.4 (ISO 27001) to specific IBM Storage Protect configuration items — management classes, copy groups, WORM policy (MC_WORM_7YR, POOL_TAPE_WORM), and DB backup schedule (SCHED_DBBACKUP_DAILY). For each control, indicate whether it is met, partially met, or not met.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A BSI C5 and ISO 27001 checklist is required for SPSVR01.
+
+Do the following:
+1. Map OPS-09 and OPS-10 (BSI C5) and A.12.3 and A.12.4 (ISO 27001) to configuration items.
+2. Use management classes, copy groups, MC_WORM_7YR, POOL_TAPE_WORM, and SCHED_DBBACKUP_DAILY.
+3. Rate each control as met, partially met, or not met.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Checklist table with columns: control, configuration item, status, note.
 ```
 
 ```text
-Produce a security hardening gap analysis for sp-mcp-server-remote-tumbleweed: retrieve SSL options and admin account data via query_server_option and query_admin_user, node lock status for inactive nodes via query_client, and WORM retention settings for MC_WORM_7YR via query_protection_policy. Map each finding to its NIST SP 800-53 control and rate its severity.
+You are a Security and Compliance Officer responsible for hardening, immutability, recovery
+verification, and regulatory mapping of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I need a security hardening gap analysis of SPSVR01.
+
+Do the following:
+1. Retrieve SSL options and admin account data via query_server_option and query_admin_user.
+2. Retrieve lock status of inactive nodes via query_client.
+3. Retrieve WORM retention for MC_WORM_7YR via query_protection_policy.
+4. Map each finding to its NIST SP 800-53 control.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: finding, NIST control, severity, recommended action.
 ```
 
 ---
@@ -500,67 +1484,277 @@ Produce a security hardening gap analysis for sp-mcp-server-remote-tumbleweed: r
 ### Schedule compliance monitoring
 
 ```text
-Show me the backup schedule compliance report for SPSVR01 over the last 7 days across all nodes: total scheduled events, completed, failed, missed, and percentage compliance per policy domain. Flag any domain below 95% compliance — specifically check DOM_DATABASE and DOM_SAP.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am preparing the weekly compliance report for SPSVR01 (last 7
+days, all nodes).
+
+Do the following:
+1. Report total scheduled events, completed, failed, missed, and percentage compliance per policy
+   domain.
+2. Flag any domain below 95%, specifically DOM_DATABASE and DOM_SAP.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: domain, scheduled, completed, failed, missed, compliance %, flag.
 ```
 
 ```text
-Which nodes had missed events for SCHED_DB_NIGHTLY or SCHED_SAP_LOG_HOURLY in the last 48 hours? For each, show the node name, domain, scheduled time, and whether a subsequent retry succeeded.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Nightly database and SAP log schedules are under review.
+
+Do the following:
+1. List nodes with missed events for SCHED_DB_NIGHTLY or SCHED_SAP_LOG_HOURLY in the last 48 hours.
+2. Show whether a subsequent retry succeeded.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, domain, scheduled time, retry result.
 ```
 
 ### Application-aware backup scope
 
 ```text
-Map the application inventory to IBM Storage Protect nodes on SPSVR01 to identify RPO gaps. Retrieve all nodes in DOM_DATABASE and DOM_SAP using query_client. Cross-reference with query_scheduled_event for SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY to highlight any node where the last successful backup event falls outside the required RPO of 4 hours.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A 4-hour RPO applies to DOM_DATABASE and DOM_SAP on SPSVR01.
+
+Do the following:
+1. Retrieve all nodes in both domains using query_client.
+2. Cross-reference with query_scheduled_event for SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY.
+3. Highlight nodes whose last successful backup falls outside the RPO.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, application, last success, age, RPO status.
 ```
 
 ```text
-Identify all nodes in DOM_DATABASE on SPSVR01 — DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE. For each, confirm whether the last scheduled event for SCHED_DB_NIGHTLY completed successfully within the defined schedule window using query_scheduled_event.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I need to confirm database coverage on SPSVR01.
+
+Do the following:
+1. Check DBORA01_NODE, DBSQL01_NODE, and DBDB201_NODE.
+2. Confirm the last SCHED_DB_NIGHTLY event completed within its schedule window using
+   query_scheduled_event.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, last event time, status, within window (Yes or No).
 ```
 
 ### ITIL incident triage
 
 ```text
-SPSVR01 backup jobs have stopped completing since approximately 23:45. Run a structured P1 incident triage: check active sessions using query_active_session, DB and log space using query_recovery_log, missed schedule events for SCHED_DB_NIGHTLY in the last 2 hours using query_scheduled_event, and recent ANR-class errors using query_activity_log. Classify priority and list recommended diagnostic steps for IBM Support escalation.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 backup jobs stopped completing at about 23:45. Treat this
+as a P1 incident.
+
+Do the following:
+1. Check active sessions via query_active_session.
+2. Check DB and log space via query_recovery_log.
+3. Check missed SCHED_DB_NIGHTLY events in the last 2 hours via query_scheduled_event.
+4. Check recent ANR-class errors via query_activity_log.
+5. Classify priority and list the diagnostic steps for IBM Support escalation.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+- Bound every activity log query with a specific search term and a narrow time window.
+
+Generate the output with the following format:
+Incident summary, priority, findings table, and a numbered escalation checklist.
 ```
 
 ```text
-A P2 incident has been raised — DBSQL01_NODE has not completed SCHED_DB_NIGHTLY successfully in 18 hours. Run the diagnostic sequence: query node status via query_client, last backup result via query_scheduled_event, activity log errors (±60 minutes around the last scheduled 23:30 window) via query_activity_log, and open session state via query_active_session. Summarise findings and recommend the next escalation step.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A P2 incident is open: DBSQL01_NODE has not completed
+SCHED_DB_NIGHTLY in 18 hours.
+
+Do the following:
+1. Check node status via query_client.
+2. Check the last backup result via query_scheduled_event.
+3. Check activity log errors +/-60 minutes around the 23:30 window via query_activity_log.
+4. Check open session state via query_active_session.
+5. Summarise findings and recommend the next escalation step.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Findings summary and a single recommended next step with rationale.
 ```
 
 ### ITIL problem management
 
 ```text
-DBORA01_NODE and DBDB201_NODE in DOM_DATABASE have each missed two consecutive SCHED_DB_NIGHTLY runs this week. Perform root cause analysis: retrieve schedule event history via query_scheduled_event, activity log errors per node via query_activity_log (±60 minutes around each miss), and POOL_DISK_PRIMARY utilisation via query_storage_container at the time of each failure. Produce a causal chain and recommend a permanent fix.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. DBORA01_NODE and DBDB201_NODE each missed two consecutive
+SCHED_DB_NIGHTLY runs this week.
+
+Do the following:
+1. Retrieve schedule event history via query_scheduled_event.
+2. Retrieve activity log errors per node via query_activity_log, +/-60 minutes around each miss.
+3. Retrieve POOL_DISK_PRIMARY utilisation via query_storage_container at each failure time.
+4. Build a causal chain and recommend a permanent fix.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Causal chain, evidence table per miss, and a permanent-fix recommendation.
 ```
 
 ### ITIL change risk assessment
 
 ```text
-I am planning to increase MAXSESSIONS from 25 to 40 on SPSVR01 during Saturday's maintenance window. Assess the change risk: retrieve current active session load using query_active_session, check for any in-progress migration jobs from POOL_DISK_PRIMARY to POOL_CLOUD_TIER using query_background_job, and confirm that SCHED_GENERAL_DAILY and SCHED_DB_NIGHTLY are not running. Provide a rollback procedure.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I plan to raise MAXSESSIONS from 25 to 40 on SPSVR01 during
+Saturday's maintenance window.
+
+Do the following:
+1. Retrieve the active session load via query_active_session.
+2. Check for in-progress POOL_DISK_PRIMARY to POOL_CLOUD_TIER migration via query_background_job.
+3. Confirm SCHED_GENERAL_DAILY and SCHED_DB_NIGHTLY are not running.
+4. Provide a rollback procedure.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Risk rating (Low, Medium, High) with evidence, go/no-go, and rollback steps.
 ```
 
 ### Disaster recovery execution
 
 ```text
-The SPSVR01 database needs to be recovered after a failure. Use the restore_db tool to initiate RESTORE DB. Before invoking it, confirm the last successful SCHED_DBBACKUP_DAILY run using query_volume_history with TYPE=DBBACKUP and verify no active sessions remain using query_active_session.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The SPSVR01 database must be recovered after a failure.
+
+Do the following:
+1. Confirm the last successful SCHED_DBBACKUP_DAILY run via query_volume_history with TYPE=DBBACKUP.
+2. Verify no active sessions remain via query_active_session.
+3. Then initiate RESTORE DB with the restore_db tool.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+- Do not call restore_db until both pre-checks pass and I have confirmed.
+
+Generate the output with the following format:
+Pre-checks with results, then the restore command and its outcome.
 ```
 
 ```text
-After restoring the SPSVR01 database, what steps do I need to take to reconnect the 45 registered nodes — especially DOM_DATABASE nodes DBORA01_NODE, DBSQL01_NODE, and DBDB201_NODE — to the recovered server, or re-register them if node records were lost?
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The SPSVR01 database has been restored.
+
+Do the following:
+1. Describe the steps to reconnect the 45 registered nodes, especially DBORA01_NODE, DBSQL01_NODE,
+   and DBDB201_NODE.
+2. Explain how to re-register nodes if node records were lost.
+
+The following constraints apply:
+- Advisory: do not execute any change; ground guidance in IBM documentation and the sample topology.
+
+Generate the output with the following format:
+Ordered recovery procedure with a per-node verification check.
 ```
 
 ```text
-The volume history file for SPSVR01 was not replicated to the DR site before the failure. Use query_dr_media and query_recovery_plan_file to assess what recovery information is available on sp-mcp-server-remote-tumbleweed, and summarise what data is at risk — particularly for POOL_TAPE_COPY volumes in LIB_LTO8_01.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The volume history file for SPSVR01 was not replicated to the DR
+site before the failure.
+
+Do the following:
+1. Use query_dr_media and query_recovery_plan_file to assess available recovery information.
+2. Summarise what data is at risk, particularly POOL_TAPE_COPY volumes in LIB_LTO8_01.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table of available recovery artefacts, missing artefacts, and data-at-risk summary.
 ```
 
 ### Ransomware & cyber incident response
 
 ```text
-We suspect ransomware has encrypted data on DBSQL01_NODE since approximately 2024-11-12 14:00. Lock the node immediately using set_client_lock to prevent further backup activity. Then use query_client_backup_volume and query_data_occupancy for DBSQL01_NODE to identify the last successful backup versions that predate the infection window and quantify the data-at-risk period.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Ransomware is suspected on DBSQL01_NODE since about 2024-11-12
+14:00.
+
+Do the following:
+1. Lock the node immediately using set_client_lock.
+2. Use query_client_backup_volume and query_data_occupancy to find the last successful backup
+   versions before the infection window.
+3. Quantify the data-at-risk period.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+- Lock the node first; every later step is read-only.
+
+Generate the output with the following format:
+Lock confirmation, last clean backup version, and data-at-risk window in hours.
 ```
 
 ```text
-A ransomware incident has been confirmed on DBSQL01_NODE. Use query_client_backup_volume to retrieve all backup versions from the last 14 days and identify the last backup set that predates the infection timestamp of 2024-11-12 14:00. Summarise which SQL Server databases can be recovered from POOL_DISK_PRIMARY and what data is at risk.
+You are a Resilience Operations Manager responsible for schedule compliance, ITIL incident, problem,
+and change management, and disaster recovery of IBM Storage Protect.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Ransomware is confirmed on DBSQL01_NODE with an infection timestamp
+of 2024-11-12 14:00.
+
+Do the following:
+1. Retrieve all backup versions from the last 14 days via query_client_backup_volume.
+2. Identify the last backup set that predates the infection.
+3. State which SQL Server databases are recoverable from POOL_DISK_PRIMARY and what is at risk.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: backup version, timestamp, predates infection (Yes or No), databases.
 ```
 
 ---
@@ -572,55 +1766,234 @@ A ransomware incident has been confirmed on DBSQL01_NODE. Use query_client_backu
 ### Deployment health assessment
 
 ```text
-Perform a full deployment health assessment of sp-mcp-server-remote-tumbleweed (SPSVR01): retrieve server version via query_server_status, DB and log space via query_recovery_log and query_server_option, storage pool utilisation for POOL_DISK_PRIMARY and POOL_CLOUD_TIER via query_storage_container, schedule compliance for SCHED_DB_NIGHTLY over the last 7 days via query_scheduled_event, and last SCHED_DBBACKUP_DAILY run via query_volume_history. Present findings as a structured health report with red/amber/green status indicators.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am performing a full deployment health assessment of SPSVR01.
+
+Do the following:
+1. Retrieve the server version via query_server_status.
+2. Retrieve DB and log space via query_recovery_log and query_server_option.
+3. Retrieve utilisation of POOL_DISK_PRIMARY and POOL_CLOUD_TIER via query_storage_container.
+4. Retrieve 7-day schedule compliance for SCHED_DB_NIGHTLY via query_scheduled_event.
+5. Retrieve the last SCHED_DBBACKUP_DAILY run via query_volume_history.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Health report with a red, amber, or green status per area and a prioritised action list.
 ```
 
 ```text
-Run run_servermon on sp-mcp-server-remote-tumbleweed and analyse the Servermon output for SPSVR01. Identify customer-impacting issues, bottlenecks (DB utilisation, log space, session backlog), error spikes (ANR codes), and the most critical findings. Map each finding to a likely root cause and recommended resolution step.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I need a Servermon analysis of SPSVR01.
+
+Do the following:
+1. Run run_servermon on sp-mcp-server-remote-tumbleweed.
+2. Identify customer-impacting issues, bottlenecks (DB, log space, session backlog), and ANR error
+   spikes.
+3. Map each finding to a likely root cause and recommended resolution.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: finding, impact, likely root cause, resolution, priority.
 ```
 
 ```text
-Compare the current SPSVR01 configuration against IBM Storage Protect Blueprint recommendations for a 45-node environment with 28 TB front-end data: DB sizing, log sizing, storage pool hierarchy (POOL_DISK_PRIMARY, POOL_TAPE_COPY, POOL_CLOUD_TIER), MAXSESSIONS, TXNGROUPMAX, and RESOURCEUTILIZATION. List each deviation with severity and the recommended corrective action.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. SPSVR01 has 45 nodes and 28 TB front-end data and must be checked
+against IBM Blueprint.
+
+Do the following:
+- Compare DB sizing, log sizing, pool hierarchy (POOL_DISK_PRIMARY, POOL_TAPE_COPY,
+  POOL_CLOUD_TIER), MAXSESSIONS, TXNGROUPMAX, and RESOURCEUTILIZATION with the Blueprint.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: area, current, Blueprint, severity, corrective action.
 ```
 
 ### Upgrade & fix-pack planning
 
 ```text
-SPSVR01 is on version 8.1.17 and the customer wants to upgrade to 8.1.22. Identify the supported upgrade path, list any interim fix packs required, and produce a pre-upgrade checklist covering: SCHED_DBBACKUP_DAILY recency via query_volume_history, active log space via query_recovery_log, active sessions via query_active_session, in-progress migration jobs via query_background_job, and BA client version compatibility for DBORA01_NODE and SAPHANA01_NODE.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. The customer wants to upgrade SPSVR01 from 8.1.17 to 8.1.22.
+
+Do the following:
+1. Identify the supported upgrade path and any interim fix packs.
+2. Build a pre-upgrade checklist covering SCHED_DBBACKUP_DAILY recency, active log space, active
+   sessions, in-progress migration jobs, and BA client compatibility for DBORA01_NODE and
+   SAPHANA01_NODE.
+3. Use query_volume_history, query_recovery_log, query_active_session, and query_background_job.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Upgrade path, then a checklist table with columns: check, result, pass or fail.
 ```
 
 ```text
-A fix pack addressing a known deduplication processing defect is available for SPSVR01. Before recommending application, retrieve server version via query_server_status, active log utilisation via query_recovery_log, active session count via query_active_session, and any in-progress reclamation or migration jobs from POOL_DISK_PRIMARY via query_background_job. Confirm safe conditions for the fix-pack window and produce a rollback procedure.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. A fix pack addressing a known deduplication processing defect is
+available for SPSVR01.
+
+Do the following:
+1. Retrieve the server version, active log utilisation, active session count, and in-progress
+   reclamation or migration jobs on POOL_DISK_PRIMARY.
+2. Confirm safe conditions for the fix-pack window.
+3. Produce a rollback procedure.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Safe-to-apply verdict with evidence, then a rollback procedure.
 ```
 
 ### Performance optimisation
 
 ```text
-The customer reports that nightly backup throughput to POOL_DISK_PRIMARY dropped by 40% after DBDB201_NODE and SAPHANA01_NODE were added three weeks ago, pushing the total session count during SCHED_DB_NIGHTLY above 30. Retrieve current MAXSESSIONS, TXNGROUPMAX, and MOVEBATCHSIZE using query_server_option. Analyse the likely bottleneck and recommend specific tuning changes with expected throughput impact.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Nightly throughput to POOL_DISK_PRIMARY dropped 40% after
+DBDB201_NODE and SAPHANA01_NODE were added three weeks ago; sessions in SCHED_DB_NIGHTLY now exceed
+30.
+
+Do the following:
+1. Retrieve MAXSESSIONS, TXNGROUPMAX, and MOVEBATCHSIZE using query_server_option.
+2. Identify the likely bottleneck.
+3. Recommend tuning changes with expected throughput impact.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Bottleneck analysis and a table of recommended changes with expected impact.
 ```
 
 ```text
-Migration from POOL_DISK_PRIMARY to POOL_CLOUD_TIER at cos.us-south.example.com is completing at 150 MB/s but the customer's WAN link supports 800 MB/s. Retrieve the current POOL_CLOUD_TIER migration concurrency settings and MOVEBATCHSIZE from query_server_option. Identify the limiting parameter and recommend the change to better utilise available bandwidth.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Migration to POOL_CLOUD_TIER at cos.us-south.example.com runs at
+150 MB/s but the WAN supports 800 MB/s.
+
+Do the following:
+1. Retrieve migration concurrency settings and MOVEBATCHSIZE via query_server_option.
+2. Identify the limiting parameter.
+3. Recommend a change that uses the available bandwidth.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Limiting parameter, recommended change, and expected throughput.
 ```
 
 ### Security vulnerability analysis
 
 ```text
-Analyse the security posture of sp-mcp-server-remote-tumbleweed (SPSVR01) for known IBM Storage Protect vulnerabilities: retrieve SSL-related server options using query_server_option and the status of all five admin accounts (ADMIN, mcp-svc-system, mcp-svc-operator, OPS_READER, DBA_ADMIN) using query_admin_user. Identify configuration values that deviate from IBM hardening guidance and flag each finding with its IBM Security Bulletin reference where applicable.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. I am assessing known-vulnerability exposure of SPSVR01.
+
+Do the following:
+1. Retrieve SSL-related options via query_server_option.
+2. Retrieve the status of ADMIN, mcp-svc-system, mcp-svc-operator, OPS_READER, and DBA_ADMIN via
+   query_admin_user.
+3. Flag deviations from IBM hardening guidance with the IBM Security Bulletin reference.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: finding, evidence, bulletin reference, severity, fix.
 ```
 
 ### Defect investigation & IBM Support tooling
 
 ```text
-DBORA01_NODE and DBDB201_NODE are experiencing intermittent ANR0406E errors during SCHED_DB_NIGHTLY sessions. Use query_activity_log filtered to ANR0406E over the last 24 hours, identify the affected nodes and session IDs, correlate with active session counts from query_active_session and active log utilisation from query_recovery_log, and summarise the failure pattern to determine whether this matches a known deduplication or session-limit defect.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. DBORA01_NODE and DBDB201_NODE show intermittent ANR0406E errors
+during SCHED_DB_NIGHTLY.
+
+Do the following:
+1. Filter query_activity_log to ANR0406E for the last 24 hours.
+2. Correlate with query_active_session counts and query_recovery_log utilisation.
+3. Decide whether the pattern matches a known deduplication or session-limit defect.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Failure pattern summary, correlation table, and a defect-match verdict.
 ```
 
 ```text
-Collect diagnostic data for an open IBM Support case on SPSVR01: retrieve server version via query_server_status, DB and log space via query_recovery_log and query_server_option, activity log errors from the last 48 hours filtered to ANR-class messages via query_activity_log, SCHED_DB_NIGHTLY miss events via query_scheduled_event, Servermon output via run_servermon, and POOL_DISK_PRIMARY utilisation via query_storage_container. Format the output as a structured case summary.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. An IBM Support case is open for SPSVR01 and needs diagnostic data.
+
+Do the following:
+1. Collect the server version, DB and log space, and ANR-class errors for the last 48 hours.
+2. Collect SCHED_DB_NIGHTLY miss events, run_servermon output, and POOL_DISK_PRIMARY utilisation.
+3. Use query_server_status, query_recovery_log, query_server_option, query_activity_log,
+   query_scheduled_event, and query_storage_container.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Structured case summary with one section per data item and a list of attachments.
 ```
 
 ```text
-Recurring ANR8468W warnings have been reported on SPSVR01 during POOL_DISK_PRIMARY to POOL_CLOUD_TIER migration windows. Use query_activity_log filtered to ANR8468W over the last 14 days to identify frequency and affected operations. Cross-reference with query_scheduled_event for SCHED_DB_NIGHTLY miss events and query_recovery_log for log utilisation trends at the time of each warning. Summarise the pattern and recommend the appropriate fix-pack or MOVEBATCHSIZE configuration change.
+You are an IBM Storage Protect Service Engineer responsible for health assessment, upgrade planning,
+performance tuning, and defect investigation.
+IBM Storage Protect server SPSVR01 (v8.1.22, RHEL 9), reached through the MCP server
+sp-mcp-server-remote-tumbleweed. Recurring ANR8468W warnings occur during POOL_DISK_PRIMARY to
+POOL_CLOUD_TIER migration.
+
+Do the following:
+1. Filter query_activity_log to ANR8468W for the last 14 days.
+2. Cross-reference SCHED_DB_NIGHTLY miss events and query_recovery_log trends.
+3. Recommend the appropriate fix pack or MOVEBATCHSIZE change.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Frequency table, correlation findings, and one recommended fix with rationale.
 ```
 
 ---
@@ -636,19 +2009,24 @@ Unconstrained multi-schedule troubleshooting queries can exhaust context windows
 ### Refined context-preserving prompt
 
 ```text
-You are assisting a Backup Engineer troubleshooting IBM Storage Protect server SPSVR01 via sp-mcp-server-remote-tumbleweed.
+You are a Backup Engineer troubleshooting IBM Storage Protect backup schedule failures.
+IBM Storage Protect server SPSVR01, reached through the MCP server
+sp-mcp-server-remote-tumbleweed.
 
-Goal:
-Identify all failed or missed client backup schedule events across DOM_GENERAL, DOM_DATABASE, and DOM_SAP in the last 24 hours and categorise each by likely root cause.
+Do the following:
+Identify all failed or missed client backup schedule events across DOM_GENERAL, DOM_DATABASE, and
+DOM_SAP in the last 24 hours and categorise each by likely root cause.
 
-Query Success Rules:
+Follow these query success rules:
 1. Prefer the most constrained query possible before expanding scope.
-2. Never call query_scheduled_event without specifying a valid policy domain and exact schedule name.
+2. Never call query_scheduled_event without specifying a valid policy domain and exact schedule
+   name.
 3. Never call query_activity_log without both a specific search term and a narrow date/time window.
 4. If a query fails, retry once with a simpler but still constrained parameter set.
-5. If a query still fails, state the exact failed query pattern and move to the next best constrained query.
+5. If a query still fails, state the exact failed query pattern and move to the next best
+   constrained query.
 
-Required Execution Sequence:
+Follow this execution sequence:
 
 Step 1 — Discover Valid Scope
 - Use query_policy_group to confirm the three domains: DOM_GENERAL, DOM_DATABASE, DOM_SAP.
@@ -668,8 +2046,10 @@ Step 3 — Keep Only Abnormal Events
 
 Step 4 — Validate Each Abnormal Event With Targeted Log Search
 - Use query_activity_log only for one failed event at a time.
-- Search using the most specific discriminator: exact node name (e.g. DBSQL01_NODE), exact schedule name, or specific IBM message code.
-- Always include a narrow time window around the event. Start with ±60 minutes; expand once to ±180 minutes if no evidence is found.
+- Search using the most specific discriminator: exact node name (e.g. DBSQL01_NODE), exact schedule
+  name, or specific IBM message code.
+- Always include a narrow time window around the event. Start with ±60 minutes; expand once to ±180
+  minutes if no evidence is found.
 - Never run broad searches such as all ANR*, or unbounded 24-hour log scans.
 
 Step 5 — Root Cause Classification
@@ -683,7 +2063,8 @@ Classify each event as one of:
 
 Step 6 — If query_scheduled_event Fails
 - Retry once with exact domain, exact schedule name, and date only (no time filters).
-- If it still fails, continue schedule-by-schedule using query_schedule, query_client, and query_active_session.
+- If it still fails, continue schedule-by-schedule using query_schedule, query_client, and
+  query_active_session.
 - Mark findings as Likely instead of Confirmed.
 
 Step 7 — If query_activity_log Fails
@@ -691,16 +2072,19 @@ Step 7 — If query_activity_log Fails
 - If it still fails, do not broaden the query.
 - Use operational evidence from query_client and query_active_session.
 
-Output Format:
-- Executive Summary: total confirmed failed, missed, and likely abnormal events; count by root cause category; domains affected.
-- Confirmed Failed or Missed Schedules Table: Node · Domain · Schedule · Scheduled Time · Status · Result Code · Root Cause · Evidence Summary · Recommended Action.
-- Likely Failed or Abnormal Schedules Table: Node · Domain · Schedule · Scheduled Time · Why Flagged · Likely Root Cause · Recommended Validation Step.
+Generate the output with the following format:
+- Executive Summary: total confirmed failed, missed, and likely abnormal events; count by root cause
+  category; domains affected.
+- Confirmed Failed or Missed Schedules Table: Node · Domain · Schedule · Scheduled Time · Status ·
+  Result Code · Root Cause · Evidence Summary · Recommended Action.
+- Likely Failed or Abnormal Schedules Table: Node · Domain · Schedule · Scheduled Time · Why Flagged
+  · Likely Root Cause · Recommended Validation Step.
 - Top Recurring Failure Patterns.
 - Environmental Risks (e.g. POOL_DISK_PRIMARY utilisation, active log space).
 - Items Requiring Immediate Attention.
 - Limitations.
 
-Constraints:
+The following constraints apply:
 - Limit analysis to the last 24 hours only.
 - Query one schedule and one failed event at a time.
 - Do not include raw log dumps unless a single short message is essential as evidence.
@@ -720,19 +2104,86 @@ All prompts in this section address the [Multi-Server Deployment Topology](#mult
 ### Replication topology discovery
 
 ```text
-Query the replication server definitions on sp-mcp-spsvr01 using query_replication_server and on sp-mcp-spsvr02 using query_replication_server. List each server's configured replication partners, their network addresses, and the SSL setting. Confirm that SPSVR02 is registered as a target on SPSVR01 and that SPSVR03 is registered as a target on both SPSVR01 and SPSVR02.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am validating the
+replication partner definitions on the primary and DR servers.
+
+Do the following:
+1. On sp-mcp-spsvr01 and sp-mcp-spsvr02, run query_replication_server.
+2. List each server's replication partners, network addresses, and SSL setting.
+3. Confirm SPSVR02 is a registered target on SPSVR01.
+4. Confirm SPSVR03 is a registered target on both SPSVR01 and SPSVR02.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: server, partner, address, SSL, role (source or target), status.
 ```
 
 ```text
-On sp-mcp-spsvr01, retrieve all replication storage rules using query_replication_rule. List each rule name, action type, target server, and enabled status. Confirm that REPL_RULE_PRIMARY_DR and REPL_RULE_PRIMARY_ARCHIVE are active and their target servers match SPSVR02 and SPSVR03 respectively.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am verifying the
+replication rules on the primary server.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_replication_rule.
+2. List each rule's name, action type, target server, and enabled status.
+3. Confirm REPL_RULE_PRIMARY_DR targets SPSVR02 and REPL_RULE_PRIMARY_ARCHIVE targets SPSVR03, and
+   that both are active.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: rule, action type, target, enabled, matches expected (Yes or No).
 ```
 
 ```text
-On sp-mcp-spsvr02, retrieve the replication storage rule REPL_RULE_DR_ARCHIVE using query_replication_rule. Confirm the action type is REPLICATE, the target server is SPSVR03, and the rule is enabled. Then repeat the check on sp-mcp-spsvr03 using query_replication_server to verify SPSVR02 is a registered source.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am verifying the
+DR-to-archive replication leg.
+
+Do the following:
+1. On sp-mcp-spsvr02, retrieve REPL_RULE_DR_ARCHIVE using query_replication_rule.
+2. Confirm the action type is REPLICATE, the target is SPSVR03, and the rule is enabled.
+3. On sp-mcp-spsvr03, run query_replication_server and verify SPSVR02 is a registered source.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Pass or fail per check, with the evidence value for each.
 ```
 
 ```text
-Give me a cross-server replication topology summary for the three-server environment. On sp-mcp-spsvr01, run query_replication_rule and query_replication_server. On sp-mcp-spsvr02, run query_replication_rule and query_replication_server. On sp-mcp-spsvr03, run query_replication_server. Summarise the full replication mesh — which server replicates what scope to which target — and flag any missing or disabled rules.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I need one summary of the
+full replication mesh.
+
+Do the following:
+1. On sp-mcp-spsvr01 and sp-mcp-spsvr02, run query_replication_rule and query_replication_server.
+2. On sp-mcp-spsvr03, run query_replication_server.
+3. Summarise which server replicates what scope to which target.
+4. Flag missing or disabled rules.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Mesh table with columns: source, target, scope, rule, status, followed by a findings list.
 ```
 
 ---
@@ -740,23 +2191,109 @@ Give me a cross-server replication topology summary for the three-server environ
 ### Replication health monitoring & failure triage
 
 ```text
-Check replication health across all three servers simultaneously. On sp-mcp-spsvr01, run query_protection_status and query_replication_failures. On sp-mcp-spsvr02, run query_protection_status and query_replication_failures. On sp-mcp-spsvr03, run query_protection_status and query_replication_failures. Summarise the protection status for each server, list all replication failures with node name, file space, and failure date, and rate overall replication health as green, amber, or red per server.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am checking replication
+health across all three servers at once.
+
+Do the following:
+1. On each of sp-mcp-spsvr01, sp-mcp-spsvr02, and sp-mcp-spsvr03, run query_protection_status and
+   query_replication_failures.
+2. Summarise protection status per server.
+3. List all failures with node name, file space, and failure date.
+4. Rate replication health green, amber, or red per server.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Per-server health rating followed by a failure table.
 ```
 
 ```text
-On sp-mcp-spsvr01, DBORA01_NODE has not replicated to SPSVR02 in the last 6 hours. Use query_replication_status for DBORA01_NODE to check for an active replication process. Then use query_replication_failures on sp-mcp-spsvr01 to confirm whether a replication failure record exists. Cross-check POOL_DISK_PRIMARY utilisation on sp-mcp-spsvr01 using query_storage_container — a full source pool is the most common cause of stalled node replication.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). DBORA01_NODE has not
+replicated from SPSVR01 to SPSVR02 in the last 6 hours.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_replication_status for DBORA01_NODE to check for an active
+   replication process.
+2. Run query_replication_failures to find a failure record.
+3. Run query_storage_container for POOL_DISK_PRIMARY; a full source pool is the most common cause of
+   stalled replication.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Likely cause with the supporting evidence and one recommended next step.
 ```
 
 ```text
-A replication failure alert has fired for SAPHANA01_NODE on SPSVR01. Run query_replication_failures on sp-mcp-spsvr01 to retrieve the failure record. Then query the activity log on sp-mcp-spsvr01 using query_activity_log filtered to SAPHANA01_NODE for a ±60-minute window around the reported failure time. Cross-check that SAPHANA01_NODE has REPLSTATE=ENABLED using query_replication_client with node_name=SAPHANA01_NODE.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). A replication failure
+alert fired for SAPHANA01_NODE on SPSVR01.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_replication_failures to retrieve the failure record.
+2. Run query_activity_log for SAPHANA01_NODE for +/-60 minutes around the failure time.
+3. Confirm REPLSTATE=ENABLED with query_replication_client and node_name=SAPHANA01_NODE.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Failure record, relevant log messages, REPLSTATE value, and a root-cause statement.
 ```
 
 ```text
-On sp-mcp-spsvr01, retrieve replication status for all DOM_DATABASE nodes — DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE — using query_replication_client with node_name=* and filter results to those three nodes. For each node, show the target server, file spaces, and files sent/received. Flag any node where replication to SPSVR02 or SPSVR03 has not completed in the last 24 hours.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am checking DOM_DATABASE
+replication status on the primary server.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_replication_client with node_name=* and keep DBORA01_NODE,
+   DBSQL01_NODE, and DBDB201_NODE.
+2. Show each node's target server, file spaces, and files sent and received.
+3. Flag nodes whose replication to SPSVR02 or SPSVR03 has not completed in 24 hours.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, target, file spaces, files sent, files received, flag.
 ```
 
 ```text
-Compare storage pool protection status between sp-mcp-spsvr01 and sp-mcp-spsvr02 using query_protection_status on each. Confirm that POOL_DISK_REPLICA on SPSVR02 is in sync with POOL_DISK_PRIMARY on SPSVR01. If protection status shows out-of-sync, retrieve the last replication failure records from query_replication_failures on sp-mcp-spsvr01 and recommend remediation steps.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I need to confirm the
+replica pool is in sync with the primary pool.
+
+Do the following:
+1. Run query_protection_status on sp-mcp-spsvr01 and sp-mcp-spsvr02.
+2. Confirm POOL_DISK_REPLICA on SPSVR02 is in sync with POOL_DISK_PRIMARY on SPSVR01.
+3. If out of sync, retrieve failure records via query_replication_failures on sp-mcp-spsvr01 and
+   recommend remediation.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Sync status, failure evidence if any, and remediation steps.
 ```
 
 ---
@@ -764,19 +2301,87 @@ Compare storage pool protection status between sp-mcp-spsvr01 and sp-mcp-spsvr02
 ### Node replication enablement & configuration
 
 ```text
-On sp-mcp-spsvr01, check which production nodes do NOT have replication enabled. Use query_replication_client with node_name=* to list all nodes and their REPLSTATE. List any node with REPLSTATE=DISABLED or where the target server column is empty. For each, show the node name, policy domain, and recommended UPDATE NODE command to set REPLSTATE=ENABLED.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am looking for
+production nodes that are not covered by replication on SPSVR01.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_replication_client with node_name=*.
+2. List nodes with REPLSTATE=DISABLED or an empty target server column.
+3. Provide the UPDATE NODE command that sets REPLSTATE=ENABLED for each.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+- Do not execute any UPDATE NODE command; list them only.
+
+Generate the output with the following format:
+Table with columns: node, policy domain, REPLSTATE, recommended UPDATE NODE command.
 ```
 
 ```text
-A new node APPSVR10_NODE has been registered in DOM_GENERAL on SPSVR01. Enable replication for this node so it is covered by REPL_RULE_PRIMARY_DR. On sp-mcp-spsvr01, use update_node to set REPLSTATE=ENABLED for APPSVR10_NODE. Then confirm the node appears in query_replication_client output with the target server set to SPSVR02.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). New node APPSVR10_NODE was
+registered in DOM_GENERAL on SPSVR01.
+
+Do the following:
+1. On sp-mcp-spsvr01, use update_node to set REPLSTATE=ENABLED so it falls under
+   REPL_RULE_PRIMARY_DR.
+2. Confirm it appears in query_replication_client output with SPSVR02 as target server.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+The command before execution, then the confirmation query result.
 ```
 
 ```text
-On sp-mcp-spsvr01, a decision has been made to include VMPROXY01_NODE in the remote archive replication to SPSVR03 under REPL_RULE_PRIMARY_ARCHIVE. The rule currently covers only DOM_DATABASE and DOM_SAP nodes. What IBM Storage Protect commands are needed to add VMPROXY01_NODE to the replication scope without disrupting the existing REPL_RULE_PRIMARY_DR coverage to SPSVR02? Show the UPDATE NODE and any required UPDATE REPLRULE or DEFINE SUBRULE commands before executing.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). VMPROXY01_NODE must join
+the remote archive replication to SPSVR03 under REPL_RULE_PRIMARY_ARCHIVE, which currently covers
+only DOM_DATABASE and DOM_SAP.
+
+Do the following:
+1. On sp-mcp-spsvr01, determine the commands needed to add VMPROXY01_NODE to the scope.
+2. Preserve existing REPL_RULE_PRIMARY_DR coverage to SPSVR02.
+3. Show the UPDATE NODE and any UPDATE REPLRULE or DEFINE SUBRULE commands.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Ordered command list with the purpose of each and a rollback command.
 ```
 
 ```text
-On sp-mcp-spsvr01, retrieve the current replication storage rules using query_storage_rule and query_replication_rule. I want to verify that REPL_RULE_PRIMARY_DR has ACTIONTYPE=REPLICATE and covers all nodes with REPLSTATE=ENABLED. Then on sp-mcp-spsvr02, run query_replication_client with node_name=* and confirm that all nodes present on SPSVR01 with REPLSTATE=ENABLED appear as replicated targets on SPSVR02.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am verifying that
+REPL_RULE_PRIMARY_DR covers every enabled node.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_storage_rule and query_replication_rule.
+2. Confirm REPL_RULE_PRIMARY_DR has ACTIONTYPE=REPLICATE and covers all nodes with
+   REPLSTATE=ENABLED.
+3. On sp-mcp-spsvr02, run query_replication_client with node_name=* and confirm every enabled
+   SPSVR01 node appears as a replicated target.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, enabled on SPSVR01, present on SPSVR02, status.
 ```
 
 ---
@@ -784,15 +2389,65 @@ On sp-mcp-spsvr01, retrieve the current replication storage rules using query_st
 ### Cross-server backup data consistency checks
 
 ```text
-Verify that the DOM_DATABASE node backup data on SPSVR02 is consistent with SPSVR01. On sp-mcp-spsvr01, use query_data_occupancy for DBORA01_NODE, DBSQL01_NODE, and DBDB201_NODE to get the total backup objects and physical bytes per node. On sp-mcp-spsvr02, run query_data_occupancy for the same three nodes. Compare the object counts and flag any node where the replica on SPSVR02 is more than 5% below the primary on SPSVR01.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I need to verify that
+DOM_DATABASE backup data on SPSVR02 matches SPSVR01.
+
+Do the following:
+1. On sp-mcp-spsvr01 and sp-mcp-spsvr02, run query_data_occupancy for DBORA01_NODE, DBSQL01_NODE,
+   and DBDB201_NODE.
+2. Compare backup object counts and physical bytes per node.
+3. Flag nodes where SPSVR02 is more than 5% below SPSVR01.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, SPSVR01 objects, SPSVR02 objects, difference %, flag.
 ```
 
 ```text
-On sp-mcp-spsvr01, retrieve the backup file space list for SAPHANA01_NODE using query_client_backup_volume. On sp-mcp-spsvr02, run query_replication_client with node_name=SAPHANA01_NODE to confirm the same file spaces have been replicated. Report any file spaces present on SPSVR01 that are absent from the replication record on SPSVR02, with the last-modified date of each missing file space.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am checking file space
+replication for SAPHANA01_NODE.
+
+Do the following:
+1. On sp-mcp-spsvr01, list backup file spaces using query_client_backup_volume.
+2. On sp-mcp-spsvr02, run query_replication_client with node_name=SAPHANA01_NODE.
+3. Report file spaces missing from the replica, with their last-modified dates.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: file space, on SPSVR01, replicated to SPSVR02, last modified.
 ```
 
 ```text
-Run a cross-server occupancy audit for all SAP nodes (SAPHANA01_NODE, SAPABAP01_NODE) across the three servers. On sp-mcp-spsvr01, run query_data_occupancy for both nodes. On sp-mcp-spsvr02, run query_data_occupancy for both nodes. On sp-mcp-spsvr03, run query_data_occupancy for both nodes. Present results in a side-by-side comparison table. Flag any server where the occupancy deviates by more than 10% from the primary, and identify whether the gap is in backup objects, archive objects, or both.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am auditing SAP node
+occupancy across all three servers.
+
+Do the following:
+1. On each of sp-mcp-spsvr01, sp-mcp-spsvr02, and sp-mcp-spsvr03, run query_data_occupancy for
+   SAPHANA01_NODE and SAPABAP01_NODE.
+2. Flag any server deviating by more than 10% from the primary.
+3. State whether the gap is in backup objects, archive objects, or both.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Side-by-side table with columns: node, object type, SPSVR01, SPSVR02, SPSVR03, deviation %.
 ```
 
 ---
@@ -800,19 +2455,87 @@ Run a cross-server occupancy audit for all SAP nodes (SAPHANA01_NODE, SAPABAP01_
 ### Archive data lifecycle across servers
 
 ```text
-On sp-mcp-spsvr03, I need to verify that the long-term archive objects for DOM_DATABASE nodes have replicated correctly from SPSVR01. Use query_data_occupancy on sp-mcp-spsvr03 for DBORA01_NODE and DBDB201_NODE. Compare the archive object counts against the archive copy group retention settings in MC_DB_90 on sp-mcp-spsvr01 using query_protection_policy. Flag any discrepancy that suggests archive objects were not replicated.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). Long-term archive objects
+for DOM_DATABASE should have replicated from SPSVR01 to SPSVR03.
+
+Do the following:
+1. On sp-mcp-spsvr03, run query_data_occupancy for DBORA01_NODE and DBDB201_NODE.
+2. Compare archive object counts with the MC_DB_90 archive copy group retention on sp-mcp-spsvr01,
+   using query_protection_policy.
+3. Flag discrepancies suggesting archive objects were not replicated.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, archive objects on SPSVR03, expected, discrepancy.
 ```
 
 ```text
-On sp-mcp-spsvr03, query the storage pool POOL_DISK_ARCHIVE using query_storage_container. Report current utilisation, available capacity, and whether deduplication is active. If utilisation exceeds 75%, estimate how many additional archive objects the pool can absorb before migration to POOL_TAPE_ARCHIVE is required, based on the average object size derived from query_data_occupancy for DOM_DATABASE and DOM_SAP nodes.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). POOL_DISK_ARCHIVE on
+SPSVR03 may be nearing capacity.
+
+Do the following:
+1. On sp-mcp-spsvr03, run query_storage_container for POOL_DISK_ARCHIVE.
+2. Report utilisation, available capacity, and whether deduplication is active.
+3. If utilisation exceeds 75%, estimate how many more archive objects fit before migration to
+   POOL_TAPE_ARCHIVE, using the average object size from query_data_occupancy for DOM_DATABASE and
+   DOM_SAP nodes.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Pool status summary and, if triggered, the capacity estimate with its assumptions.
 ```
 
 ```text
-On sp-mcp-spsvr03, SAP archive log objects for SAPHANA01_NODE managed under MC_SAP_LOG are approaching the 90-day retention boundary. Use query_data_occupancy on sp-mcp-spsvr03 for SAPHANA01_NODE filtered to archive objects. Identify how many archive objects expire in the next 14 days, their collective size, and whether the automatic expiration process will free sufficient space in POOL_DISK_ARCHIVE before new archive replication from SPSVR01 arrives.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). SAP archive log objects
+for SAPHANA01_NODE under MC_SAP_LOG approach the 90-day retention boundary.
+
+Do the following:
+1. On sp-mcp-spsvr03, run query_data_occupancy for SAPHANA01_NODE filtered to archive objects.
+2. Report how many objects expire in 14 days and their total size.
+3. Assess whether expiration frees enough space in POOL_DISK_ARCHIVE before new replication from
+   SPSVR01 arrives.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Expiry table (count, size) and a space-sufficiency verdict.
 ```
 
 ```text
-I need to implement a policy on SPSVR03 to move aged archive data from POOL_DISK_ARCHIVE to POOL_TAPE_ARCHIVE after 180 days. On sp-mcp-spsvr03, retrieve the current storage rules using query_storage_rule to confirm no conflicting tiering rule exists. Then show me the DEFINE STGRULE command with ACTIONTYPE=TIEBYAGE and TIERDAYS=180 that migrates data from POOL_DISK_ARCHIVE to POOL_TAPE_ARCHIVE. Show the command before executing.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). Aged archive data on
+SPSVR03 must move to tape after 180 days.
+
+Do the following:
+1. On sp-mcp-spsvr03, run query_storage_rule to confirm no conflicting tiering rule exists.
+2. Show the DEFINE STGRULE command with ACTIONTYPE=TIEBYAGE and TIERDAYS=180 that moves data from
+   POOL_DISK_ARCHIVE to POOL_TAPE_ARCHIVE.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Conflict check result and the command, shown before any execution.
 ```
 
 ---
@@ -820,15 +2543,70 @@ I need to implement a policy on SPSVR03 to move aged archive data from POOL_DISK
 ### Multi-server schedule compliance & RPO monitoring
 
 ```text
-Produce a schedule compliance report across all three servers for the last 24 hours. On sp-mcp-spsvr01, query SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY using query_scheduled_event for DOM_DATABASE and DOM_SAP. On sp-mcp-spsvr02, verify that replication of the same nodes completed within 2 hours of each backup event using query_protection_status and query_replication_failures. On sp-mcp-spsvr03, run query_protection_status. Present a three-column compliance summary: backup status on SPSVR01, replication status to SPSVR02, and archive replication status to SPSVR03.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am producing the
+last-24-hour schedule compliance report for all three servers.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_scheduled_event for SCHED_DB_NIGHTLY (DOM_DATABASE) and
+   SCHED_SAP_LOG_HOURLY (DOM_SAP).
+2. On sp-mcp-spsvr02, verify the same nodes replicated within 2 hours of each backup using
+   query_protection_status and query_replication_failures.
+3. On sp-mcp-spsvr03, run query_protection_status.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Three-column summary: backup status on SPSVR01, replication to SPSVR02, archive replication to
+SPSVR03.
 ```
 
 ```text
-We have an RPO target of 4 hours for DOM_DATABASE nodes across the three-server topology. On sp-mcp-spsvr01, retrieve the last successful backup event for DBORA01_NODE under SCHED_DB_NIGHTLY using query_scheduled_event. On sp-mcp-spsvr02, confirm the last successful replication of DBORA01_NODE using query_replication_client. On sp-mcp-spsvr03, confirm the same. Calculate the end-to-end data age — from last backup on SPSVR01 to last replica on SPSVR03 — and flag if the chain exceeds 4 hours.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). A 4-hour RPO applies to
+DOM_DATABASE nodes across the three-server chain.
+
+Do the following:
+1. On sp-mcp-spsvr01, find the last successful SCHED_DB_NIGHTLY event for DBORA01_NODE via
+   query_scheduled_event.
+2. On sp-mcp-spsvr02 and sp-mcp-spsvr03, find the last successful replication via
+   query_replication_client.
+3. Calculate end-to-end data age from the SPSVR01 backup to the SPSVR03 replica.
+4. Flag if it exceeds 4 hours.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Timeline table with columns: server, last success time, age; then the RPO verdict.
 ```
 
 ```text
-SAPHANA01_NODE on SPSVR01 has a 15-minute RPO for SAP HANA archive logs under SCHED_SAP_LOG_HOURLY. On sp-mcp-spsvr01, confirm the last five archive events completed within the schedule window using query_scheduled_event. On sp-mcp-spsvr02, run query_replication_client for SAPHANA01_NODE to confirm the archive file spaces are being replicated. Report whether the current replication lag between SPSVR01 and SPSVR02 for SAPHANA01_NODE could place the effective RPO above 15 minutes.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). SAPHANA01_NODE has a
+15-minute RPO for archive logs under SCHED_SAP_LOG_HOURLY.
+
+Do the following:
+1. On sp-mcp-spsvr01, confirm the last five archive events completed within the schedule window via
+   query_scheduled_event.
+2. On sp-mcp-spsvr02, run query_replication_client for SAPHANA01_NODE.
+3. Assess whether replication lag could push the effective RPO above 15 minutes.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Event table, observed replication lag, and an RPO verdict.
 ```
 
 ---
@@ -836,19 +2614,86 @@ SAPHANA01_NODE on SPSVR01 has a 15-minute RPO for SAP HANA archive logs under SC
 ### Disaster recovery failover readiness
 
 ```text
-Assess DR readiness for a failover from SPSVR01 to SPSVR02. On sp-mcp-spsvr02, run the following checks: (1) query_protection_status to confirm POOL_DISK_REPLICA is in sync; (2) query_replication_client with node_name=* to verify all production nodes have replicated; (3) query_server_status to confirm SPSVR02 is running and not degraded; (4) query_recovery_log to confirm DB and log space are healthy. Produce a DR readiness scorecard with red/amber/green status per check.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). We are assessing readiness
+to fail over from SPSVR01 to SPSVR02.
+
+Do the following:
+1. On sp-mcp-spsvr02, run query_protection_status to confirm POOL_DISK_REPLICA is in sync.
+2. Run query_replication_client with node_name=* to verify all production nodes replicated.
+3. Run query_server_status to confirm SPSVR02 is running and not degraded.
+4. Run query_recovery_log to confirm DB and log space are healthy.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+DR readiness scorecard with columns: check, result, red, amber, or green.
 ```
 
 ```text
-A failover decision has been made — SPSVR01 is offline following a site incident. On sp-mcp-spsvr02, verify that DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE, SAPHANA01_NODE, and SAPABAP01_NODE are all present and have valid backup data using query_client and query_data_occupancy for each node. Identify the most recent backup version available for each node from query_client_backup_volume. Summarise recovery point and any nodes where data coverage on SPSVR02 may result in data loss exceeding the 4-hour RTO.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). SPSVR01 is offline after a
+site incident and failover to SPSVR02 has been approved.
+
+Do the following:
+1. On sp-mcp-spsvr02, confirm DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE, SAPHANA01_NODE, and
+   SAPABAP01_NODE exist with valid data using query_client and query_data_occupancy.
+2. Find each node's most recent backup version via query_client_backup_volume.
+3. Flag nodes whose coverage could cause data loss beyond the 4-hour RTO.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: node, latest backup version, data present, RTO risk.
 ```
 
 ```text
-After a successful failover to SPSVR02, we need to re-register the three DOM_DATABASE nodes — DBORA01_NODE, DBSQL01_NODE, DBDB201_NODE — to point to SPSVR02 as their primary server. What IBM Storage Protect commands are required to update the node definitions, re-bind them to the correct policy domain DOM_DATABASE, and ensure SCHED_DB_NIGHTLY runs against SPSVR02? Show the full sequence of commands on sp-mcp-spsvr02 before executing anything.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). Failover to SPSVR02
+succeeded and three DOM_DATABASE nodes must now use it as primary.
+
+Do the following:
+1. List the commands on sp-mcp-spsvr02 to update DBORA01_NODE, DBSQL01_NODE, and DBDB201_NODE.
+2. Re-bind them to policy domain DOM_DATABASE.
+3. Ensure SCHED_DB_NIGHTLY runs against SPSVR02.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+- Do not execute anything until I approve the whole sequence.
+
+Generate the output with the following format:
+Full ordered command sequence with the purpose of each step.
 ```
 
 ```text
-We want to test a planned DR drill from SPSVR01 to SPSVR02 this weekend. On sp-mcp-spsvr01, retrieve the current list of all nodes with REPLSTATE=ENABLED using query_replication_client. On sp-mcp-spsvr02, confirm each of those nodes has data present using query_data_occupancy. Identify any nodes that exist on SPSVR01 but are missing or have zero occupancy on SPSVR02 — these represent DR coverage gaps that must be resolved before the drill.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). A planned DR drill from
+SPSVR01 to SPSVR02 is scheduled for this weekend.
+
+Do the following:
+1. On sp-mcp-spsvr01, list nodes with REPLSTATE=ENABLED via query_replication_client.
+2. On sp-mcp-spsvr02, confirm each node has data via query_data_occupancy.
+3. Identify nodes missing or at zero occupancy on SPSVR02.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Gap table with columns: node, enabled on SPSVR01, occupancy on SPSVR02, gap (Yes or No).
 ```
 
 ---
@@ -856,19 +2701,88 @@ We want to test a planned DR drill from SPSVR01 to SPSVR02 this weekend. On sp-m
 ### Multi-server security & audit
 
 ```text
-Audit the MCP service account configuration across all three servers to confirm consistent security posture. On sp-mcp-spsvr01, run query_admin_user for mcp-svc-system, mcp-svc-policy, mcp-svc-storage, mcp-svc-operator, mcp-svc-readonly. Repeat on sp-mcp-spsvr02 and sp-mcp-spsvr03. For each server, verify that all five accounts exist, have SESSIONSECURITY=Strict, and carry the correct privilege class. Report any account that is missing, incorrectly configured, or has not been used in 30 days.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am auditing MCP service
+accounts for a consistent security posture.
+
+Do the following:
+1. On each of sp-mcp-spsvr01, sp-mcp-spsvr02, and sp-mcp-spsvr03, run query_admin_user for
+   mcp-svc-system, mcp-svc-policy, mcp-svc-storage, mcp-svc-operator, and mcp-svc-readonly.
+2. Verify each account exists, has SESSIONSECURITY=Strict, and carries the correct privilege class.
+3. Report accounts that are missing, misconfigured, or unused for 30 days.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: server, account, exists, SESSIONSECURITY, privilege class, last used.
 ```
 
 ```text
-Retrieve the MCP audit trail from all three servers for write operations performed in the last 7 days. On sp-mcp-spsvr01, use query_activity_log with search term MCP_AUDIT and a 7-day window. Repeat on sp-mcp-spsvr02 and sp-mcp-spsvr03. Aggregate the results into a cross-server audit table showing the operation, tool, privilege class, correlation ID, server, and timestamp. Flag any write operations on SPSVR02 or SPSVR03 that do not have a corresponding originating operation on SPSVR01 — these may indicate out-of-band administrative changes.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I am reviewing MCP write
+operations from the last 7 days on all three servers.
+
+Do the following:
+1. On each server, run query_activity_log with search term MCP_AUDIT and a 7-day window.
+2. Aggregate into one audit table.
+3. Flag write operations on SPSVR02 or SPSVR03 with no originating operation on SPSVR01, as they may
+   indicate out-of-band changes.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: operation, tool, privilege class, correlation ID, server, timestamp.
 ```
 
 ```text
-Map the multi-server IBM Storage Protect topology (SPSVR01, SPSVR02, SPSVR03) to NIST SP 800-53 CP-9 (information system backup) and CP-6 (alternate storage site). For CP-9, reference the backup schedules on SPSVR01 (SCHED_DB_NIGHTLY, SCHED_SAP_LOG_HOURLY) and query_protection_status on all three servers. For CP-6, reference the geographic separation between SPSVR01/SPSVR02 (on-site) and SPSVR03 (remote site). Identify any control gaps and list the evidence artefacts needed to satisfy an auditor.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). An auditor needs the
+multi-server topology mapped to NIST SP 800-53 CP-9 and CP-6.
+
+Do the following:
+1. For CP-9, cite the SPSVR01 schedules SCHED_DB_NIGHTLY and SCHED_SAP_LOG_HOURLY and
+   query_protection_status on all three servers.
+2. For CP-6, cite the separation between SPSVR01 and SPSVR02 (on-site) and SPSVR03 (remote).
+3. Identify control gaps and the evidence artefacts needed.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Table with columns: control, evidence, gap, artefact needed.
 ```
 
 ```text
-On sp-mcp-spsvr03, confirm that the long-term archive data for DOM_DATABASE nodes is protected from deletion for the required 7-year retention period. Retrieve the archive copy group settings for MC_DB_90 in DOM_DATABASE using query_protection_policy on sp-mcp-spsvr01. Then on sp-mcp-spsvr03, retrieve the replication rule REPL_RULE_PRIMARY_ARCHIVE using query_replication_rule to confirm archive objects are included in scope. Confirm whether POOL_TAPE_ARCHIVE has WORM volumes configured that would enforce immutability independent of the replication policy.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). DOM_DATABASE archive data
+on SPSVR03 must be protected from deletion for 7 years.
+
+Do the following:
+1. On sp-mcp-spsvr01, retrieve the MC_DB_90 archive copy group settings via query_protection_policy.
+2. On sp-mcp-spsvr03, retrieve REPL_RULE_PRIMARY_ARCHIVE via query_replication_rule to confirm
+   archive objects are in scope.
+3. Confirm whether POOL_TAPE_ARCHIVE has WORM volumes enforcing immutability independent of
+   replication policy.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Pass or fail per requirement with evidence, and an overall retention-protection verdict.
 ```
 
 ---
@@ -876,15 +2790,67 @@ On sp-mcp-spsvr03, confirm that the long-term archive data for DOM_DATABASE node
 ### Multi-server capacity planning & storage management
 
 ```text
-Produce a cross-server storage capacity report for the three-server topology. On sp-mcp-spsvr01, retrieve utilisation for POOL_DISK_PRIMARY and POOL_CLOUD_TIER using query_storage_container. On sp-mcp-spsvr02, retrieve utilisation for POOL_DISK_REPLICA using query_storage_container. On sp-mcp-spsvr03, retrieve utilisation for POOL_DISK_ARCHIVE and POOL_TAPE_ARCHIVE using query_storage_container. Present a unified capacity dashboard — pool name, server, total capacity, used, available, utilisation % — and flag any pool above 80%.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). I need a unified capacity
+view of the three-server topology.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_storage_container for POOL_DISK_PRIMARY and POOL_CLOUD_TIER.
+2. On sp-mcp-spsvr02, run it for POOL_DISK_REPLICA.
+3. On sp-mcp-spsvr03, run it for POOL_DISK_ARCHIVE and POOL_TAPE_ARCHIVE.
+4. Flag any pool above 80%.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Dashboard table with columns: pool, server, total, used, available, utilisation %, flag.
 ```
 
 ```text
-On sp-mcp-spsvr03, POOL_DISK_ARCHIVE is at 78% utilisation. We need to understand whether the growth rate from replication will push it above 90% within the next 30 days. Retrieve the current occupancy for DOM_DATABASE and DOM_SAP archive objects on sp-mcp-spsvr03 using query_data_occupancy. On sp-mcp-spsvr01, retrieve the archive schedule event history for SCHED_SAP_LOG_HOURLY and SCHED_DB_NIGHTLY over the last 7 days using query_scheduled_event to estimate the daily inflow. Project whether POOL_DISK_ARCHIVE will be exhausted within 30 days and recommend whether to add capacity or accelerate migration to POOL_TAPE_ARCHIVE.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). POOL_DISK_ARCHIVE on
+SPSVR03 is at 78% and may pass 90% within 30 days.
+
+Do the following:
+1. On sp-mcp-spsvr03, retrieve DOM_DATABASE and DOM_SAP archive occupancy via query_data_occupancy.
+2. On sp-mcp-spsvr01, review 7 days of SCHED_SAP_LOG_HOURLY and SCHED_DB_NIGHTLY events via
+   query_scheduled_event to estimate daily inflow.
+3. Project whether the pool is exhausted within 30 days.
+4. Recommend adding capacity or accelerating migration to POOL_TAPE_ARCHIVE.
+
+The following constraints apply:
+- Read-only: run queries only and do not change any configuration.
+- Prefer exact object names and narrow time windows over broad or unbounded scans.
+
+Generate the output with the following format:
+Projection table (day, projected utilisation %), assumptions, and one recommendation.
 ```
 
 ```text
-I need to add a new storage pool directory to POOL_DISK_REPLICA on SPSVR02 to accommodate growing replication inflow from SPSVR01 as we add more DOM_DATABASE nodes. On sp-mcp-spsvr02, retrieve the current POOL_DISK_REPLICA configuration using query_storage_container. Show me the DEFINE STGPOOL DIRECTORY command to add /tsm/replica/ext01 to POOL_DISK_REPLICA on SPSVR02. What post-definition checks should I run on sp-mcp-spsvr02 to confirm the directory is active before the next replication cycle?
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). POOL_DISK_REPLICA on
+SPSVR02 needs more capacity for growing inflow from SPSVR01.
+
+Do the following:
+1. On sp-mcp-spsvr02, retrieve the current POOL_DISK_REPLICA configuration via
+   query_storage_container.
+2. Show the DEFINE STGPOOL DIRECTORY command to add /tsm/replica/ext01.
+3. List post-definition checks to confirm the directory is active before the next replication cycle.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Current configuration, the command before execution, and a verification checklist.
 ```
 
 ---
@@ -892,15 +2858,68 @@ I need to add a new storage pool directory to POOL_DISK_REPLICA on SPSVR02 to ac
 ### Multi-server replication rule management (operator / administrator)
 
 ```text
-On sp-mcp-spsvr01, I need to temporarily suspend replication to SPSVR03 during a scheduled maintenance window on the remote archive site this Saturday 02:00–06:00. Retrieve REPL_RULE_PRIMARY_ARCHIVE using query_replication_rule to confirm its current enabled state. Show me the UPDATE REPLRULE command to disable it before the window and re-enable it after. Include the pre-window check to confirm no active replication is in progress using query_replication_status for DBORA01_NODE.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). Remote archive site
+maintenance runs this Saturday 02:00 to 06:00.
+
+Do the following:
+1. On sp-mcp-spsvr01, confirm the enabled state of REPL_RULE_PRIMARY_ARCHIVE via
+   query_replication_rule.
+2. Show the UPDATE REPLRULE commands to disable it before the window and re-enable it after.
+3. Include the pre-window check that no replication is in progress, using query_replication_status
+   for DBORA01_NODE.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Pre-window check, disable command, and re-enable command, in execution order.
 ```
 
 ```text
-A new policy domain DOM_COMPLIANCE has been created on SPSVR01 for regulated workloads that require replication to both SPSVR02 and SPSVR03. On sp-mcp-spsvr01, retrieve the existing replication storage rules using query_replication_rule to understand the current rule structure. Show me the DEFINE STGRULE commands to create two new replication storage rules — REPL_RULE_COMPLIANCE_DR targeting SPSVR02 and REPL_RULE_COMPLIANCE_ARCHIVE targeting SPSVR03 — both scoped to DOM_COMPLIANCE nodes. Confirm these do not conflict with the existing rule limit of two active target replication servers from a single source.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). New policy domain
+DOM_COMPLIANCE on SPSVR01 must replicate to both SPSVR02 and SPSVR03.
+
+Do the following:
+1. On sp-mcp-spsvr01, review existing rules via query_replication_rule.
+2. Show DEFINE STGRULE commands for REPL_RULE_COMPLIANCE_DR (target SPSVR02) and
+   REPL_RULE_COMPLIANCE_ARCHIVE (target SPSVR03), both scoped to DOM_COMPLIANCE nodes.
+3. Confirm they do not breach the limit of two active target replication servers per source.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+
+Generate the output with the following format:
+Rule structure review, the two commands, and the limit check result.
 ```
 
 ```text
-On sp-mcp-spsvr01, retrieve all storage rules and replication rules using query_storage_rule and query_replication_rule. I need to verify that no replication storage rule has both SPSVR02 and SPSVR03 defined as the target in the same rule (IBM SP only supports one target server per replication storage rule). Flag any misconfiguration and show the corrective DEFINE STGRULE or UPDATE REPLRULE commands needed to separate them into independent rules.
+You are a Data Protection Administrator responsible for replication and data lifecycle management
+across a three-server IBM Storage Protect topology.
+Three-server topology reached through MCP servers sp-mcp-spsvr01 (primary production),
+sp-mcp-spsvr02 (on-site DR replica), and sp-mcp-spsvr03 (remote archive). IBM Storage Protect allows
+only one target server per replication storage rule.
+
+Do the following:
+1. On sp-mcp-spsvr01, run query_storage_rule and query_replication_rule.
+2. Verify no rule defines both SPSVR02 and SPSVR03 as targets.
+3. Flag any misconfiguration and show the DEFINE STGRULE or UPDATE REPLRULE commands that split them
+   into independent rules.
+
+The following constraints apply:
+- Show every command and wait for my confirmation before executing it.
+- Verify the current state with a query before and after any change.
+- Show corrective commands only; do not execute them.
+
+Generate the output with the following format:
+Per-rule pass or fail, with corrective commands for any failing rule.
 ```
 
 ---
@@ -910,25 +2929,31 @@ On sp-mcp-spsvr01, retrieve all storage rules and replication rules using query_
 Replication health queries across multiple servers can exhaust context windows if run without scope constraints. Use the structured blueprint below when investigating a replication lag or failure across the three-server topology.
 
 ```text
-You are assisting a Backup Engineer investigating an IBM Storage Protect replication health issue across a three-server topology: SPSVR01 (primary, sp-mcp-spsvr01), SPSVR02 (on-site DR replica, sp-mcp-spsvr02), SPSVR03 (remote archive, sp-mcp-spsvr03).
+You are a Backup Engineer investigating an IBM Storage Protect replication health issue.
+Three-server topology: SPSVR01 (primary, sp-mcp-spsvr01), SPSVR02 (on-site DR replica,
+sp-mcp-spsvr02), SPSVR03 (remote archive, sp-mcp-spsvr03).
 
-Goal:
-Identify which nodes have failed or lagging replication on each replication leg (SPSVR01→SPSVR02, SPSVR01→SPSVR03, SPSVR02→SPSVR03), determine root cause for each failure, and classify the risk to DR and archive data coverage.
+Do the following:
+Identify which nodes have failed or lagging replication on each replication leg (SPSVR01→SPSVR02,
+SPSVR01→SPSVR03, SPSVR02→SPSVR03), determine root cause for each failure, and classify the risk to
+DR and archive data coverage.
 
-Query Success Rules:
+Follow these query success rules:
 1. Prefer the most constrained query possible before expanding scope.
 2. Never run query_replication_client with node_name=* unless targeted per-server.
 3. Never run query_activity_log without a specific node name and narrow time window (±60 minutes).
 4. Address each MCP server separately and in order: SPSVR01, then SPSVR02, then SPSVR03.
 5. If a query returns no match, retry once with a simpler parameter set before moving on.
 
-Required Execution Sequence:
+Follow this execution sequence:
 
 Step 1 — Source Server Health (sp-mcp-spsvr01)
 - Run query_protection_status to get POOL_DISK_PRIMARY protection state.
 - Run query_replication_failures to retrieve all failure records.
-- Run query_replication_rule to confirm REPL_RULE_PRIMARY_DR and REPL_RULE_PRIMARY_ARCHIVE are active.
-- Run query_storage_container for POOL_DISK_PRIMARY — a pool above 80% is a common replication stall cause.
+- Run query_replication_rule to confirm REPL_RULE_PRIMARY_DR and REPL_RULE_PRIMARY_ARCHIVE are
+  active.
+- Run query_storage_container for POOL_DISK_PRIMARY — a pool above 80% is a common replication stall
+  cause.
 
 Step 2 — DR Replica Health (sp-mcp-spsvr02)
 - Run query_protection_status to confirm POOL_DISK_REPLICA is in sync.
@@ -939,12 +2964,15 @@ Step 2 — DR Replica Health (sp-mcp-spsvr02)
 Step 3 — Remote Archive Health (sp-mcp-spsvr03)
 - Run query_protection_status to confirm POOL_DISK_ARCHIVE is in sync.
 - Run query_replication_failures to retrieve any inbound failure records.
-- Run query_storage_container for POOL_DISK_ARCHIVE — a full archive pool will reject new replication.
+- Run query_storage_container for POOL_DISK_ARCHIVE — a full archive pool will reject new
+  replication.
 
 Step 4 — Per-Node Replication Validation (sp-mcp-spsvr01)
-- For each node flagged in failure records from Steps 1–3, run query_replication_client with the specific node name.
+- For each node flagged in failure records from Steps 1–3, run query_replication_client with the
+  specific node name.
 - Confirm REPLSTATE=ENABLED and review the target server and files-sent count.
-- For each failed node, run query_activity_log with a ±60-minute window around the failure timestamp.
+- For each failed node, run query_activity_log with a ±60-minute window around the failure
+  timestamp.
 
 Step 5 — Root Cause Classification
 Classify each replication failure as one of:
@@ -958,19 +2986,24 @@ Classify each replication failure as one of:
 
 Step 6 — If query_replication_failures Returns No Results
 - Treat absence of failure records as a potential false-negative.
-- Run query_replication_client with node_name=* on sp-mcp-spsvr01 and manually inspect files-sent versus files-received for key nodes.
+- Run query_replication_client with node_name=* on sp-mcp-spsvr01 and manually inspect files-sent
+  versus files-received for key nodes.
 - Mark findings as Likely instead of Confirmed.
 
-Output Format:
-- Executive Summary: replication health status per server leg (green / amber / red); total failure records; nodes at risk.
-- Replication Failure Table: Node · Source Server · Target Server · Failure Date · File Space · Root Cause · Recommended Action.
-- Lagging Nodes Table: Node · Source Server · Target Server · Files Sent · Files Received · Estimated Lag · Risk to RPO.
+Generate the output with the following format:
+- Executive Summary: replication health status per server leg (green / amber / red); total failure
+  records; nodes at risk.
+- Replication Failure Table: Node · Source Server · Target Server · Failure Date · File Space · Root
+  Cause · Recommended Action.
+- Lagging Nodes Table: Node · Source Server · Target Server · Files Sent · Files Received ·
+  Estimated Lag · Risk to RPO.
 - Pool Capacity Risk: server, pool, utilisation %, and whether the pool is a blocker.
 - Immediate Actions Required.
 - Limitations.
 
-Constraints:
+The following constraints apply:
 - Address one MCP server at a time.
 - Do not run broad unbounded queries against all nodes simultaneously.
-- Clearly distinguish Confirmed failures (from query_replication_failures) from Likely failures (inferred from query_replication_client).
+- Clearly distinguish Confirmed failures (from query_replication_failures) from Likely failures
+  (inferred from query_replication_client).
 ```

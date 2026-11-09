@@ -93,6 +93,9 @@ def _load_env_permission_check(env_path: str = ".env") -> None:
     """
     if not os.path.exists(env_path):
         return
+    # On Windows NTFS filesystems, POSIX permission bits are not supported via os.stat
+    if os.name == "nt":
+        return
     mode = os.stat(env_path).st_mode
     if mode & (stat.S_IRGRP | stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH):
         raise PermissionError(
@@ -172,7 +175,7 @@ def load_config(env_path: str = ".env") -> ServerConfig:
     """
     _load_env_permission_check(env_path)
 
-    address = os.environ.get("TCPSERVERADDRESS")
+    address = os.environ.get("TCPSERVERADDRESS") or os.environ.get("SP_SERVER_ADDRESS")
     port    = os.environ.get("SP_SERVER_PORT") or os.environ.get("TCPPORT") or "1500"
 
     # ── CRED-1 + INT-4: Per-module credentials (keyring-first) ───────────────

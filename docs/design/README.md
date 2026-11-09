@@ -15,6 +15,7 @@ Security design specifications for the IBM Storage Protect MCP Server, one docum
 | [`security-policy.md`](security-policy.md) | Policy Management | POL-1 through POL-4 — command approval, password pre-validation, lockout audit, ACTLOG attribution |
 | [`security-integrations.md`](security-integrations.md) | Secure Integrations | INT-1 through INT-4 — OAuth 2.1 / OIDC, HTTP TLS, keyring secret resolution |
 | [`security-non-repudiation.md`](security-non-repudiation.md) | Non-Repudiation & Forensics | NR-1 through NR-5 — user identity binding, strict audit fail-closed, ISO 8601 UTC timestamps |
+| [`security-oauth2.md`](security-oauth2.md) | OAuth 2 Authorization | OA-1 through OA-7 — AS metadata endpoint, JWKS rotation, PKCE grant flow, token introspection, RFC 9470 resource metadata, auth model audit binding |
 
 ---
 

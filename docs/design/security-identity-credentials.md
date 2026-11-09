@@ -258,7 +258,7 @@ echo "SP_MCP_USE_PASSWORD_STASH=1" >> /opt/sp-mcp-server/.env
 | `src/sp_mcp_server/main.py` + supported domain entry points | **RG-2**: use `secure_startup()`; legacy entry points remain to be normalized |
 | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) | NET-1 check updated to iterate all configured accounts via `credential_for()` |
 | `scripts/provision-sp-service-accounts.sh` (referenced, not present in audited tree) | CRED-5: deployment artifact required or documentation link must be corrected |
-| [`tests/test_security_controls.py`](../../tests/test_security_controls.py) | **RG-6**: new — 36 automated security regression tests |
+| [`tests/test_sec_startup.py`](../../tests/test_sec_startup.py) | **RG-6**: modular security regression test suite (`test_sec_*.py`) |
 | [`tests/test_cli_wrapper.py`](../../tests/test_cli_wrapper.py) | Updated `su` → `sudo` assertions |
 | [`tests/test_core_components.py`](../../tests/test_core_components.py) | Updated `su` → `sudo` assertions |
 
