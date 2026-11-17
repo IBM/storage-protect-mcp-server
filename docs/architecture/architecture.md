@@ -426,9 +426,10 @@ graph TD
 | Property | Value |
 | :--- | :--- |
 | Primary location | `/var/log/ibm-sp-mcp-server/mcp-server.log` |
-| Fallback location | `/tmp/ibm-sp-mcp-server/` |
+| Fallback location | `<tmpdir>/ibm-sp-mcp-server-<uid>/` (per-uid, must be a real directory owned by the service user; forced to `0700`). If it fails validation, file logging is disabled and only stderr is used |
+| Permissions | Log files `0600`; directories created by the server `0700` |
 | Rotation | 10 MB max file size, 5 backup files |
-| File log level | DEBUG |
+| File log level | INFO (`SP_MCP_LOG_LEVEL` to change). Third-party SDK/HTTP loggers (`mcp`, `httpx`, `httpcore`, `starlette`) are pinned to WARNING so raw request bodies are never persisted. A redaction filter masks `password`/`token`/`secret`/`Bearer` values as a backstop |
 | Console log level | INFO |
 | Format | `timestamp · logger · level · file:line · message` |
 

@@ -164,3 +164,59 @@ def test_dsmadmc_execute_does_not_log_command_or_password(monkeypatch, caplog):
     assert "s3cretPassw0rd" not in caplog.text
     assert ADMIN_PASSWORD not in caplog.text
     assert "UPDATE command" in caplog.text
+
+
+# ── offline/servermon wrappers must not log argument values ───────────────────
+
+import logging
+import pytest
+
+_LOG_SECRET = "Zx9!SentinelPassw0rd#4417"
+
+
+class _OkResult:
+    stdout = ""
+    stderr = ""
+    returncode = 0
+
+
+def _fake_run(args, capture_output, text, check, timeout):
+    return _OkResult()
+
+
+@pytest.mark.parametrize("instance_user", [SP_INSTANCE_USER, None])
+def test_dsmserv_does_not_log_argument_values(monkeypatch, caplog, instance_user):
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    wrapper = DsmServWrapper(make_server_config(instance_user=instance_user))
+    with caplog.at_level(logging.DEBUG):
+        wrapper.execute(f"SET PASSWORD {_LOG_SECRET}")
+    assert _LOG_SECRET not in caplog.text
+    assert "Executing offline SET command" in caplog.text
+
+
+def test_dsmserv_unlisted_verb_is_logged_as_other(monkeypatch, caplog):
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    wrapper = DsmServWrapper(make_server_config(instance_user=None))
+    with caplog.at_level(logging.INFO):
+        wrapper.execute(f"{_LOG_SECRET} --flag")
+    assert _LOG_SECRET not in caplog.text
+    assert "Executing offline OTHER command" in caplog.text
+
+
+def test_dsmserv_display_verb_still_logged(monkeypatch, caplog):
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    wrapper = DsmServWrapper(make_server_config(instance_user=None))
+    with caplog.at_level(logging.INFO):
+        wrapper.execute(CMD_DISPLAY_DBSPACE)
+    assert "Executing offline DISPLAY command" in caplog.text
+
+
+@pytest.mark.parametrize("instance_user", [SP_INSTANCE_USER, None])
+def test_servermon_does_not_log_argument_values(monkeypatch, caplog, instance_user):
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    wrapper = ServermonWrapper(make_server_config(instance_user=instance_user))
+    monkeypatch.setattr(wrapper, "_check_servermon_running", lambda: False)
+    with caplog.at_level(logging.DEBUG):
+        wrapper.execute(["-user", "admin", f"-password={_LOG_SECRET}"])
+    assert _LOG_SECRET not in caplog.text
+    assert "with 3 argument(s)" in caplog.text
