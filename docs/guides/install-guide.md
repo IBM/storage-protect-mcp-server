@@ -247,7 +247,8 @@ SP_MCP_SESSION_MAX_TTL=3600        # Hard session cap in seconds (default: 60m)
 | `SP_TLS_CERT` | HTTP transport | Both | Path to PEM TLS certificate |
 | `SP_TLS_KEY` | HTTP transport | Both | Path to PEM TLS private key |
 | `SP_MCP_ALLOW_HTTP_PLAINTEXT` | No (default `0`) | Both | `1` = allow HTTP without TLS (loopback test only) |
-| `SP_MCP_LOG_DIR` | No | Both | Log directory (default `/var/log/ibm-sp-mcp-server`) |
+| `SP_MCP_LOG_DIR` | No | Both | Log directory (default `/var/log/ibm-sp-mcp-server`); created `0700`, log files `0600` |
+| `SP_MCP_LOG_LEVEL` | No (default `INFO`) | Both | Root log level. SDK/HTTP library loggers stay at WARNING regardless |
 
 ---
 

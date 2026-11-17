@@ -1003,8 +1003,9 @@ grep "POL-4" /var/log/ibm-sp-mcp-server/mcp-server.log
 # Filter startup checks
 grep -E "NET-1|POL-3|ACC-2" /var/log/ibm-sp-mcp-server/mcp-server.log
 
-# If /var/log is not writable, the server falls back to /tmp/ibm-sp-mcp-server/
-ls /tmp/ibm-sp-mcp-server/mcp-server.log 2>/dev/null
+# If /var/log is not writable, the server falls back to a private per-uid directory
+ls -d "${TMPDIR:-/tmp}"/ibm-sp-mcp-server-*/mcp-server.log 2>/dev/null
+# If neither location is usable, file logging is disabled (stderr only); set SP_MCP_LOG_DIR
 ```
 
 ---

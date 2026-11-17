@@ -5,6 +5,9 @@ import os
 import uuid
 import time
 import logging
+import re
+import stat
+import tempfile
 from logging.handlers import RotatingFileHandler
 import inspect
 import contextvars
@@ -31,22 +34,169 @@ from .cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
 from .commands.base import BaseCommand, BaseOfflineCommand, BaseServermonCommand, PRIVILEGE_TIERS
 from .cli_wrapper import current_execution_credentials
 
+# ── Logging ──────────────────────────────────────────────────────────────────
+# Security notes:
+#   * The root logger must NOT run at DEBUG.  Third-party libraries (notably the
+#     MCP SDK's SSE transport, which logs every raw POST body at DEBUG *before*
+#     authorization) would otherwise write plaintext passwords into the
+#     persistent log.  The "mcp" family is additionally pinned to WARNING so a
+#     later global level change cannot re-expose it.
+#   * Log files are created 0600 and log directories we create are 0700.
+#   * The /tmp fallback is per-uid and strictly validated (no symlink, owned by
+#     the service user); otherwise file logging is disabled (stderr only).
+#   * A redacting filter scrubs credential-looking key/value pairs as a
+#     defence-in-depth backstop.  It is not a substitute for the level policy.
+_LOG_FILE_MODE = 0o600
+_LOG_DIR_MODE = 0o700
+_LOG_BACKUP_COUNT = 5
+_SP_HANDLER_ATTR = "_sp_mcp_handler"
+_legacy_artifacts: List[str] = []
+
+# Libraries whose DEBUG output can contain request bodies, headers or tokens.
+_QUIET_LOGGERS = ("mcp", "httpx", "httpcore", "starlette")
+
+_SENSITIVE_KEY = r"[\w.-]*(?:pass(?:word|wd|phrase)|pwd|secret|token|api[_-]?key|authorization)[\w.-]*"
+_REDACT_KV = re.compile(
+    r"(?P<key>\\?[\"']?" + _SENSITIVE_KEY + r"\\?[\"']?\s*[:=]\s*)"
+    r"(?P<val>\\?\"(?:[^\"\\]|\\.)*\\?\"|\\?'(?:[^'\\]|\\.)*\\?'|[^\s,;&}\]\\]+)",
+    re.IGNORECASE,
+)
+_REDACT_BEARER = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+")
+_REDACTED = "***REDACTED***"
+
+
+def _redact(text: str) -> str:
+    """Mask credential-looking values in an already-formatted log message."""
+    text = _REDACT_BEARER.sub(lambda m: m.group(1) + _REDACTED, text)
+    return _REDACT_KV.sub(lambda m: m.group("key") + _REDACTED, text)
+
+
+class _RedactingFilter(logging.Filter):
+    """Defence-in-depth: scrub password/token/secret values from every record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        redacted = _redact(message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = None
+        return True
+
+
+class _SecureRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that always creates/keeps its files at mode 0600."""
+
+    def _open(self):
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self.baseFilename, flags, _LOG_FILE_MODE)
+        try:
+            os.fchmod(fd, _LOG_FILE_MODE)  # tighten files left by older versions
+        except OSError:
+            pass  # not owner, or append-only attribute set — keep going
+        return os.fdopen(fd, self.mode, encoding=self.encoding, errors=self.errors)
+
+
+def _prepare_log_dir(path: str, strict: bool) -> None:
+    """
+    Ensure ``path`` is a usable log directory.
+
+    strict=False: administrator-provisioned location (SP_MCP_LOG_DIR / /var/log).
+                  Created 0700 if missing; an existing directory is left alone.
+    strict=True:  shared-location fallback (/tmp).  Must be a real directory
+                  (not a symlink) owned by the current user, and is forced to
+                  0700.  Anything else raises OSError so we never write into a
+                  directory another user pre-created.
+    """
+    if not strict:
+        os.makedirs(path, mode=_LOG_DIR_MODE, exist_ok=True)
+        if not os.path.isdir(path):
+            raise NotADirectoryError(path)
+        return
+
+    try:
+        os.mkdir(path, _LOG_DIR_MODE)
+    except FileExistsError:
+        pass
+    st = os.lstat(path)  # lstat: do not follow a planted symlink
+    if not stat.S_ISDIR(st.st_mode):
+        raise PermissionError(f"{path} is not a real directory")
+    if hasattr(os, "geteuid") and st.st_uid != os.geteuid():
+        raise PermissionError(f"{path} is not owned by the current user")
+    if st.st_mode & 0o077:
+        os.chmod(path, _LOG_DIR_MODE)
+
+
+def _fallback_log_dir() -> str:
+    uid = os.geteuid() if hasattr(os, "geteuid") else "user"
+    return os.path.join(tempfile.gettempdir(), f"ibm-sp-mcp-server-{uid}")
+
+
+def _find_legacy_log_artifacts(primary_dir: str) -> List[str]:
+    """
+    Return log files written by versions before the credential-logging fix.
+
+    Those versions persisted raw request bodies (including passwords) at DEBUG and
+    created files world-readable.  We report:
+      * anything in the old predictable fallback dir (never written by this version);
+      * log files/backups in the primary dir that are still group/other-accessible
+        (i.e. not yet tightened by this version).
+    """
+    found: List[str] = []
+    legacy_fallback = os.path.join(tempfile.gettempdir(), "ibm-sp-mcp-server")
+    names = ["mcp-server.log"] + [f"mcp-server.log.{i}" for i in range(1, _LOG_BACKUP_COUNT + 1)]
+    for name in names:
+        path = os.path.join(legacy_fallback, name)
+        if os.path.isfile(path):
+            found.append(path)
+        path = os.path.join(primary_dir, name)
+        try:
+            if os.path.isfile(path) and stat.S_IMODE(os.stat(path).st_mode) & 0o077:
+                found.append(path)
+        except OSError:
+            pass
+    return found
+
+
+def _create_file_handler():
+    """Return (handler, log_file) for the first usable location, else (None, None)."""
+    primary = os.environ.get("SP_MCP_LOG_DIR", "/var/log/ibm-sp-mcp-server")
+    _legacy_artifacts[:] = _find_legacy_log_artifacts(primary)
+    for log_dir, strict in ((primary, False), (_fallback_log_dir(), True)):
+        log_file = os.path.join(log_dir, "mcp-server.log")
+        try:
+            _prepare_log_dir(log_dir, strict)
+            handler = _SecureRotatingFileHandler(
+                log_file,
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=_LOG_BACKUP_COUNT,
+                encoding="utf-8",
+            )
+        except OSError:
+            continue
+        # Tighten rotated backups written by earlier versions (0644).
+        for i in range(1, _LOG_BACKUP_COUNT + 1):
+            try:
+                os.chmod(f"{log_file}.{i}", _LOG_FILE_MODE)
+            except OSError:
+                pass
+        return handler, log_file
+    return None, None
+
+
+def _resolve_log_level() -> int:
+    name = os.environ.get("SP_MCP_LOG_LEVEL", "INFO").upper()
+    level = logging.getLevelName(name)
+    # Default INFO.  Even if set to DEBUG, third-party DEBUG (e.g. the MCP SDK
+    # logging raw request bodies) stays blocked by _QUIET_LOGGERS.
+    return level if isinstance(level, int) else logging.INFO
+
+
 # Configure logging with both file and stderr output
 def setup_logging():
     """Configure logging with file rotation and stderr output."""
-    # Get log file path from environment or use default
-    log_dir = os.environ.get("SP_MCP_LOG_DIR", "/var/log/ibm-sp-mcp-server")
-    log_file = os.path.join(log_dir, "mcp-server.log")
-
-    # Create log directory if it doesn't exist
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-    except (OSError, PermissionError) as e:
-        # If we can't create /var/log directory, fall back to /tmp
-        log_dir = "/tmp/ibm-sp-mcp-server"
-        log_file = os.path.join(log_dir, "mcp-server.log")
-        os.makedirs(log_dir, exist_ok=True)
-
     # Create formatters (NR-5: ISO 8601 UTC timestamping)
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
@@ -54,31 +204,68 @@ def setup_logging():
     )
     detailed_formatter.converter = time.gmtime
     simple_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    redactor = _RedactingFilter()
 
-    # File handler with rotation (10MB max, keep 5 backups)
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5,
-        encoding='utf-8'
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(detailed_formatter)
+    handlers = []
+    file_handler, log_file = _create_file_handler()
+    if file_handler is not None:
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(detailed_formatter)
+        file_handler.addFilter(redactor)
+        handlers.append(file_handler)
 
     # Console handler (stderr) - less verbose for console
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(simple_formatter)
+    console_handler.addFilter(redactor)
+    handlers.append(console_handler)
 
-    # Configure root logger
+    # Configure root logger (idempotent: drop handlers from a previous call)
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
+    for h in list(root_logger.handlers):
+        if getattr(h, _SP_HANDLER_ATTR, False):
+            root_logger.removeHandler(h)
+            h.close()
+    root_logger.setLevel(_resolve_log_level())
+    for h in handlers:
+        setattr(h, _SP_HANDLER_ATTR, True)
+        root_logger.addHandler(h)
+
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     # Get our logger
     logger = logging.getLogger("ibm-sp-mcp-server")
-    logger.info(f"Logging initialized. Log file: {log_file}")
+    if _legacy_artifacts:
+        logger.warning(
+            "SECURITY: log files written by an earlier version may contain "
+            "plaintext credentials from HTTP/SSE or authenticate_session requests: "
+            "%s. Delete them (including rotated backups and any copies forwarded "
+            "to log collectors/backups) and rotate any affected passwords. "
+            "See docs/guides/security-advisory-log-credentials.md.",
+            ", ".join(_legacy_artifacts),
+        )
+
+    if log_file:
+        logger.info("Logging initialized. Log file: %s", log_file)
+    else:
+        logger.warning(
+            "Logging initialized WITHOUT a log file: no secure log directory is "
+            "available. Set SP_MCP_LOG_DIR to a directory writable by the service "
+            "user."
+        )
+        return logger
+
+    log_dir = os.path.dirname(log_file)
+    try:
+        if os.stat(log_dir).st_mode & 0o007:
+            logger.warning(
+                "SECURITY: log directory %s is accessible to 'other' users. "
+                "Restrict it: chmod 750 (or 700) %s", log_dir, log_dir,
+            )
+    except OSError:
+        pass
 
     return logger
 
