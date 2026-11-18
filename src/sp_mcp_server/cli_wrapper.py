@@ -21,7 +21,7 @@ _LOGGABLE_VERBS = (
     "QUERY", "SELECT", "SHOW", "DEFINE", "UPDATE", "DELETE", "REGISTER",
     "REMOVE", "RENAME", "LOCK", "UNLOCK", "SET", "BACKUP", "RESTORE",
     "AUDIT", "CANCEL", "MOVE", "MIGRATE", "RECLAIM", "EXPIRE", "PREPARE",
-    "ENABLE", "DISABLE", "GRANT", "REVOKE", "HELP", "HALT",
+    "ENABLE", "DISABLE", "GRANT", "REVOKE", "HELP", "HALT", "DISPLAY",
 )
 
 
@@ -255,6 +255,10 @@ class DsmServWrapper:
         cmd_parts = command.split()
         args.extend(cmd_parts)
 
+        # Like DsmAdmcWrapper.execute(): `args` may embed a secret, so only the
+        # allowlisted verb is logged, never the argument list.
+        verb = _loggable_verb(command)
+
         try:
             if self.config.instance_user:
                 # ACC-4: sudo -u <user> -- <binary> [args...]
@@ -262,9 +266,9 @@ class DsmServWrapper:
                 #   mcp-runner ALL=(tsmsvr01) NOPASSWD: /usr/bin/dsmserv
                 sudo_args = ["sudo", "-u", self.config.instance_user, "--"] + args
                 logger.info(
-                    "Executing offline command as %s (sudo): %s",
+                    "Executing offline %s command as %s (sudo)",
+                    verb,
                     self.config.instance_user,
-                    " ".join(args),
                 )
                 run_args = sudo_args
             else:
@@ -272,7 +276,7 @@ class DsmServWrapper:
                     "SP_INSTANCE_USER not configured. "
                     "Running dsmserv as current user may fail."
                 )
-                logger.info("Executing offline command: %s", " ".join(args))
+                logger.info("Executing offline %s command", verb)
                 run_args = args
 
             try:
@@ -417,10 +421,11 @@ class ServermonWrapper:
                 # Requires a sudoers entry such as:
                 #   mcp-runner ALL=(tsmsvr01) NOPASSWD: /usr/bin/servermon
                 sudo_args = ["sudo", "-u", self.config.instance_user, "--"] + full_cmd
+                # Argument values are never logged (same rationale as dsmadmc/dsmserv).
                 logger.info(
-                    "Executing servermon command as %s (sudo): %s",
+                    "Executing servermon command as %s (sudo) with %d argument(s)",
                     self.config.instance_user,
-                    " ".join(full_cmd),
+                    len(args),
                 )
                 run_args = sudo_args
             else:
@@ -428,7 +433,7 @@ class ServermonWrapper:
                     "SP_INSTANCE_USER not configured. "
                     "Running servermon as current user may fail."
                 )
-                logger.info("Executing servermon command: %s", " ".join(full_cmd))
+                logger.info("Executing servermon command with %d argument(s)", len(args))
                 run_args = full_cmd
 
             try:
