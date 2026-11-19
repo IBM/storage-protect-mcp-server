@@ -54,14 +54,37 @@ flowchart TD
     A[MCP Client] -->|Bearer token| B[OIDCBearerMiddleware]
     B --> C{token valid?}
     C -- no --> D[401 Unauthorized]
-    C -- yes --> E{resolve scope}
-    E -->|mcp:read| F[privilege = any]
-    E -->|mcp:system| G[privilege = system]
-    E -->|mcp:storage| H[privilege = storage]
-    F & G & H --> I[inject request.state.mcp_privilege & current_audit_user]
-    I --> J[SSE handler /mcp/sse]
-    J --> K[MCP Server call-time privilege gate]
+    C -- yes --> E[Extract Claims: sub, scope, connection_id]
+    E --> F[Inject Request Context: mcp_subject, mcp_privilege, connection_id]
+    F --> G[SSE handler /mcp/sse]
+    G --> H{SP_MCP_AUTH_MODE}
+    H -->|service_account| I[Call-Time Privilege Gate]
+    H -->|dynamic| J[Dynamic Session Resolver]
+    J --> K{Validate session.oidc_subject == mcp_subject}
+    K -- Mismatch (IDOR) --> L[AUTHORIZATION_DENIED: Cross-Client Bleed Blocked]
+    K -- Match --> M[Execute with Delegated SP Credentials]
+    M --> N[Compound Audit: oidc_user=sub sp_admin=username]
 ```
+
+### Context Propagation to Dynamic Session Management (DAUTH-10)
+
+When the HTTP transport is deployed alongside Dynamic Authentication (`SP_MCP_AUTH_MODE=dynamic`), the OIDC caller's identity and transport stream must be propagated into the dynamic authentication engine:
+
+1. **Identity & Connection Context Injection**:
+   * `OIDCBearerMiddleware` extracts the validated subject claim (`payload["sub"]`) into `request.state.mcp_subject` and injects it into the task context variable `current_audit_user`.
+   * The SSE transport connection handler tracks the individual client transport stream and injects `current_connection_id`.
+2. **Session Lease Binding (`DAUTH-10`)**:
+   * When `authenticate_session` is invoked, the resulting `SessionLease` stores `oidc_subject = request.state.mcp_subject` and `connection_id = current_connection_id.get()`.
+   * Ephemeral leases are thus cryptographically bound to the authenticated caller identity.
+3. **Cross-Client Hijacking & IDOR Prevention**:
+   * In `mcp_factory.py`, before any tool is executed under a dynamic lease, the interceptor enforces:
+     `session.oidc_subject == current_audit_user.get()`
+   * Any attempt by an authenticated OIDC user to pass or resolve another user's session ID returns `AUTHORIZATION_DENIED`, completely neutralizing cross-client session hijacking in multi-tenant environments (`DAUTH-10`).
+4. **Dual-Identity Compound Audit Trail (`POL-4` / `NR-1`)**:
+   * All mutating operations emit a compound audit record containing both the OIDC caller and the delegated Storage Protect administrator ID:
+     `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=<mcp_subject> sp_admin=<session.username> tool=<tool> ..."`
+5. **SSE Route Mounting**:
+   * `SseServerTransport("messages")` mounted under Starlette's `/mcp` mount correctly advertises `/mcp/messages` to MCP clients, preventing double-prefix 404 errors (`/mcp/mcp/messages`).
 
 ### Token scope → privilege mapping
 
@@ -196,7 +219,7 @@ EOF
 
 | File | Change |
 |------|--------|
-| [`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | INT-2 / NR-1: `OIDCBearerMiddleware`, `create_http_app()`, `SCOPE_PRIVILEGE_MAP`, sets `current_audit_user` ContextVar |
+| [`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | INT-2 / NR-1 / DAUTH-10: `OIDCBearerMiddleware`, `create_http_app()`, `SCOPE_PRIVILEGE_MAP`, propagates `mcp_subject` and sets `current_audit_user` / `current_connection_id` ContextVars |
 | [`src/sp_mcp_server/main.py`](../../src/sp_mcp_server/main.py) | INT-2: `--transport` and `--port` arguments; uvicorn HTTP startup branch; **RG-5**: TLS cert/key validation |
 | [`src/sp_mcp_server/commands/system/conn.py`](../../src/sp_mcp_server/commands/system/conn.py) | INT-3: `_resolve_secret()`, updated `DefineConnection`/`UpdateConnection` |
 | [`src/sp_mcp_server/cli_wrapper.py`](../../src/sp_mcp_server/cli_wrapper.py) | INT-3: `DsmAdmcWrapper.execute_silent()` |

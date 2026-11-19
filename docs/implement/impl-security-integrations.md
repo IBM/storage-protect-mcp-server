@@ -277,6 +277,9 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
 
         request.state.mcp_privilege = privilege
         request.state.mcp_subject   = payload.get("sub", "unknown")
+        # Propagate OIDC subject into task context for audit and dynamic session binding (DAUTH-10 / POL-4)
+        current_audit_user.set(request.state.mcp_subject)
+        current_request_privilege.set(privilege)
         logger.info(
             "INT-2: Authenticated subject='%s' privilege='%s' scopes=%s",
             request.state.mcp_subject, privilege, scopes
@@ -293,12 +296,17 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlet
     """
     Wrap an MCP server in a Starlette app with OIDC bearer auth middleware.
     The MCP server's SSE handler is mounted at /mcp.
+    Note: SseServerTransport uses relative "messages" endpoint to correctly
+    advertise "/mcp/messages" under the "/mcp" mount (Recommendation 7 / DAUTH-10).
     """
     from mcp.server.sse import SseServerTransport
 
-    sse_transport = SseServerTransport("/mcp/messages")
+    sse_transport = SseServerTransport("messages")
 
     async def handle_sse(request: Request):
+        # Bind connection identifier into context for per-stream session isolation
+        conn_id = request.query_params.get("session_id") or id(request)
+        current_connection_id.set(str(conn_id))
         async with sse_transport.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:

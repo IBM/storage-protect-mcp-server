@@ -1,8 +1,8 @@
 # Module Architecture: System
 
-* **Revision**: 2025-07 (Post-Remediation Verification & Alignment)
-* **Cross-reference**: [`docs/architecture/architecture.md`](architecture.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
-* **Source reference**: `src/sp_mcp_server/commands/system/` · `src/sp_mcp_server/server_groups.py`
+* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, Dual-Identity Audit Trail, AUD-07, AUD-08, DAUTH-7)
+* **Cross-reference**: [`docs/architecture/architecture.md`](architecture.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md)
+* **Source reference**: `src/sp_mcp_server/commands/system/` · `src/sp_mcp_server/session.py` · `src/sp_mcp_server/server_groups.py`
 
 ---
 
@@ -48,8 +48,8 @@ graph LR
 
 | MCP Tool Name | Command Class | Required Privilege | IBM Storage Protect Command | Description & Scope |
 | :--- | :--- | :---: | :--- | :--- |
-| `authenticate_session` | `AuthenticateSession` | `any` | `QUERY STATUS` / `QUERY ADMIN <admin>` (silent) | Authenticates an interactive user session dynamically with SP admin credentials; mints an ephemeral in-memory lease and binds `current_audit_user`. |
-| `logout_session` | `LogoutSession` | `any` | *(session manager only — no SP command)* | Explicitly revokes the current ephemeral session lease, zeros the in-memory credential, and clears `current_session_id` / `current_audit_user` context variables. |
+| `authenticate_session` | `AuthenticateSession` | `any` | `QUERY STATUS` / `QUERY ADMIN <admin>` (silent) | Authenticates an interactive user session dynamically with SP admin credentials; mints an ephemeral in-memory lease binding caller OIDC identity (`oidc_subject`) and transport connection (`connection_id`), and binds request-scoped `current_session_id` and `current_audit_user` ContextVars (DAUTH-10). |
+| `logout_session` | `LogoutSession` | `any` | *(session manager only — no SP command)* | Explicitly revokes an ephemeral session lease with anti-IDOR caller ownership verification, zeros the in-memory credential (`SessionLease.password`), and clears request-scoped context variables (AUD-08, DAUTH-10). |
 | `define_admin` | `DefineAdmin` | `system` | `REGISTER ADMIN <admin> <pwd> [CONTACT=...]` | Creates a new administrator account. Pre-validates password length against `MINPWLENGTH` and executes silently. |
 | `update_user` | `UpdateUser` | `system` | `UPDATE ADMIN <user> [PASSWORD=...] [CONTACT=...]` | Updates administrator account attributes. Uses silent execution if a new password is provided. |
 | `delete_admin` | `DeleteAdmin` | `system` | `REMOVE ADMIN <admin>` | Deletes an administrator account. |

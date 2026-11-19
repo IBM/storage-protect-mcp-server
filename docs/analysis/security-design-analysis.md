@@ -1,6 +1,6 @@
 # IBM Storage Protect MCP Server — Security Design Analysis
 
-* **Revision**: 2025-07 (Security Controls & Architecture Specification)
+* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, Dual-Identity Audit Trail, AUD-07, AUD-08, DAUTH-7)
 * **Cross-reference**: [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/traceability-matrix.md`](../traceability/traceability-matrix.md)
 * **Source analysed**: `src/sp_mcp_server/` (current working tree)
 * **IBM Storage Protect Reference**: [`docs/reference/b_srv_admin_ref_linux.pdf`](../reference/b_srv_admin_ref_linux.pdf) (v8.1.26 Linux)
@@ -200,8 +200,12 @@ To maintain compliance with the MCP server network security controls, configure 
 
 4. **Activity Log Correlation & Audit Trail (POL-4)**:
    - Before executing write operations (`system`, `policy`, `storage`, `operator`), [`handle_call_tool()`](../../src/sp_mcp_server/mcp_factory.py:361) records an audit entry to the SP Activity Log using `DEFINE SCRATCHPADENTRY`:
-     `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<user_id> tool=<name> priv=<priv> corr=<uuid>"`
-   - If writing the audit record fails, the failure is immediately logged at `ERROR` level (`SECURITY [POL-4 / RG-4]`) with correlation metadata for SIEM detection.
+     - **Static Service Account Mode**:
+       `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<user_id> tool=<name> priv=<priv> corr=<uuid>"`
+     - **Dynamic Authentication Mode (Dual-Identity Compound Attribution, NR-1 / DAUTH-10)**:
+       `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=<sub/user_id> sp_admin=<sp_admin> tool=<name> priv=<priv> corr=<uuid>"`
+       This irrevocably correlates both the calling client/OIDC identity and the delegated SP administrator username, eliminating ambiguity in multi-tenant environments.
+   - If writing the audit record fails, the failure is immediately logged at `ERROR` level (`SECURITY [POL-4 / RG-4]`) with correlation metadata for SIEM detection. Under strict audit mode (`SP_MCP_STRICT_AUDIT=1` / `NR-4`), write failures immediately abort tool execution.
 
 ### 4.2 IBM Storage Protect Native Controls & Recommendations
 
@@ -335,7 +339,7 @@ flowchart TD
     end
 
     subgraph SPAuditLog [3. IBM Storage Protect ACTLOG Layer]
-        D -->|Write Privileges: system, policy, storage, operator| G["DEFINE SCRATCHPADENTRY MCP_AUDIT\nDESCRIPTION='MCP_AUDIT user=&lt;id&gt; tool=&lt;name&gt; priv=&lt;priv&gt; corr=&lt;uuid&gt;'"]
+        D -->|Write Privileges: system, policy, storage, operator| G["DEFINE SCRATCHPADENTRY MCP_AUDIT\nDESCRIPTION='MCP_AUDIT oidc_user=&lt;sub&gt; sp_admin=&lt;admin&gt; tool=&lt;name&gt; priv=&lt;priv&gt; corr=&lt;uuid&gt;'"]
         G --> H[(Storage Protect Server ACTLOG)]
         H -.-> H1["• Server Timestamp & Msg Sequence\n• SP Service Account Session ID\n• Retained via SET SCRATCHPADRETENTION (90d)\n• Searchable: QUERY ACTLOG SEARCH=corr=&lt;uuid&gt;"]
     end
@@ -351,7 +355,7 @@ flowchart TD
 
 | Forensic Dimension | Implemented Mechanism | Source File & Lines | Forensic Capability & Status |
 |:---|:---|:---|:---|
-| **Who** (Identity) | **HTTP/SSE Mode**: `OIDCBearerMiddleware` extracts `sub` claim and binds it to `current_audit_user` ContextVar.<br>**Audit Payload**: `handle_call_tool()` reads `current_audit_user` (or `SP_MCP_USER`/`local`) and writes `user=<user_id>` into SP `DEFINE SCRATCHPADENTRY`. | [`http_server.py:144`](../../src/sp_mcp_server/http_server.py:144)<br>[`mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py:16)<br>[`mcp_factory.py:380`](../../src/sp_mcp_server/mcp_factory.py:380) | ✅ **Full Identity Binding (NR-1)**: End-user identity is irrevocably bound to the SP ACTLOG scratchpad entry, eliminating shared service account ambiguity. |
+| **Who** (Identity) | **HTTP/SSE Mode**: `OIDCBearerMiddleware` extracts `sub` claim and binds it to `current_audit_user` and `request.state.mcp_subject`. Transport connections are tracked via `current_connection_id` (`DAUTH-10`).<br>**Audit Payload**: In static mode, `handle_call_tool()` writes `user=<user_id>`. In dynamic auth mode, it emits compound dual attribution `oidc_user=<sub/user_id> sp_admin=<sp_admin>` into SP `DEFINE SCRATCHPADENTRY`. Process globals are eliminated to ensure strict per-client isolation. | [`http_server.py:144`](../../src/sp_mcp_server/http_server.py:144)<br>[`mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py:16)<br>[`mcp_factory.py:380`](../../src/sp_mcp_server/mcp_factory.py:380)<br>[`session.py:22`](../../src/sp_mcp_server/session.py:22) | ✅ **Full Identity Binding (NR-1 / DAUTH-10)**: End-user OIDC identity and delegated SP admin identity are dual-bound into ACTLOG scratchpad entries, eliminating multi-client ambiguity and session hijacking risks. |
 | **What** (Action & Arguments) | MCP tool name, required privilege, user identity, and CLI command string logged in `mcp-server.log`. Write operations emit `MCP_AUDIT user=<id> tool=<name> priv=<priv> corr=<id>` to SP ACTLOG. Sensitive commands execute via `execute_silent()`. | [`mcp_factory.py:380-395`](../../src/sp_mcp_server/mcp_factory.py:380-395)<br>[`cli_wrapper.py:74`](../../src/sp_mcp_server/cli_wrapper.py:74)<br>[`cli_wrapper.py:153`](../../src/sp_mcp_server/cli_wrapper.py:153) | ✅ **Strong**: Complete tool name, arguments, and downstream command strings are logged locally, with correlation markers in ACTLOG. |
 | **When** (Time) | Local log formatted with standardized ISO 8601 UTC timestamp format (`%Y-%m-%dT%H:%M:%SZ`) using `time.gmtime`. SP server records microsecond timestamps on ACTLOG messages. | [`mcp_factory.py:38-42`](../../src/sp_mcp_server/mcp_factory.py:38-42) | ✅ **Standardized UTC (NR-5)**: Timezone ambiguity and skew eliminated across multi-region server correlations. |
 | **Where** (Source & Target) | Hostname/IP in `config.ServerConfig`. Remote execution logs SSH targets. Process PID and file/line logged in `mcp-server.log`. HTTP client remote IP available in ASGI scope. | [`config.py:33`](../../src/sp_mcp_server/config.py:33)<br>[`cli_wrapper.py:220`](../../src/sp_mcp_server/cli_wrapper.py:220) | ✅ **Good**: Target SP server instance, client transport, and host context are recorded. |
@@ -382,6 +386,8 @@ To operationalize high-assurance non-repudiation on the IBM Storage Protect Serv
   QUERY ACTLOG SEARCH=MCP_AUDIT BEGINDATE=TODAY-30
   QUERY ACTLOG SEARCH=corr=a3f8b2c19d44
   QUERY ACTLOG SEARCH=user=admin@example.com
+  QUERY ACTLOG SEARCH=oidc_user=bob@example.com
+  QUERY ACTLOG SEARCH=sp_admin=admin_alice
   ```
 
 ---
@@ -404,6 +410,7 @@ The following table summarizes all implemented controls and their alignment with
 | **Password Complexity** | `commands.base._validate_password_policy()` checks length | `QUERY OPTION MINPWLENGTH`, `SET MINPWLENGTH` | **Active** | b_srv_admin_ref_linux.pdf (`SET MINPWLENGTH`) |
 | **Account Lockout** | `mcp_factory._check_lockout_policy()` validates signon limit | `SET INVALIDPWLIMIT <n>` | **Active** | b_srv_admin_ref_linux.pdf (`SET INVALIDPWLIMIT`) |
 | **Audit Attribution** | `mcp_factory.handle_call_tool()` writes `DEFINE SCRATCHPADENTRY` | `QUERY ACTLOG SEARCH=MCP_AUDIT` | **Active** | b_srv_admin_ref_linux.pdf (`DEFINE SCRATCHPADENTRY`) |
-| **Non-Repudiation & Forensics** | Dual-layer logging, identity binding (`user=<id>`), UTC timestamps, strict fail-closed audit mode | `SET SCRATCHPADRETENTION`, `SET ACTLOGRETENTION` | **Active** (NR-1 to NR-5) | b_srv_admin_ref_linux.pdf (`SET SCRATCHPADRETENTION`) |
+| **Non-Repudiation & Forensics** | Dual-layer logging, identity binding (`user=<id>` or compound `oidc_user` + `sp_admin`), UTC timestamps, strict fail-closed audit mode | `SET SCRATCHPADRETENTION`, `SET ACTLOGRETENTION` | **Active** (NR-1 to NR-5) | b_srv_admin_ref_linux.pdf (`SET SCRATCHPADRETENTION`) |
 | **API Authentication** | `http_server.OIDCBearerMiddleware` validates JWT bearer tokens | OAuth 2.1 / OIDC standard | **Active** | RFC 9068 / OIDC Core |
 | **Identity Federation** | Service accounts support directory authentication | `UPDATE ADMIN AUTHENTICATION=LDAP` | **Active** | b_srv_admin_ref_linux.pdf (`UPDATE ADMIN`) |
+| **Dynamic Authentication & Multi-Client Isolation** | `session.py:SessionManager` with `oidc_subject` & `connection_id` binding, anti-IDOR validation, process global elimination (DAUTH-10), target-server binding (DAUTH-7) | Ephemeral challenge-response against `dsmadmc` with native lockout (`SET INVALIDPWLIMIT`) | **Active** (DAUTH-1 to DAUTH-10) | [`security-dynamic-authn.md`](../design/security-dynamic-authn.md) |

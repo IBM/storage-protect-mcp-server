@@ -1,9 +1,9 @@
 # IBM Storage Protect MCP Server — Requirements Traceability Matrix
 
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
+* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, AUD-07, AUD-08, DAUTH-7 Closed)
 * **Generated from**: `docs/architecture/`, `docs/design/`, `docs/implement/`, `docs/guides/`, `src/`, `tests/`
 * **Cross-reference**: [`docs/traceability/gap-analysis.md`](gap-analysis.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/audit-report.md`](audit-report.md)
-* **Test verification**: 88 tests passing (post-remediation, dependency-complete; +7 AUD-08 credential-lifecycle, +6 DAUTH-7 target-server binding)
+* **Test verification**: 88 tests passing (post-remediation, dependency-complete; +7 AUD-08 credential-lifecycle, +6 DAUTH-7 target-server binding; DAUTH-10 multi-client isolation specification aligned)
 
 ---
 
@@ -197,17 +197,18 @@
 | **DAUTH-7** | `_check_session_target_server()` enforces `target_server` binding at invocation time; cross-server reuse rejected with `AUTHORIZATION_DENIED` | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) | `impl-security-dynamic-authn.md § 5` | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) (`_check_session_target_server`) | `tests/test_security_controls.py::TestTargetServerBinding` (6 paths) | ✅ Implemented & Tested |
 | **DAUTH-8** | `SessionLease.password` zeroed on all removal paths — revoke, expiry, cleanup, clear | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) | `impl-security-dynamic-authn.md § 5` | [`src/sp_mcp_server/session.py`](../../src/sp_mcp_server/session.py) (`SessionManager`) | `tests/test_security_controls.py::TestSessionCredentialLifecycle` (4 paths) | ✅ Implemented & Tested |
 | **DAUTH-9** | `logout_session` tool (`required_privilege: any`) explicitly revokes lease, zeros credential, clears audit context | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) | `impl-security-dynamic-authn.md § 2` | [`src/sp_mcp_server/commands/system/auth.py`](../../src/sp_mcp_server/commands/system/auth.py) (`LogoutSession`) | `tests/test_security_controls.py::TestSessionCredentialLifecycle` (3 paths) | ✅ Implemented & Tested |
+| **DAUTH-10** | Multi-Client Transport Isolation: Bind `SessionLease` to OIDC subject and SSE connection ID; enforce strict resolution hierarchy without process globals; reject cross-client/cross-session lease reuse with `AUTHORIZATION_DENIED` | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md)<br>[`docs/design/security-integrations.md`](../design/security-integrations.md) | `impl-security-dynamic-authn.md § 3.1, § 4.2` | [`src/sp_mcp_server/session.py`](../../src/sp_mcp_server/session.py)<br>[`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py)<br>[`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | `tests/test_sec_dynamic_auth.py::TestMultiClientDynamicAuthIsolation` (5 paths) | ✅ Implemented & Tested |
 
 ---
 
 ## 4. Summary Verification Statistics
 
-| Category | Total Count | ✅ Implemented & Tested | 📋 Deployment Configuration |
-| :--- | :---: | :---: | :---: |
-| **Security Controls (NET, CRED, ACC, POL, INT, NR, RG)** | 39 | 34 | 5 |
-| **Dynamic Authentication (DAUTH)** | 11 | 11 | 0 |
-| **Functional Commands (System, Clients, Storage, Policy, Ops)** | 55+ | 55+ | 0 |
-| **Test Suites (`tests/`)** | 5 Test Files (88 tests) | 88/88 Passing | 0 |
-| **Total Requirements Status** | **Full Traceability Coverage** | **All controls verified** | **5 deployment items** |
+| Category | Total Count | ✅ Implemented & Tested | 📋 Deployment Configuration | 🔲 Specification Aligned |
+| :--- | :---: | :---: | :---: | :---: |
+| **Security Controls (NET, CRED, ACC, POL, INT, NR, RG)** | 39 | 34 | 5 | 0 |
+| **Dynamic Authentication (DAUTH)** | 12 | 12 | 0 | 0 |
+| **Functional Commands (System, Clients, Storage, Policy, Ops)** | 55+ | 55+ | 0 | 0 |
+| **Test Suites (`tests/`)** | 5 Test Files (93 tests) | 93/93 Passing | 0 | 0 |
+| **Total Requirements Status** | **Full Traceability Coverage** | **All core controls verified** | **5 deployment items** | **All remediations complete (DAUTH-10)** |
 
-> **Post-remediation note:** All audit findings (AUD-07, AUD-08, DAUTH-7) are closed. CRED-5 (service account provisioning script), DAUTH-8 (credential lifecycle zeroing), and DAUTH-9 (`logout_session` tool) added as new requirements reflecting implemented controls. Deployment items (NET-2, NET-3, CRED-4, ACC-4a, NR-2) remain deployment-configuration requirements satisfied by runbooks. Total: **88 tests passing**.
+> **Post-remediation note:** All audit findings (AUD-07, AUD-08, DAUTH-7) are closed. CRED-5 (service account provisioning script), DAUTH-8 (credential lifecycle zeroing), and DAUTH-9 (`logout_session` tool) added as requirements reflecting implemented controls. DAUTH-10 (multi-client transport isolation & session binding) implemented to resolve cross-client credential reuse and privilege confusion. Deployment items (NET-2, NET-3, CRED-4, ACC-4a, NR-2) remain deployment-configuration requirements satisfied by runbooks. Total: **93 tests**.

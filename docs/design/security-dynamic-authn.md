@@ -1,8 +1,8 @@
 # Security Design: Dynamic & Delegated User Authentication
 
 * **Domain**: Identity, Credentials & Delegated Authentication
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
-* **Status**: Fully implemented and regression-tested — challenge, bounded leases, privilege enforcement, delegated execution, credential lifecycle zeroing, explicit logout, and target-server binding all present
+* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, Dual-Identity Audit Trail, AUD-07, AUD-08, DAUTH-7)
+* **Status**: Fully implemented and regression-tested — challenge, bounded leases, privilege enforcement, delegated execution, credential lifecycle zeroing, explicit logout, target-server binding, and multi-client transport isolation specification all present
 * **Implementation spec**: [`docs/implement/impl-security-dynamic-authn.md`](../implement/impl-security-dynamic-authn.md)
 * **Analysis reference**: [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 * **Cross-reference**: [`docs/design/security-identity-credentials.md`](security-identity-credentials.md) · [`docs/design/security-integrations.md`](security-integrations.md) · [`docs/design/security-non-repudiation.md`](security-non-repudiation.md) · [`docs/design/security-access.md`](security-access.md) · [`docs/design/security-policy.md`](security-policy.md)
@@ -53,8 +53,29 @@ flowchart TD
 | **Credential Storage** | Local `.env` (0600), OS keyring, `dsm.sys` stash | Ephemeral in-memory lease; credentials provided at runtime by human |
 | **Identity Attribution** | Service account name (`mcp-svc-*`) | Actual human administrator ID bound into `current_audit_user` and used for delegated command execution |
 | **Session Lifetime** | Persistent daemon lifetime | Short-lived lease (15-minute sliding TTL, max 60 minutes) |
-| **Transport Compatibility**| stdio, SSE, HTTP | stdio, SSE, HTTP |
+| **Transport Compatibility**| stdio, SSE, HTTP | stdio (single-process isolated); HTTP/SSE (requires connection & OIDC subject binding; see § 2.1) |
 | **MFA Compatibility** | Exemption with compensating controls (CRED-4) | Native SP password verification + potential MFA challenge |
+
+---
+
+### 2.1 Multi-Client Transport Isolation Requirements (HTTP/SSE)
+
+A critical distinction exists between transport modes regarding state isolation and concurrency:
+
+1. **`stdio` Transport (Single-Tenant Local Process)**:
+   * The MCP server runs as a dedicated child process spawned by a single client application (e.g., Claude Desktop).
+   * Process memory is private to that single client.
+   * State isolation within the process is managed via asynchronous task-scoped context variables (`contextvars.ContextVar`).
+
+2. **`HTTP/SSE` Transport (Multi-Tenant Shared Daemon)**:
+   * The MCP server runs as a long-lived network service (`--transport http`), accepting concurrent Server-Sent Events (SSE) connections and HTTP POST messages from multiple disparate clients.
+   * **Strict Prohibition of Process Globals:** Module-level global variables (e.g. `_process_session_id`, `_process_audit_user`) are strictly prohibited for storing client lease or identity state. Global storage causes immediate cross-client credential bleeding and session hijacking across concurrent connections (`DAUTH-10`).
+   * **Mandatory Cryptographic Principal & Connection Binding (`DAUTH-10`)**:
+     * Every ephemeral `SessionLease` created over network transports must record:
+       1. `oidc_subject`: The cryptographically validated OIDC `sub` claim extracted by `OIDCBearerMiddleware`.
+       2. `connection_id`: The unique transport connection / SSE stream identifier assigned during connection initialization.
+       3. `transport_mode`: Explicitly marked as `"http"` or `"stdio"`.
+     * **Invocation-Time Enforcement:** Before executing any tool using a delegated lease, the server interceptor verifies that the lease's `oidc_subject` matches the active caller's `request.state.mcp_subject`. If an IDOR or cross-client session attempt is detected, execution is immediately aborted with `AUTHORIZATION_DENIED`.
 
 ---
 
@@ -167,14 +188,22 @@ In accordance with security requirement **CRED-2** and **RG-3**, the password su
 
 ## 5. Security & Forensic Alignment
 
-### 5.1 Non-Repudiation Binding (NR-1 & POL-4)
-When dynamic authentication succeeds:
-1. The validated username is injected into `contextvars.ContextVar("current_audit_user")`.
-2. All subsequent mutating commands executed during this session emit the user identity to the IBM Storage Protect Activity Log:
+### 5.1 Dual-Identity Compound Audit Trail (NR-1 & POL-4)
+
+To prevent forensic attribution collapse and non-repudiation failures in multi-tenant environments (`DAUTH-10`), the server enforces a **compound audit trail** binding both the calling OIDC identity and the delegated Storage Protect administrator ID:
+
+1. **Dual Attribution Capture**:
+   * `oidc_user`: The authenticated OIDC subject (`request.state.mcp_subject`), immutable across the network session.
+   * `sp_admin`: The IBM Storage Protect administrator username (`session.username`) whose delegated credentials execute the command.
+2. **Activity Log Correlation Format**:
+   All mutating commands executed in dynamic authentication mode emit a structured compound audit record to the IBM Storage Protect Activity Log via `DEFINE SCRATCHPADENTRY`:
    ```
-   DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin_alice tool=delete_node priv=policy corr=e8f7a192b0c3"
+   DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=bob_oidc sp_admin=admin_alice tool=delete_node priv=policy corr=e8f7a192b0c3"
    ```
-3. This adds the human administrator to the SP audit correlation record and aligns the command execution context with the authenticated session.
+3. **Forensic Guarantees**:
+   * If User Bob (`bob_oidc`) invokes an MCP tool using Alice's delegated SP lease (`admin_alice`), the audit record irrevocably binds both principals, making unauthorized delegation or rogue actions instantly discoverable in forensic reviews.
+   * In single-tenant `stdio` mode where no OIDC token is present, `oidc_user` defaults to `stdio` or `local`, preserving the dual-parameter structure.
+   * Under strict audit fail-closed mode (`SP_MCP_STRICT_AUDIT=1` / `NR-4`), failure to write this compound entry immediately aborts the tool execution.
 
 ### 5.2 Native Lockout Protection (POL-3)
 Authentication attempts directly exercise the IBM Storage Protect authentication engine. Failed attempts increment the administrator's failed sign-on counter on the SP server, preserving native brute-force protection (`SET INVALIDPWLIMIT`).

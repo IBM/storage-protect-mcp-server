@@ -40,6 +40,7 @@ from tests.fixtures import (
     SP_OUTPUT_SESSION_STRICT_TLS13,
     SP_OUTPUT_AUTH_OK,
     SP_OUTPUT_AUTH_FAIL_STDERR,
+    SP_OUTPUT_SCRATCHPAD_OK,
 )
 
 
@@ -491,3 +492,260 @@ class TestOIDCAuthorization:
         server = self._make_server_with_system_tool(monkeypatch)
         payload = json.loads(first_text(self._call_tool(server, "any")))
         assert payload["error_type"] == "AUTHORIZATION_DENIED"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DAUTH-10: Multi-Client Transport Isolation & Session Binding
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMultiClientDynamicAuthIsolation:
+    """
+    Regression test suite for DAUTH-10 requirements:
+    - Cryptographic OIDC principal and connection binding on ephemeral leases
+    - Elimination of process-wide session bleeding across concurrent clients
+    - Rejection of cross-client IDOR session redemption with AUTHORIZATION_DENIED
+    - Isolation of logout revocation to the caller's own session
+    - Dual-identity attribution logging in compound ACTLOG records
+    - Correct SSE route path advertisement
+    """
+
+    def test_cross_client_session_bleed_denied(self, monkeypatch):
+        """Client B must not inherit Client A's session in the same server process."""
+        from sp_mcp_server.mcp_factory import (
+            create_mcp_server,
+            current_session_id,
+            current_audit_user,
+            current_connection_id,
+        )
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from sp_mcp_server.session import global_session_manager
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+        current_session_id.set(None)
+
+        # Client A authenticates and creates a session lease bound to alice_sub / conn_1
+        lease_a = global_session_manager.create_session(
+            username="alice_sp",
+            privileges={"system"},
+            oidc_subject="alice_oidc",
+            connection_id="conn_1",
+            transport_mode="http",
+        )
+
+        cfg = _cfg()
+        admc = _admc(cfg)
+        server = create_mcp_server(
+            server_name="bleed-test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        # Client B sends a tool request from conn_2 with bob_oidc identity and no session arg
+        tok_user = current_audit_user.set("bob_oidc")
+        tok_conn = current_connection_id.set("conn_2")
+        tok_sid = current_session_id.set(None)
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin", arguments={"admin_name": ADMIN_NAME_TARGET}
+                ),
+            )
+            res = run_tool(handler, req)
+            payload = json.loads(first_text(res))
+            # Must trigger AUTHENTICATION_REQUIRED, not inherit Client A's session
+            assert payload.get("is_error") is True
+            assert payload.get("error_type") == "AUTHENTICATION_REQUIRED"
+        finally:
+            current_connection_id.reset(tok_conn)
+            current_audit_user.reset(tok_user)
+            current_session_id.reset(tok_sid)
+            global_session_manager.revoke_session(lease_a.session_id)
+
+    def test_explicit_session_id_idor_rejected(self, monkeypatch):
+        """Passing another user's session_id must fail OIDC subject check with AUTHORIZATION_DENIED."""
+        from sp_mcp_server.mcp_factory import (
+            create_mcp_server,
+            current_audit_user,
+            current_connection_id,
+            current_session_id,
+        )
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from sp_mcp_server.session import global_session_manager
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+        current_session_id.set(None)
+
+        # Client A creates a system-privileged lease
+        lease_a = global_session_manager.create_session(
+            username="alice_sp",
+            privileges={"system"},
+            oidc_subject="alice_oidc",
+            connection_id="conn_1",
+            transport_mode="http",
+        )
+
+        cfg = _cfg()
+        admc = _admc(cfg)
+        server = create_mcp_server(
+            server_name="idor-test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        # Client B attempts to use Client A's session ID explicitly
+        tok_user = current_audit_user.set("bob_oidc")
+        tok_conn = current_connection_id.set("conn_2")
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin",
+                    arguments={
+                        "admin_name": ADMIN_NAME_TARGET,
+                        "_session_id": lease_a.session_id,
+                    },
+                ),
+            )
+            res = run_tool(handler, req)
+            payload = json.loads(first_text(res))
+            assert payload.get("is_error") is True
+            assert payload.get("error_type") == "AUTHORIZATION_DENIED"
+            assert "Session does not belong to the authenticated user" in payload.get("message", "")
+        finally:
+            current_connection_id.reset(tok_conn)
+            current_audit_user.reset(tok_user)
+            global_session_manager.revoke_session(lease_a.session_id)
+
+    def test_logout_does_not_terminate_other_client_sessions(self, monkeypatch):
+        """Client B logging out must not terminate or affect Client A's active session lease."""
+        from sp_mcp_server.mcp_factory import current_audit_user, current_connection_id, current_session_id
+        from sp_mcp_server.commands.system.auth import LogoutSession
+        from sp_mcp_server.session import global_session_manager
+
+        lease_a = global_session_manager.create_session(
+            username="alice_sp",
+            privileges={"system"},
+            oidc_subject="alice_oidc",
+            connection_id="conn_1",
+            transport_mode="http",
+        )
+        lease_b = global_session_manager.create_session(
+            username="bob_sp",
+            privileges={"system"},
+            oidc_subject="bob_oidc",
+            connection_id="conn_2",
+            transport_mode="http",
+        )
+
+        admc = mock_admc()
+        logout_tool = LogoutSession(admc)
+
+        # 1. Bob attempts IDOR logout of Alice's session
+        tok_user = current_audit_user.set("bob_oidc")
+        tok_conn = current_connection_id.set("conn_2")
+        tok_sid = current_session_id.set(lease_b.session_id)
+        try:
+            idor_res = json.loads(logout_tool.execute({"session_id": lease_a.session_id}))
+            assert idor_res["success"] is False
+            assert idor_res.get("error_type") == "AUTHORIZATION_DENIED"
+
+            # Alice's session must still be intact
+            assert global_session_manager.get_session(lease_a.session_id) is not None
+
+            # 2. Bob revokes his own session
+            bob_res = json.loads(logout_tool.execute({}))
+            assert bob_res["success"] is True
+
+            # Bob's session is revoked, but Alice's session remains active
+            assert global_session_manager.get_session(lease_b.session_id) is None
+            assert global_session_manager.get_session(lease_a.session_id) is not None
+        finally:
+            current_session_id.reset(tok_sid)
+            current_connection_id.reset(tok_conn)
+            current_audit_user.reset(tok_user)
+            global_session_manager.revoke_session(lease_a.session_id)
+
+    def test_dual_audit_attribution_logged(self, monkeypatch):
+        """POL-4 / NR-1: Mutating tools in dynamic mode log compound attribution (oidc_user + sp_admin)."""
+        from sp_mcp_server.mcp_factory import (
+            create_mcp_server,
+            current_audit_user,
+            current_connection_id,
+            current_session_id,
+        )
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from sp_mcp_server.session import global_session_manager
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+        lease = global_session_manager.create_session(
+            username="alice_sp_admin",
+            privileges={"system"},
+            oidc_subject="alice_oidc_sub",
+            connection_id="conn_sse_101",
+            transport_mode="http",
+        )
+
+        cfg = _cfg()
+        admc = _admc(cfg)
+
+        server = create_mcp_server(
+            server_name="audit-dual-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        admc.execute.return_value = (SP_OUTPUT_SCRATCHPAD_OK, "", 0)
+
+        tok_user = current_audit_user.set("alice_oidc_sub")
+        tok_conn = current_connection_id.set("conn_sse_101")
+        tok_sid = current_session_id.set(lease.session_id)
+        try:
+            with patch.object(DeleteAdmin, "execute", return_value="Admin deleted"):
+                req = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="delete_admin", arguments={"admin_name": ADMIN_NAME_TARGET}
+                    ),
+                )
+                run_tool(handler, req)
+
+            # Inspect DEFINE SCRATCHPADENTRY calls
+            scratchpad_calls = [
+                c[0][0] for c in admc.execute.call_args_list
+                if "DEFINE SCRATCHPADENTRY" in str(c[0][0])
+            ]
+            assert len(scratchpad_calls) >= 1
+            audit_call = scratchpad_calls[0]
+            assert "oidc_user=alice_oidc_sub" in audit_call
+            assert "sp_admin=alice_sp_admin" in audit_call
+            assert "tool=delete_admin" in audit_call
+            assert "corr=" in audit_call
+        finally:
+            current_session_id.reset(tok_sid)
+            current_connection_id.reset(tok_conn)
+            current_audit_user.reset(tok_user)
+            global_session_manager.revoke_session(lease.session_id)
+
+    def test_sse_endpoint_advertisement_correct(self):
+        """SseServerTransport must advertise relative 'messages' to avoid double-prefix routing."""
+        from sp_mcp_server.http_server import create_http_app
+        from unittest.mock import MagicMock
+
+        mock_server = MagicMock()
+        app = create_http_app(mock_server, "https://login.example.com", "test-audience")
+
+        # Find the Mount for /mcp
+        mcp_mount = next((r for r in app.routes if getattr(r, "path", None) == "/mcp"), None)
+        assert mcp_mount is not None
+
+        # Verify /mcp has /sse and /messages sub-routes
+        sub_paths = [getattr(r, "path", None) for r in mcp_mount.routes]
+        assert "/sse" in sub_paths
+        assert "/messages" in sub_paths

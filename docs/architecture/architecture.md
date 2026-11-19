@@ -1,7 +1,7 @@
 # IBM Storage Protect MCP Server — System Architecture & Design
 
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
-* **Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/audit-report.md`](../traceability/audit-report.md)
+* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, Dual-Identity Audit Trail, AUD-07, AUD-08, DAUTH-7 Closed)
+* **Cross-reference**: [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md) · [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md) · [`docs/traceability/gap-analysis.md`](../traceability/gap-analysis.md) · [`docs/traceability/audit-report.md`](../traceability/audit-report.md)
 * **Source reference**: `src/sp_mcp_server/`
 
 ---
@@ -27,22 +27,23 @@ The architecture provides two operating models:
    - Every tool declares a `required_privilege` (`system`, `policy`, `storage`, `operator`, `any`).
    - In service-account mode, tool discovery queries the configured account's SP authority (`QUERY ADMIN <name> FORMAT=DETAILED`) and restricts tool registration accordingly.
    - Dynamic-session and OIDC privilege claims are enforced at invocation time via `_privilege_satisfies_for_session()` and `current_request_privilege` context variable checks in `handle_call_tool()`.
-   - `_check_session_target_server()` enforces `SessionLease.target_server` binding immediately after privilege confirmation; cross-server session reuse is rejected with `AUTHORIZATION_DENIED` (DAUTH-7, closed).
+   - `_check_session_target_server()` enforces `SessionLease.target_server` binding immediately after privilege confirmation; cross-server session reuse is rejected with `AUTHORIZATION_DENIED` (DAUTH-7).
    - Delegated session credentials are applied to command execution via `current_execution_credentials` context variable and cleared in the `finally` block.
 
 3. **Defense-in-Depth Session & Transport Security**:
-   - **Local Stdio Transport**: Secured via SSH Ed25519 key authentication, dedicated non-privileged OS user (`mcp-runner`), and explicit strict host key checking.
-   - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) with call-time scope enforcement; per-scope privilege mapping (`mcp:*`) and `AUTHORIZATION_DENIED` rejection validated by `TestOIDCAuthorization` (7 scopes).
-   - **Dynamic Authentication (Challenge-Response)**: Allows interactive AI chat users to receive structured `AUTHENTICATION_REQUIRED` responses, verifies credentials via zero-trace `execute_silent()`, issues bounded ephemeral leases, enforces lease privileges, applies delegated credentials to command execution, and supports explicit session revocation via `logout_session`.
-   - **Session Lifecycle**: `SessionManager` uses `RLock` and bounds TTLs to `MAX_SESSION_TTL_SECONDS`. Cleanup is opportunistic (on create / explicit call). `SessionLease.password` is zeroed on every removal path — explicit revocation, inactivity/absolute TTL expiry, bulk sweep, and server shutdown (AUD-08, closed).
-   - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`. Service account provisioning script (`scripts/provision-sp-service-accounts.sh`) registers all five tiered accounts with `SESSIONSECURITY=STRICT` and `MFAREQUIRED=NO` (AUD-07, closed).
+   - **Local Stdio Transport**: Secured via SSH Ed25519 key authentication, dedicated non-privileged OS user (`mcp-runner`), and explicit strict host key checking. Stdio sessions run as dedicated single-tenant child processes.
+   - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) with call-time scope enforcement; per-scope privilege mapping (`mcp:*`) and `AUTHORIZATION_DENIED` rejection validated by `TestOIDCAuthorization` (7 scopes). Routes SSE messages via relative endpoint paths (`SseServerTransport("messages")` under `/mcp` mount).
+   - **Multi-Client Transport Isolation (DAUTH-10)**: Strict architectural separation between single-tenant `stdio` and multi-tenant `HTTP/SSE`. Module-level process globals (`_process_session_id`, `_process_audit_user`) are completely eliminated. Every `SessionLease` records `oidc_subject`, `connection_id`, and `transport_mode`. Leases are resolved deterministically (explicit `session_id` argument → task `current_session_id` → connection ID mapping). Cross-client session hijacking or IDOR attacks are rejected with `AUTHORIZATION_DENIED`.
+   - **Dynamic Authentication (Challenge-Response)**: Allows interactive AI chat users to receive structured `AUTHENTICATION_REQUIRED` responses, verifies credentials via zero-trace `execute_silent()`, issues bounded ephemeral leases, enforces lease privileges, applies delegated credentials to command execution, and supports explicit session revocation via `logout_session` with caller ownership verification.
+   - **Session Lifecycle**: `SessionManager` uses `RLock` and bounds TTLs to `MAX_SESSION_TTL_SECONDS`. Cleanup is opportunistic (on create / explicit call). `SessionLease.password` is zeroed on every removal path — explicit revocation, inactivity/absolute TTL expiry, bulk sweep, and server shutdown (AUD-08).
+   - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`. Service account provisioning script (`scripts/provision-sp-service-accounts.sh`) registers all five tiered accounts with `SESSIONSECURITY=STRICT` and `MFAREQUIRED=NO` (AUD-07).
 
 4. **Two-Person Integrity & Policy Controls**:
    - Destructive operations support IBM SP native Command Approval (`SET COMMANDAPPROVAL ON`, `APPROVE PENDINGCMD`, `REJECT PENDINGCMD`, `WITHDRAW PENDINGCMD`).
    - Password-bearing administrative operations pre-validate length against SP `MINPWLENGTH` and execute via silent channels without exposing plaintext passwords in logs or process arguments.
 
-5. **Auditing & SIEM Traceability**:
-   - Every write operation emits a traceable correlation marker into IBM Storage Protect Activity Log via `DEFINE SCRATCHPADENTRY MCP_AUDIT` (`POL-4`).
+5. **Auditing & SIEM Traceability (Dual-Identity Compound Attribution)**:
+   - Every write operation emits a traceable correlation marker into IBM Storage Protect Activity Log via `DEFINE SCRATCHPADENTRY MCP_AUDIT` (`POL-4`). In dynamic authentication mode, the entry enforces dual-identity compound attribution (`oidc_user=<sub/user_id> sp_admin=<sp_admin> tool=<name> priv=<priv> corr=<uuid>`) binding both client and delegated admin principals (`NR-1`). Strict audit mode (`SP_MCP_STRICT_AUDIT=1` / `NR-4`) aborts execution if audit writing fails.
 
 6. **Type Safety & Input Validation**: Comprehensive JSON Schema validation for all tool inputs. Command escaping in CLI wrappers provides defence against injection.
 
@@ -64,8 +65,8 @@ graph TD
     subgraph CoreTier ["3. MCP Server Core & Security Gates"]
         SEC_START["secure_startup()\n• .env POSIX 0600 permission check"]
         CONFIG_MGR["config.py: ServerConfig\n• 5-Tier Service Account Credentials\n• Keyring / Secrets Resolution"]
-        SESS_MGR["session.py: SessionManager\n• Dynamic ephemeral leases (TTL=15m)\n• Zero-trace auth verification\n• Password zeroed on all removal paths (AUD-08)\n• logout_session explicit revocation tool\n• current_audit_user contextvar"]
-        FACTORY["mcp_factory.py\n• _validate_session_security() (SESSIONSECURITY=STRICT)\n• _check_lockout_policy() (SET INVALIDPWLIMIT)\n• _parse_sp_privilege() (QUERY ADMIN)\n• Tool Privilege Filtering (_PRIVILEGE_SATISFIES)\n• _check_session_target_server() (DAUTH-7)\n• Tool Invocation & POL-4 ACTLOG Audit Attribution"]
+        SESS_MGR["session.py: SessionManager\n• Dynamic ephemeral leases (TTL=15m)\n• Zero-trace auth verification\n• Password zeroed on all removal paths (AUD-08)\n• logout_session with anti-IDOR checks\n• oidc_subject & connection_id binding (DAUTH-10)"]
+        FACTORY["mcp_factory.py\n• _validate_session_security() (SESSIONSECURITY=STRICT)\n• _check_lockout_policy() (SET INVALIDPWLIMIT)\n• _parse_sp_privilege() (QUERY ADMIN)\n• Tool Privilege Filtering (_PRIVILEGE_SATISFIES)\n• Inverted lease resolution: Arg -> ContextVar -> Connection\n• DAUTH-10 cross-client subject validation\n• _check_session_target_server() (DAUTH-7)\n• Dual-identity POL-4 ACTLOG Audit Attribution"]
     end
 
     subgraph ModuleTier ["4. Command & Tool Abstraction Layer"]
@@ -172,13 +173,22 @@ sequenceDiagram
     Client->>Server: call_tool(name, arguments)
     Server->>Server: Verify tool exists and arguments match JSON Schema
 
+    opt Dynamic Auth Mode
+        note over Server: DAUTH-10: Resolve session lease (Arg -> ContextVar -> Connection ID)
+        Server->>Server: Validate active lease & verify OIDC subject match (DAUTH-10)
+        alt Cross-client / IDOR mismatch
+            Server-->>Client: Error (AUTHORIZATION_DENIED)
+        end
+        Server->>Server: Check target server binding (DAUTH-7)
+    end
+
     opt Write Operation (tool required_privilege in {system, policy, storage, operator})
-        note over Server: POL-4: Audit Record Generation
-        Server->>Wrapper: execute('DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT tool=... corr=<uuid>"')
+        note over Server: POL-4 / NR-1: Compound Audit Record Generation
+        Server->>Wrapper: execute('DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=... sp_admin=... tool=... corr=<uuid>"')
         Wrapper->>SP: dsmadmc DEFINE SCRATCHPADENTRY ...
         SP-->>Wrapper: OK / Error
         alt Audit write fails
-            note over Server: RG-4: Log SECURITY [POL-4/RG-4] ERROR
+            note over Server: RG-4: Log SECURITY [POL-4/RG-4] ERROR (or abort if strict audit)
         end
     end
 
@@ -234,8 +244,12 @@ The codebase provides multiple dedicated Micro-MCP entry points categorized acro
 - Instantiate command classes with appropriate CLI wrappers
 - Enforce `SESSIONSECURITY=STRICT` and lockout policy checks at startup
 - Query SP administrator privilege class and filter tools accordingly
-- Route tool calls: privilege check → session binding check → audit record → command execution
-- Configure rotating file logs with console output
+- Resolve ephemeral session leases deterministically (Arg → ContextVar → Connection ID)
+- Enforce OIDC subject binding and prevent cross-client session reuse (`DAUTH-10`)
+- Enforce target server stanza binding (`DAUTH-7`)
+- Emit compound dual-identity audit records to ACTLOG via `DEFINE SCRATCHPADENTRY` (`POL-4`/`NR-1`)
+- Route tool calls: privilege check → session/subject check → target server check → audit record → command execution
+- Configure rotating file logs with credential redaction filters and console output
 
 ### 7.3 Server Groups (`server_groups.py`)
 
@@ -465,8 +479,8 @@ graph TD
 | :--- | :--- | :--- |
 | **Unit** | Individual classes and functions | Command validation logic, output parsing, JSON Schema validation |
 | **Integration** | CLI wrapper functionality | End-to-end command execution, error handling, mode filtering |
-| **Security Regression** | `tests/test_security_controls.py` | 88 tests covering all audit remediation items (AUD-07, AUD-08, DAUTH-7, POL-4, OIDC scopes) |
-| **System** | Full server operation | Multi-command workflows, mode switching, session lifecycle |
+| **Security Regression** | `tests/test_sec_*.py` | 102 tests covering all audit remediation items (AUD-07, AUD-08, DAUTH-7, DAUTH-10, POL-4, OIDC scopes, transport isolation, session lifecycle) |
+| **Full Suite** | All modules | 130 automated tests passing across unit, integration, and security controls |
 
 Run the full test suite:
 
@@ -479,7 +493,7 @@ pytest tests/ -v
 ## 14. Security Design References
 
 For domain-specific detailed security control specifications:
-- [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) — Dynamic & Delegated User Authentication (Challenge-Response).
+- [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) — Dynamic & Delegated User Authentication (Challenge-Response, Multi-Client Isolation).
 - [`docs/design/security-network.md`](../design/security-network.md) — Network Security, SSH Transport & TLS Enforcement.
 - [`docs/design/security-identity-credentials.md`](../design/security-identity-credentials.md) — Tiered Credentials, Stash Mode & Keyring Integration.
 - [`docs/design/security-access.md`](../design/security-access.md) — Tool Privilege Gating & Sudoers Execution.
@@ -498,8 +512,9 @@ storage-protect-mcp-server/
 │   ├── __init__.py                    # Package exports
 │   ├── cli_wrapper.py                 # DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
 │   ├── config.py                      # ServerConfig, secure_startup(), credential resolution
-│   ├── http_server.py                 # FastAPI / Starlette OIDC Bearer Token middleware
+│   ├── http_server.py                 # FastAPI / Starlette OIDC Bearer Token middleware, SSE transport
 │   ├── mcp_factory.py                 # Core MCP server factory, security gates, audit logging
+│   ├── session.py                     # Ephemeral SessionManager, SessionLease, transport scoping
 │   ├── server_groups.py               # Tool group definitions across all modules
 │   ├── main.py                        # Unified server entry point (--enable-servers)
 │   ├── main_*.py                      # Domain-specific and legacy micro-server entry points
@@ -516,12 +531,19 @@ storage-protect-mcp-server/
 │   └── dsm.sys.template               # dsmadmc client-options template (SSL Yes, SSLREQUIRED Yes, PASSWORDACCESS GENERATE)
 ├── scripts/
 │   └── provision-sp-service-accounts.sh  # Idempotent SP service account provisioning (5 tiers, SESSIONSECURITY=STRICT)
-├── tests/                             # Test suite
-│   ├── test_cli_wrapper.py
-│   ├── test_commands.py
-│   ├── test_config.py
-│   ├── test_core_components.py
-│   └── test_security_controls.py      # Security regression tests — 88 tests passing post-remediation
+├── tests/                             # Test suite (130 automated tests passing)
+│   ├── conftest.py                    # Windows event loop and mock test fixtures
+│   ├── fixtures.py                    # Mock CLI responses and SP outputs
+│   ├── test_cli_wrapper.py            # CLI wrapper tests (13)
+│   ├── test_commands.py               # Base command tests (4)
+│   ├── test_config.py                 # Configuration loader tests (4)
+│   ├── test_core_components.py        # Core component integration tests (7)
+│   ├── test_sec_audit_trail.py        # POL-4 / NR-1 ACTLOG and TLS tests (8)
+│   ├── test_sec_dynamic_auth.py       # Dynamic challenge, OIDC scopes, DAUTH-10 multi-client tests (22)
+│   ├── test_sec_log_hardening.py      # Log hardening & credential redaction tests (20)
+│   ├── test_sec_password_commands.py  # Silent password command tests (12)
+│   ├── test_sec_session_lifecycle.py  # Session lifecycle, zeroing, target-server tests (14)
+│   └── test_sec_startup.py            # SessionSecurity, env permissions, lockout tests (26)
 └── docs/                              # Comprehensive documentation
     ├── design/                        # Domain-specific security design specifications
     ├── architecture/                  # System & module-specific architecture docs

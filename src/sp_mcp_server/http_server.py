@@ -142,12 +142,26 @@ class OIDCBearerMiddleware:
             scope["state"]["mcp_subject"], privilege, scopes,
         )
 
-        from .mcp_factory import current_audit_user, current_request_privilege
+        from .mcp_factory import current_audit_user, current_request_privilege, current_connection_id
         user_ctx = current_audit_user.set(scope["state"]["mcp_subject"])
         privilege_ctx = current_request_privilege.set(privilege)
+
+        # DAUTH-10: Extract transport connection ID from query parameters if present
+        conn_id = None
+        query_bytes = scope.get("query_string", b"")
+        if query_bytes:
+            from urllib.parse import parse_qs
+            qs = parse_qs(query_bytes.decode("utf-8", errors="replace"))
+            conn_vals = qs.get("session_id")
+            if conn_vals:
+                conn_id = conn_vals[0]
+        conn_ctx = current_connection_id.set(str(conn_id)) if conn_id else None
+
         try:
             await self.app(scope, receive, send)
         finally:
+            if conn_ctx:
+                current_connection_id.reset(conn_ctx)
             current_request_privilege.reset(privilege_ctx)
             current_audit_user.reset(user_ctx)
 
@@ -156,6 +170,8 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str):
     """
     INT-2: Wrap an MCP server in a Starlette app with OIDC bearer auth middleware.
     The MCP server's SSE handler is mounted at /mcp.
+    Note: SseServerTransport uses relative "messages" endpoint to correctly
+    advertise "/mcp/messages" under the "/mcp" mount (DAUTH-10).
 
     Returns a Starlette ASGI application.
     """
@@ -164,18 +180,25 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str):
     from starlette.requests import Request
     from starlette.responses import JSONResponse
     from mcp.server.sse import SseServerTransport
+    from .mcp_factory import current_connection_id
 
-    sse_transport = SseServerTransport("/mcp/messages")
+    sse_transport = SseServerTransport("messages")
 
     async def handle_sse(request: Request):
-        async with sse_transport.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await mcp_server.run(
-                streams[0],
-                streams[1],
-                mcp_server.create_initialization_options(),
-            )
+        # DAUTH-10: Bind connection identifier into context for per-stream session isolation
+        conn_id = request.query_params.get("session_id") or str(id(request))
+        token = current_connection_id.set(str(conn_id))
+        try:
+            async with sse_transport.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await mcp_server.run(
+                    streams[0],
+                    streams[1],
+                    mcp_server.create_initialization_options(),
+                )
+        finally:
+            current_connection_id.reset(token)
 
     async def health(_: Request):
         return JSONResponse({"status": "ok"})
