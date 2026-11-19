@@ -17,7 +17,7 @@ All identified defects, discrepancies, and gaps have been remediated and verifie
 2. **Test Suite Isolation (AUD-F-01)**: Confirmed resolved. `tests/conftest.py` enforces clean ContextVars, session storage, and module globals via an `autouse=True` fixture. Full test suite passes without ordering dependencies.
 3. **Platform Portability (AUD-DOC-04)**: Windows NTFS POSIX bit limitation resolved via Windows guard in `src/sp_mcp_server/config.py` and `@pytest.mark.skipif(sys.platform == "win32")` in test files.
 4. **Link Integrity & Correctness (AUD-DOC-01, AUD-DOC-02)**: All broken test file references replaced; all 38 malformed colon line links converted to GitHub `#L` anchors; 0 broken links repository-wide.
-5. **Sample Prompts Coverage (AUD-DOC-13)**: Confirmed all eight personas (R-01 through R-08) from [`docs/example/sample-prompts.md`](../example/sample-prompts.md) are covered by positive automated tests in `tests/test_sample_prompts_positive.py` (103 tests: 88 unit + 15 live integration), adversarial prompt tests in `tests/test_sample_prompts_negative.py` (18 tests), and tracked in `test-cases.md`, `tests/negative_sample_prompts.md`, and `traceability-matrix.md`.
+5. **Sample Prompts Coverage (AUD-DOC-13)**: Confirmed all eight personas (R-01 through R-08) from [`docs/example/sample-prompts.md`](../example/sample-prompts.md) are covered by positive automated tests in `tests/test_sample_prompts_positive.py` (107 tests: 92 unit + 15 live integration), adversarial prompt tests in `tests/test_sample_prompts_negative.py` (18 tests), prompt-structure conformance tests in `tests/test_sample_prompts_structure.py` (300 tests), and tracked in `test-cases.md`, `tests/negative_sample_prompts.md`, and `traceability-matrix.md`.
 6. **Test Automation Expansion**: Added Negative Security Testing (`tests/test_sec_negative.py`), Controlled Environmental Resilience (`tests/test_resilience_faults.py`), and Stress & Concurrency (`tests/load/test_session_churn.py`) suites with Allure reporting.
 
 ### Consolidated Audit Scorecard
@@ -89,7 +89,7 @@ All 51 security requirements are implemented in source, tested, and confirmed co
 | **Non-Repudiation (NR)** | User identity in ACTLOG, strict audit fail-closed enforcement, ISO 8601 UTC timestamps | `tests/test_sec_audit_trail.py` |
 | **Dynamic Auth (DAUTH)** | Ephemeral session leases, sliding TTL, credential zeroing on deletion, target server binding | `tests/test_sec_dynamic_auth.py`, `tests/test_sec_session_lifecycle.py` |
 | **OAuth 2 Extended (OA)** | AS metadata proxy, JWKS TTL cache & rate-limit, PKCE check, introspection, resource doc | `tests/test_sec_oauth2.py` |
-| **Persona Prompts (PROMPT)** | Operational workflows across all 8 personas (R-01..08) from `sample-prompts.md` and adversarial prompt tests | `tests/test_sample_prompts_positive.py` (103 tests: 88 unit + 15 live integration), `tests/test_sample_prompts_negative.py` (18 tests) |
+| **Persona Prompts (PROMPT)** | Operational workflows across all 8 personas (R-01..08) from `sample-prompts.md` and adversarial prompt tests | `tests/test_sample_prompts_positive.py` (107 tests: 92 unit + 15 live integration), `tests/test_sample_prompts_negative.py` (18 tests), `tests/test_sample_prompts_structure.py` (300 tests) |
 
 ---
 
@@ -99,7 +99,7 @@ All 51 security requirements are implemented in source, tested, and confirmed co
 graph TD
     subgraph TestSuite ["Automated Test Suite (266 Collected Tests across 15 Files)"]
         UNIT["Unit & Security Controls (88 Tests Passed, 18 Skipped)"]
-        PROMPT["Persona Prompt Suites (tests/test_sample_prompts_positive.py & test_sample_prompts_negative.py — 121 Tests)"]
+        PROMPT["Persona Prompt Suites (tests/test_sample_prompts_positive.py, test_sample_prompts_negative.py & test_sample_prompts_structure.py — 425 Tests)"]
         CORE["Core Subsystems & Commands (tests/test_*.py — 40 Tests Passed)"]
         NEG["Negative Security Suite (tests/test_sec_negative.py — 18 Tests Passed)"]
         RES["Environmental Resilience Suite (tests/test_resilience_faults.py — 9 Tests Passed)"]

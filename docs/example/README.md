@@ -8,7 +8,7 @@ Sample prompts for the IBM Storage Protect MCP Server, organised by persona and 
 
 | Document | Description |
 |---|---|
-| [`sample-prompts.md`](sample-prompts.md) | 60+ naturalistic, task-oriented prompts across seven personas, written against the sample deployment topology (SPSVR01, 11 BA client nodes, 6 storage pools, 6 backup schedules, 4 policy domains) |
+| [`sample-prompts.md`](sample-prompts.md) | 128 prompts written in natural English, each with a role, context, task, constraints, and output format (lines of at most 100 characters) across eight personas, written against the sample deployment topology (SPSVR01, 11 BA client nodes, 6 storage pools, 6 backup schedules, 4 policy domains) |
 
 ---
 

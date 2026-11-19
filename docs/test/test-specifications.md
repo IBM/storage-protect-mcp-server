@@ -9,7 +9,7 @@
   * Low-Level Implementation Specifications: [`docs/implement/impl-security-*.md`](../implement/)
   * User & Deployment Guides: [`docs/guides/`](../guides/)
   * Source Code: [`src/sp_mcp_server/`](../../src/sp_mcp_server/)
-  * Test Automation Suite: [`tests/`](../../tests/) (188 collected tests across 12 files)
+  * Test Automation Suite: [`tests/`](../../tests/) (583 collected tests across 15 files)
   * Traceability Matrix: [`docs/traceability/traceability-matrix.md`](../traceability/traceability-matrix.md)
 
 ---
@@ -101,7 +101,8 @@ graph TD
   - **R-07 (Storage Protect Service Engineer)**: Servermon diagnostic utility invocation (`RunServerMon`), activity log defect triage for specific message codes (`ANR0406E`), and cloud migration warning frequency analysis (`ANR8468W`) (`TestR07ServiceEngineerDiagnostics`).
   - **R-08 (Multi-Server Replication & Data Management)**: Multi-server replication topology discovery, cross-server storage rules, replication failure record retrieval, per-node replication progress monitoring, storage pool synchronization verification, failover node reconfiguration, and storage tiering rule queries (`TestR08MultiServerReplication`).
   - **Tool Privilege Tier Annotations**: Runtime validation of read-only tool flags and required privilege tiers (`policy`, `operator`, `storage`, `system`) (`TestPromptToolPrivilegeAnnotations`).
-- **Methodology**: Automated verification in `tests/test_sample_prompts_positive.py` (103 tests: 88 unit + 15 live integration) and `tests/test_sample_prompts_negative.py` (18 tests), validating prompt-to-tool argument translation, exact SP command construction, and schema validation.
+- **Prompt Format**: Every prompt carries a role, context, task, constraints, and output format with lines of at most 100 characters. `sample-prompts.md` expresses these in natural English (`You are a ...`, then `Do the following:`, `The following constraints apply:`, `Generate the output with the following format:`); `negative_sample_prompts.md` keeps labelled sections. The Task section names the MCP tools to call, which ties each prompt to the unit tests below.
+- **Methodology**: Automated verification in `tests/test_sample_prompts_positive.py` (107 tests: 92 unit + 15 live integration), `tests/test_sample_prompts_negative.py` (18 tests), and `tests/test_sample_prompts_structure.py` (300 tests). The first two validate prompt-to-tool argument translation, exact SP command construction, and schema validation. The structure suite validates the 128 positive and 18 negative catalog prompts for required blocks, block order, line width, registered tool names, positive-test coverage of every referenced tool, and negative-prompt-to-test mappings.
 
 ### Level 5: Live IBM Storage Protect Integration Testing
 - **Target**: End-to-end integration with live IBM Storage Protect instance.
@@ -210,7 +211,7 @@ A test run is considered **Passed** if and only if all of the following gates ar
 | **Non-Repudiation** | NR-1, NR-2, NR-3, NR-4, NR-5 | `mcp_factory.py`, `http_server.py` | `tests/test_sec_audit_trail.py` | `TestAuditTrail` |
 | **Dynamic Authentication** | DAUTH-1 – DAUTH-11 | `session.py`, `commands/system/auth.py`, `mcp_factory.py` | `tests/test_sec_dynamic_auth.py`, `tests/test_sec_session_lifecycle.py` | `TestDynamicAuthentication`, `TestTargetServerBinding`, `TestSessionCredentialLifecycle` |
 | **OAuth 2 Extended Middleware** | OA-1 – OA-7 | `http_server.py`, `mcp_factory.py`, `main.py` | `tests/test_sec_oauth2.py` | `TestOAuthASMetadata`, `TestJWKSRotation`, `TestPKCECapability`, `TestIntrospection`, `TestProtectedResourceMetadata`, `TestAuthModelAudit` |
-| **Persona Prompts & Scenarios** | R-01, R-02, R-05, R-03..R-07 | `commands/`, `server_groups.py` | `tests/test_sample_prompts_positive.py`, `tests/test_sample_prompts_negative.py` | `TestPromptTemplates`, `TestSamplePromptsOperator`, `TestSamplePromptsAdmin`, `TestSamplePromptsSecurity` |
+| **Persona Prompts & Scenarios** | R-01..R-08 | `commands/`, `server_groups.py` | `tests/test_sample_prompts_positive.py`, `tests/test_sample_prompts_negative.py`, `tests/test_sample_prompts_structure.py` | `TestR01*`..`TestR08*`, `TestPromptToolPrivilegeAnnotations`, `TestNegativeR01Operator`..`TestNegativeR08Replication`, `TestPositivePromptCatalog`, `TestNegativePromptCatalog` |
 | **Negative Testing & Security Abuse** | NEG-01 – NEG-25 | `mcp_factory.py`, `http_server.py`, `session.py`, `cli_wrapper.py` | `tests/test_sec_negative.py` (Test-Bed) | `TestNegativeProtocol`, `TestNegativeSecurityAbuse`, `TestNegativeInjection` |
 | **Controlled Environmental Failures** | ENV-01 – ENV-15 | `cli_wrapper.py`, `http_server.py`, `session.py` | `tests/test_resilience_faults.py` (Test-Bed) | `TestSubprocessFaults`, `TestNetworkDisruptions`, `TestResourceExhaustion` |
 | **Stress, Capacity & Load** | STR-01 – STR-10 | `http_server.py`, `session.py`, `mcp_factory.py` | `tests/load/locustfile.py` (Test-Bed) | `TestConcurrentSessions`, `TestJWKSStampede`, `TestSSEStreamEndurance` |

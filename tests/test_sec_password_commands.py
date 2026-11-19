@@ -13,6 +13,7 @@ from sp_mcp_server.commands.system.admin import DefineAdmin, UpdateUser
 from sp_mcp_server.commands.clients.node import RegisterNode, UpdateNode
 from sp_mcp_server.commands.storage.datamover import DefineDataMover, UpdateDataMover
 from sp_mcp_server.commands.system.server import DefineServer, UpdateServer
+from sp_mcp_server.cli_wrapper import _redact_command
 
 from tests.fixtures import (
     ADMIN_NAME_TEST,
@@ -97,12 +98,19 @@ class TestPasswordCommandsSilentExecution:
         cli.execute.assert_called_once()
         cli.execute_silent.assert_not_called()
 
-    def test_define_data_mover_uses_execute_silent(self):
-        cli = self._make_cli()
-        DefineDataMover(cli).execute({
+    @pytest.mark.parametrize("payload", [
+        {
             "name": "DM1", "hl_address": "10.0.0.1", "data_format": "NETAPPDUMP",
             "user_id": "nasuser", "password": TEST_PASSWORD_VALUE,
-        })
+        },
+        {
+            "name": "DM1", "type": "nas", "hl_address": "10.0.0.5",
+            "data_format": "netappdump", "user_id": "dmuser", "password": TEST_PASSWORD_VALUE,
+        },
+    ])
+    def test_define_data_mover_uses_execute_silent(self, payload):
+        cli = self._make_cli()
+        DefineDataMover(cli).execute(payload)
         cli.execute_silent.assert_called_once()
         cli.execute.assert_not_called()
 
@@ -112,18 +120,29 @@ class TestPasswordCommandsSilentExecution:
         cli.execute_silent.assert_called_once()
         cli.execute.assert_not_called()
 
-    def test_update_data_mover_without_password_uses_execute(self):
+    @pytest.mark.parametrize("payload", [
+        {"name": "DM1", "online": "YES"},
+        {"name": "DM1", "hl_address": "10.0.0.6"},
+    ])
+    def test_update_data_mover_without_password_uses_execute(self, payload):
         cli = self._make_cli()
-        UpdateDataMover(cli).execute({"name": "DM1", "online": "YES"})
+        UpdateDataMover(cli).execute(payload)
         cli.execute.assert_called_once()
         cli.execute_silent.assert_not_called()
 
-    def test_define_server_uses_execute_silent(self):
-        cli = self._make_cli()
-        DefineServer(cli).execute({
+    @pytest.mark.parametrize("payload", [
+        {
             "server_name": "SRV2", "password": TEST_PASSWORD_VALUE,
             "hl_address": "10.0.0.2", "ll_address": "1500",
-        })
+        },
+        {
+            "server_name": "REMOTE_SP", "password": TEST_PASSWORD_VALUE,
+            "hl_address": "10.0.0.1", "ll_address": "1500",
+        },
+    ])
+    def test_define_server_uses_execute_silent(self, payload):
+        cli = self._make_cli()
+        DefineServer(cli).execute(payload)
         cli.execute_silent.assert_called_once()
         cli.execute.assert_not_called()
 
@@ -133,8 +152,25 @@ class TestPasswordCommandsSilentExecution:
         cli.execute_silent.assert_called_once()
         cli.execute.assert_not_called()
 
-    def test_update_server_without_password_uses_execute(self):
+    @pytest.mark.parametrize("payload", [
+        {"server_name": "SRV2", "description": "d"},
+        {"server_name": "REMOTE_SP", "hl_address": "10.0.0.2"},
+    ])
+    def test_update_server_without_password_uses_execute(self, payload):
         cli = self._make_cli()
-        UpdateServer(cli).execute({"server_name": "SRV2", "description": "d"})
+        UpdateServer(cli).execute(payload)
         cli.execute.assert_called_once()
         cli.execute_silent.assert_not_called()
+
+    def test_redact_command_masks_passwords(self):
+        cmd1 = 'DEFINE SERVER S1 PASSWORD=SecretPass123 HLADDRESS=1.2.3.4 LLADDRESS=1500'
+        cmd2 = 'DEFINE DATAMOVER D1 USERID=u1 PASSWORD="QuotedSecret!"'
+        cmd3 = 'REGISTER NODE NODE1 PwD12345! DOMAIN=STANDARD'
+        cmd4 = 'REGISTER ADMIN ADM1 AdminSecret9!'
+        cmd5 = 'QUERY NODE *'
+
+        assert _redact_command(cmd1) == 'DEFINE SERVER S1 PASSWORD=*** HLADDRESS=1.2.3.4 LLADDRESS=1500'
+        assert _redact_command(cmd2) == 'DEFINE DATAMOVER D1 USERID=u1 PASSWORD="***"'
+        assert _redact_command(cmd3) == 'REGISTER NODE NODE1 *** DOMAIN=STANDARD'
+        assert _redact_command(cmd4) == 'REGISTER ADMIN ADM1 ***'
+        assert _redact_command(cmd5) == 'QUERY NODE *'

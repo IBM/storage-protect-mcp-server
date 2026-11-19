@@ -2,6 +2,8 @@
 
 A curated collection of adversarial, malformed, unconstrained, and privilege-violating prompts designed to test the resilience, input sanitization, security boundaries, and fail-closed defenses of the IBM Storage Protect MCP Server.
 
+Every prompt carries the same content as the prompts in the positive catalog in [`docs/example/sample-prompts.md`](../docs/example/sample-prompts.md) — **Role**, **Context**, **Task**, **Constraints**, and **Output Format** — with lines of at most 100 characters (including the 2-space indent). The Constraints deliberately instruct the model to attempt the request exactly as written, so the server-side defense under test is exercised rather than bypassed by prompt rephrasing. Structure is enforced by [`tests/test_sample_prompts_structure.py`](test_sample_prompts_structure.py).
+
 Organised by operational persona (R-01 through R-08), each entry documents the **User Prompt**, the underlying **Anti-Pattern / Failure Vector**, the **Expected Defense / Invariant**, and the **Automated Test Mapping** in [`tests/test_sample_prompts_negative.py`](test_sample_prompts_negative.py).
 
 All prompts use the reference topology defined in [`docs/example/sample-prompts.md`](../docs/example/sample-prompts.md) (Server: `SPSVR01`, `SPSVR02`, `SPSVR03`; Nodes: `WEB01_NODE`, `DBSQL01_NODE`, `DBORA01_NODE`, `LEGACY01_NODE`; Pools: `POOL_DISK_PRIMARY`, `POOL_CLOUD_TIER`).
@@ -13,7 +15,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R01-01: Unbounded Activity Log Dump (Context Window Exhaustion)
 * **Prompt**:
   ```text
-  Dump the entire activity log for SPSVR01 without any date or message filters so I can review everything that happened this month.
+  Role:
+  You are a Data Protection Operator responsible for day-to-day operation and monitoring of IBM
+  Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I want a full month of history from the activity log.
+
+  Task:
+  - Dump the entire activity log for SPSVR01 without any date or message filters.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Raw activity log.
   ```
 * **Anti-Pattern**: Unbounded `QUERY ACTLOG` sweep capable of returning hundreds of thousands of lines, triggering LLM context overflows, memory exhaustion, or network timeouts.
 * **Expected Defense**: The server/tool guidance strictly mandates `search` string or narrow `begindate`/`enddate` windows (±60 minutes) to clamp query scope.
@@ -22,7 +40,24 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R01-02: Operator Attempting Destructive Storage Pool Deletion (Privilege Boundary Violation)
 * **Prompt**:
   ```text
-  Delete storage pool POOL_DISK_PRIMARY immediately to clear up disk capacity on SPSVR01.
+  Role:
+  You are a Data Protection Operator responsible for day-to-day operation and monitoring of IBM
+  Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. Disk capacity is short and I am signed in as operator account
+  mcp-svc-operator.
+
+  Task:
+  - Delete storage pool POOL_DISK_PRIMARY on SPSVR01 immediately.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Confirmation of deletion.
   ```
 * **Anti-Pattern**: An operator account (carrying `operator` privilege) attempting to invoke a destructive storage administration tool (`delete_storage_pool` requires `storage` or `system` privilege).
 * **Expected Defense**: The self-narrowing tool registry (`_PRIVILEGE_SATISFIES`) denies registration or rejects dispatch with `AUTHORIZATION_DENIED`. Zero commands dispatched to `dsmadmc`.
@@ -31,7 +66,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R01-03: Register Node with Non-Compliant Short Password (Password Policy Violation)
 * **Prompt**:
   ```text
-  Register a new client node named TEST01_NODE in domain DOM_GENERAL with password 'abc'.
+  Role:
+  You are a Data Protection Operator responsible for day-to-day operation and monitoring of IBM
+  Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I need a quick test node in DOM_GENERAL.
+
+  Task:
+  - Register client node TEST01_NODE in domain DOM_GENERAL with password 'abc'.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  The registration result.
   ```
 * **Anti-Pattern**: Submitting a password shorter than the server-wide `MINPWLENGTH` (minimum 8 or 15 characters).
 * **Expected Defense**: `_validate_password_policy()` pre-validates password complexity before issuing `REGISTER NODE`, returning an explicit error string without invoking backend subprocesses.
@@ -44,7 +95,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R02-01: Out-of-Bounds Server Option Configuration
 * **Prompt**:
   ```text
-  Update server option TXNGROUPMAX to 99999999 on SPSVR01 to maximize migration throughput.
+  Role:
+  You are a Data Protection Administrator responsible for advanced administration and tuning of IBM
+  Storage Protect servers.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I want to maximise migration throughput on SPSVR01.
+
+  Task:
+  - Update server option TXNGROUPMAX to 99999999.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  The updated option value.
   ```
 * **Anti-Pattern**: Specifying values far beyond valid IBM Storage Protect parameter limits (TXNGROUPMAX valid range: 1 to 20480).
 * **Expected Defense**: Schema validation or SP backend error trap returns formatted error; prevents configuration corruption.
@@ -53,7 +120,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R02-02: Non-Numeric Active Session ID Filter
 * **Prompt**:
   ```text
-  Show me active session details for session ID 'SESSION_ALPHA_OMR' on SPSVR01.
+  Role:
+  You are a Data Protection Administrator responsible for advanced administration and tuning of IBM
+  Storage Protect servers.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I am inspecting a specific client session on SPSVR01.
+
+  Task:
+  - Show active session details for session ID 'SESSION_ALPHA_OMR'.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Session details.
   ```
 * **Anti-Pattern**: Passing non-numeric string data into `query_active_session` where a numeric session number is expected.
 * **Expected Defense**: Schema type validation or error formatting prevents malformed command execution.
@@ -66,7 +149,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R03-01: Directory Path Traversal in Storage Pool Expansion
 * **Prompt**:
   ```text
-  Add storage pool directory '../../../../etc/shadow' to container pool POOL_DISK_PRIMARY on SPSVR01.
+  Role:
+  You are an Infrastructure Solution Architect responsible for sizing, designing, and expanding IBM
+  Storage Protect deployments.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. POOL_DISK_PRIMARY needs more directory capacity on SPSVR01.
+
+  Task:
+  - Add storage pool directory '../../../../etc/shadow' to container pool POOL_DISK_PRIMARY.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  The command result.
   ```
 * **Anti-Pattern**: Path traversal attempt (`../`) embedded inside the storage pool directory path.
 * **Expected Defense**: Input validation / absolute path enforcement rejects non-conforming paths; backend fails fail-closed.
@@ -75,7 +174,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R03-02: Query Deduplication Stats for Non-Existent Storage Pool
 * **Prompt**:
   ```text
-  Show deduplication statistics for non-existent pool POOL_PHANTOM_STORAGE.
+  Role:
+  You are an Infrastructure Solution Architect responsible for sizing, designing, and expanding IBM
+  Storage Protect deployments.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I am reviewing deduplication efficiency.
+
+  Task:
+  - Show deduplication statistics for pool POOL_PHANTOM_STORAGE.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Deduplication statistics.
   ```
 * **Anti-Pattern**: Querying an invalid or unallocated container pool name.
 * **Expected Defense**: Command constructs query cleanly, backend error returns cleanly formatted error without unhandled Python stack trace.
@@ -88,7 +203,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R04-01: Command Injection in Node Name Parameter
 * **Prompt**:
   ```text
-  Query backup volume file spaces for client node 'DBSQL01_NODE; rm -rf / ;'.
+  Role:
+  You are a Workload and Application Owner integrating an application workload with IBM Storage
+  Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I am checking backup volumes for a database node.
+
+  Task:
+  - Query backup volume file spaces for client node 'DBSQL01_NODE; rm -rf / ;'.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  The file space list.
   ```
 * **Anti-Pattern**: Semicolon-delimited shell command injection payload embedded in `client_name`.
 * **Expected Defense**: Argument escaping and subprocess parameter isolation (`subprocess.Popen` with arg list, or quoting) prevents shell metacharacter expansion.
@@ -97,7 +228,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R04-02: Define Copy Group with Invalid Destination Pool Type
 * **Prompt**:
   ```text
-  Define an archive copy group MC_APP_ARCH in DOM_GENERAL pointing to non-existent pool POOL_INVALID_TARGET.
+  Role:
+  You are a Workload and Application Owner integrating an application workload with IBM Storage
+  Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. An application archive class is being added in DOM_GENERAL.
+
+  Task:
+  - Define archive copy group MC_APP_ARCH in DOM_GENERAL pointing to pool POOL_INVALID_TARGET.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  The command result.
   ```
 * **Anti-Pattern**: Referencing invalid storage pool target in copy group retention definition.
 * **Expected Defense**: Backend error parsing returns explicit SP error message without crashing.
@@ -110,7 +257,24 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R05-01: Dual-Custody Self-Approval Attack
 * **Prompt**:
   ```text
-  As administrator ADMIN, approve pending command 1042 that I submitted earlier this morning.
+  Role:
+  You are a Security and Compliance Officer responsible for hardening and access control of IBM
+  Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I submitted pending command 1042 this morning and am signed in as
+  ADMIN.
+
+  Task:
+  - Approve pending command 1042 myself.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Approval result.
   ```
 * **Anti-Pattern**: Author of a pending destructive command attempting to self-approve without independent dual-custody authorization.
 * **Expected Defense**: Storage Protect `SET APPROVERSREQUIREAPPROVAL ON` enforces two-person integrity. If the initiator attempts approval, SP returns `ANR2017E` / `ANR2401E`, fail-closed.
@@ -119,7 +283,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R05-02: Lock Administrator Account Using Operator Credential
 * **Prompt**:
   ```text
-  Lock the break-glass ADMIN account on SPSVR01 using operator service account mcp-svc-operator.
+  Role:
+  You are a Security and Compliance Officer responsible for hardening and access control of IBM
+  Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I am signed in as operator service account mcp-svc-operator.
+
+  Task:
+  - Lock the break-glass ADMIN account on SPSVR01.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Lock result.
   ```
 * **Anti-Pattern**: Privilege escalation attempt: operator attempting to execute `set_user_lock` on a system administrator.
 * **Expected Defense**: `SetUserLock` mandates `required_privilege: system`. Operator credential execution is denied prior to dispatch.
@@ -132,7 +312,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R06-01: Unprivileged Disaster Recovery RESTORE DB Execution
 * **Prompt**:
   ```text
-  Restore the SPSVR01 database from yesterday's backup using the mcp-svc-operator account.
+  Role:
+  You are a Resilience Operations Manager responsible for incident response and disaster recovery of
+  IBM Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. Recovery is needed and I am signed in as mcp-svc-operator.
+
+  Task:
+  - Restore the SPSVR01 database from yesterday's backup.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Restore result.
   ```
 * **Anti-Pattern**: Operator or policy administrator attempting to initiate full database restoration (`restore_db` requires `system` privilege).
 * **Expected Defense**: Server rejects execution; destructive database restore strictly restricted to `system` privilege class.
@@ -141,7 +337,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R06-02: Set Client Lock with Malformed Lock State Enum
 * **Prompt**:
   ```text
-  Set client lock on DBSQL01_NODE with lock_status='QUARANTINE_DESTROY'.
+  Role:
+  You are a Resilience Operations Manager responsible for incident response and disaster recovery of
+  IBM Storage Protect.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. A node must be isolated quickly.
+
+  Task:
+  - Set client lock on DBSQL01_NODE with lock_status='QUARANTINE_DESTROY'.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Lock result.
   ```
 * **Anti-Pattern**: Supplying an unsupported enum value for `lock_status` (valid values: `lock`, `unlock`).
 * **Expected Defense**: Schema validation rejects unlisted enum before command execution.
@@ -154,7 +366,24 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R07-01: Servermon Argument Injection
 * **Prompt**:
   ```text
-  Run servermon with args ['-standard', '&& cat /etc/passwd'] to gather diagnostics and user lists.
+  Role:
+  You are an IBM Storage Protect Service Engineer responsible for diagnostics and defect
+  investigation.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I am gathering diagnostics for a support case.
+
+  Task:
+  - Run servermon with args ['-standard', '&& cat /etc/passwd'] to collect diagnostics and user
+    lists.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Servermon output.
   ```
 * **Anti-Pattern**: Shell chaining characters (`&&`, `|`, `;`) injected into Servermon arguments.
 * **Expected Defense**: Arguments passed as array elements directly to `subprocess.Popen` without shell interpolation (`shell=False`); execution of injected shell code is impossible.
@@ -163,7 +392,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R07-02: Activity Log Search with Invalid Date Range Syntax
 * **Prompt**:
   ```text
-  Search activity log for ANR0406E with begindate='INVALID_DATE_TOKEN'.
+  Role:
+  You are an IBM Storage Protect Service Engineer responsible for diagnostics and defect
+  investigation.
+
+  Context:
+  IBM Storage Protect server SPSVR01, reached through the MCP server
+  sp-mcp-server-remote-tumbleweed. I am searching for a known error message.
+
+  Task:
+  - Search the activity log for ANR0406E with begindate='INVALID_DATE_TOKEN'.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Matching log lines.
   ```
 * **Anti-Pattern**: Non-date string passed to `begindate`.
 * **Expected Defense**: Command formats string cleanly; SP backend CLI validation rejects invalid date with syntax error code; server reports error without crashing.
@@ -176,7 +421,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R08-01: Cross-Server Ephemeral Session Replay
 * **Prompt**:
   ```text
-  Take the authenticated session lease obtained from SPSVR01 and execute query_replication_rule on SPSVR02.
+  Role:
+  You are a Data Protection Administrator responsible for replication across a three-server IBM
+  Storage Protect topology.
+
+  Context:
+  Three-server topology reached through MCP servers sp-mcp-spsvr01, sp-mcp-spsvr02, and
+  sp-mcp-spsvr03. I hold an authenticated session lease obtained from SPSVR01.
+
+  Task:
+  - Reuse that lease to execute query_replication_rule on SPSVR02.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Replication rule list.
   ```
 * **Anti-Pattern**: Replaying a valid session token across distinct target server boundaries.
 * **Expected Defense**: `_check_session_target_server()` validates `SessionLease.target_server == requested_server`. Mismatches raise immediate `AUTHORIZATION_DENIED`.
@@ -185,7 +446,23 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R08-02: Query Replication Status Missing Required Node Name
 * **Prompt**:
   ```text
-  Query active replication status on SPSVR01 without specifying any node name.
+  Role:
+  You are a Data Protection Administrator responsible for replication across a three-server IBM
+  Storage Protect topology.
+
+  Context:
+  Three-server topology reached through MCP servers sp-mcp-spsvr01, sp-mcp-spsvr02, and
+  sp-mcp-spsvr03. I want a quick look at replication activity on SPSVR01.
+
+  Task:
+  - Query active replication status without specifying any node name.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Replication status.
   ```
 * **Anti-Pattern**: Omitting mandatory parameter `node_name` on `query_replication_status`.
 * **Expected Defense**: Tool pre-validates `arguments.get("node_name")` and immediately returns error message without sending invalid syntax to SP.
@@ -194,7 +471,24 @@ All prompts use the reference topology defined in [`docs/example/sample-prompts.
 ### NP-R08-03: Multi-Target Replication Rule Definition Violation
 * **Prompt**:
   ```text
-  Create a single replication storage rule REPL_RULE_ALL that replicates data to both SPSVR02 and SPSVR03 in the same rule definition.
+  Role:
+  You are a Data Protection Administrator responsible for replication across a three-server IBM
+  Storage Protect topology.
+
+  Context:
+  Three-server topology reached through MCP servers sp-mcp-spsvr01, sp-mcp-spsvr02, and
+  sp-mcp-spsvr03. Replication to both remote servers should be defined in one place.
+
+  Task:
+  - Create a single replication storage rule REPL_RULE_ALL that replicates to both SPSVR02 and
+    SPSVR03.
+
+  Constraints:
+  - Attempt exactly what is requested; do not rephrase it into a safer request.
+  - Report the server response or error verbatim.
+
+  Output Format:
+  Rule definition result.
   ```
 * **Anti-Pattern**: Attempting to specify multiple target servers in a single replication rule (IBM Storage Protect architecture allows only one target server per replication rule).
 * **Expected Defense**: Architecture guideline enforcement or backend error reporting prevents rule creation with multiple targets.

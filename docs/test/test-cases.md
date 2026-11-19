@@ -3,7 +3,7 @@
 * **Document**: Test Cases for IBM Storage Protect MCP Server
 * **Revision**: 2026-10
 * **Status**: Complete & Verified
-* **Total Automated Tests Mapped**: **188 Test Cases** across 12 files
+* **Total Automated Tests Mapped**: **583 Test Cases** across 15 files (568 passing, 15 live-integration skipped)
 * **Inputs**: Architecture Docs, Security Design Specs, Implementation Specs, User Guides, Source Code (`src/sp_mcp_server/`), and Test Automation Suite (`tests/`)
 
 ---
@@ -13,7 +13,7 @@
 | Section | Domain / Category | Automated Test File | Tests | Focus Area |
 | :--- | :--- | :--- | :---: | :--- |
 | **Section 1** | Startup & Security Invariants | [`tests/test_sec_startup.py`](../../tests/test_sec_startup.py) | 23 | NET-1, RG-1, CRED-3, RG-2, ACC-2, POL-3 |
-| **Section 2** | Password Silent Execution | [`tests/test_sec_password_commands.py`](../../tests/test_sec_password_commands.py) | 6 | RG-3, CRED-2, Log sanitization |
+| **Section 2** | Password Silent Execution | [`tests/test_sec_password_commands.py`](../../tests/test_sec_password_commands.py) | 13 | RG-3, CRED-2, Log sanitization |
 | **Section 3** | Audit Trail & HTTP TLS | [`tests/test_sec_audit_trail.py`](../../tests/test_sec_audit_trail.py) | 8 | POL-4, RG-4, NR-1, NR-4, RG-5 |
 | **Section 4** | Dynamic Authentication | [`tests/test_sec_dynamic_auth.py`](../../tests/test_sec_dynamic_auth.py) | 17 | DAUTH-1, DAUTH-2, DAUTH-4, DAUTH-5, INT-1, INT-2 |
 | **Section 5** | Session Lifecycle & Server Binding | [`tests/test_sec_session_lifecycle.py`](../../tests/test_sec_session_lifecycle.py) | 14 | CRED-3b, DAUTH-3, DAUTH-7, DAUTH-8, DAUTH-9 |
@@ -21,7 +21,8 @@
 | **Section 7** | Subprocess CLI Wrapper | [`tests/test_cli_wrapper.py`](../../tests/test_cli_wrapper.py) | 5 | Subprocess quoting, exit codes, sudo execution |
 | **Section 8** | Core Commands & Config | [`tests/test_commands.py`](../../tests/test_commands.py), [`tests/test_config.py`](../../tests/test_config.py) | 8 | BaseCommand queries, keyring resolution |
 | **Section 9** | Core Components & Privilege | [`tests/test_core_components.py`](../../tests/test_core_components.py) | 7 | Sudo privilege escalation, offline commands |
-| **Section 10** | Persona Prompt Scenarios (Unit) | [`tests/test_sample_prompts_positive.py`](../../tests/test_sample_prompts_positive.py) | 88 | Personas R-01..R-08 & Privilege annotations |
+| **Section 10** | Persona Prompt Scenarios (Unit) | [`tests/test_sample_prompts_positive.py`](../../tests/test_sample_prompts_positive.py) | 92 | Personas R-01..R-08 & Privilege annotations |
+| **Section 10b** | Prompt Catalog Structure | [`tests/test_sample_prompts_structure.py`](../../tests/test_sample_prompts_structure.py) | 300 | Natural-English role/context/task/constraints/output blocks, 100-char lines, tool names, negative mappings |
 | **Section 11** | Live System Integration | [`tests/test_sample_prompts_positive.py`](../../tests/test_sample_prompts_positive.py) | 15 | Live SP server staging verification |
 
 ---
@@ -83,18 +84,25 @@
 
 ---
 
-## Section 2: Password Silent Execution (`test_sec_password_commands.py` — 6 Tests)
+## Section 2: Password Silent Execution (`test_sec_password_commands.py` — 13 Tests)
 
 * **Objective**: Validate RG-3 silent execution for all password-bearing SP commands. Passwords must never appear in logs or process argument lists.
 
 | Case ID | Test Method | SP Command Tested | Assertion & Expected Behavior |
 | :--- | :--- | :--- | :--- |
-| **TC-RG3-01** | `test_define_admin_uses_silent_execution` | `REGISTER ADMIN <user> <pass>` | `execute_silent()` invoked. Password absent from `caplog`. |
-| **TC-RG3-02** | `test_update_user_password_uses_silent_execution` | `UPDATE ADMIN <user> <pass>` | `execute_silent()` invoked when password provided. |
-| **TC-RG3-03** | `test_update_user_without_password_uses_standard_execution` | `UPDATE ADMIN <user> CONTACT="..."` | Standard `execute()` invoked (no password present). |
-| **TC-RG3-04** | `test_register_node_uses_silent_execution` | `REGISTER NODE <node> <pass> DOMAIN=...` | `execute_silent()` invoked. Plaintext password not logged. |
-| **TC-RG3-05** | `test_update_node_password_uses_silent_execution` | `UPDATE NODE <node> <pass>` | `execute_silent()` invoked when updating password. |
-| **TC-RG3-06** | `test_update_node_without_password_uses_standard_execution` | `UPDATE NODE <node> DOMAIN=...` | Standard `execute()` invoked when updating metadata only. |
+| **TC-RG3-01** | `test_define_admin_uses_execute_silent` | `REGISTER ADMIN <user> <pass>` | `execute_silent()` invoked. Password absent from logs. |
+| **TC-RG3-02** | `test_register_node_uses_execute_silent` | `REGISTER NODE <node> <pass> DOMAIN=...` | `execute_silent()` invoked. Plaintext password not logged. |
+| **TC-RG3-03** | `test_update_user_with_password_uses_execute_silent` | `UPDATE ADMIN <user> <pass>` | `execute_silent()` invoked when password provided. |
+| **TC-RG3-04** | `test_update_user_without_password_uses_execute` | `UPDATE ADMIN <user> CONTACT="..."` | Standard `execute()` invoked (no password present). |
+| **TC-RG3-05** | `test_update_node_with_password_uses_execute_silent` | `UPDATE NODE <node> <pass>` | `execute_silent()` invoked when updating password. |
+| **TC-RG3-06** | `test_update_node_without_password_uses_execute` | `UPDATE NODE <node> DOMAIN=...` | Standard `execute()` invoked when updating metadata only. |
+| **TC-RG3-07** | `test_define_server_uses_execute_silent` | `DEFINE SERVER <srv> PASSWORD=...` | `execute_silent()` invoked. Server password omitted from logs. |
+| **TC-RG3-08** | `test_update_server_with_password_uses_execute_silent` | `UPDATE SERVER <srv> PASSWORD=...` | `execute_silent()` invoked when password provided. |
+| **TC-RG3-09** | `test_update_server_without_password_uses_execute` | `UPDATE SERVER <srv> HLADDRESS=...` | Standard `execute()` invoked when updating address only. |
+| **TC-RG3-10** | `test_define_data_mover_uses_execute_silent` | `DEFINE DATAMOVER ... PASSWORD=...` | `execute_silent()` invoked. Data mover password omitted from logs. |
+| **TC-RG3-11** | `test_update_data_mover_with_password_uses_execute_silent` | `UPDATE DATAMOVER ... PASSWORD=...` | `execute_silent()` invoked when updating data mover password. |
+| **TC-RG3-12** | `test_update_data_mover_without_password_uses_execute` | `UPDATE DATAMOVER ... HLADDRESS=...` | Standard `execute()` invoked when updating address only. |
+| **TC-RG3-13** | `test_redact_command_masks_passwords` | Multiple dsmadmc commands | `_redact_command()` masks `PASSWORD=***` and positional passwords. |
 
 ---
 
@@ -310,9 +318,10 @@
 
 ---
 
-## Section 10: Persona Prompt Scenarios (`test_sample_prompts_positive.py` Part 1 — 88 Tests)
+## Section 10: Persona Prompt Scenarios (`test_sample_prompts_positive.py` Part 1 — 92 Tests)
 
 * **Objective**: Validate LLM user prompt templates, command syntax construction, and multi-step tool calls across all eight operational personas defined in [`docs/example/sample-prompts.md`](../example/sample-prompts.md).
+* **Prompt Format**: Each of the 128 catalog prompts is written in natural English: an opening paragraph (role, then context and MCP server) followed by **Do the following:** (task), **The following constraints apply:** (constraints), and **Generate the output with the following format:** (output format). The Task section names the MCP tools to call; the tests below drive those same tools directly, so every tool named in a prompt has at least one positive test (enforced by `TestPositivePromptCatalog::test_every_prompt_tool_has_positive_test`).
 * **Test Harness**: `tests/test_sample_prompts_positive.py` (Part 1) utilizing `FakeAdmcCli` and `FakeServermonCli` mock harnesses.
 
 ### 10.1 Persona R-01: Data Protection Operator (21 Tests)
@@ -331,21 +340,21 @@
 * **Classes**: `TestR04WorkloadBackupIntegration` (3).
 * **Test Focus**: Application-consistent backup volume file space validation for database nodes (`QueryClientBackupVolume`), SAP redo-log archive retention copy group definitions (`DefineCopyGroup`), and Oracle database data occupancy inspection (`QueryDataOccupancy`).
 
-### 10.5 Persona R-05: Security & Compliance Officer (10 Tests)
-* **Classes**: `TestR05SecurityHardening` (6), `TestR05PolicyAudit` (4).
-* **Test Focus**: `SESSIONSECURITY=STRICT` compliance audit, dual-custody command approval workflow (`APPROVE PENDINGCMD`), password lockout enforcement, ACTLOG scratchpad forensic extraction, policy domain retention inspection, and management class listing.
+### 10.5 Persona R-05: Security & Compliance Officer (11 Tests)
+* **Classes**: `TestR05SecurityHardening` (6), `TestR05PolicyAudit` (5).
+* **Test Focus**: `SESSIONSECURITY=STRICT` compliance audit, dual-custody command approval workflow (`APPROVE PENDINGCMD`), password lockout enforcement, ACTLOG scratchpad forensic extraction, policy domain retention inspection, management class listing, and retention set verification (`QueryRetentionSet`).
 
 ### 10.6 Persona R-06: Resilience Operations Manager (4 Tests)
 * **Classes**: `TestR06ResilienceOperations` (4).
 * **Test Focus**: Suspected ransomware node isolation via client lock (`SetClientLock`), server database disaster recovery restore invocation (`RestoreDB`), disaster recovery plan file status queries (`QueryRecoveryPlanFile`), and offsite media tracking (`QueryDRMedia`).
 
-### 10.7 Persona R-07: Storage Protect Service Engineer (3 Tests)
-* **Classes**: `TestR07ServiceEngineerDiagnostics` (3).
-* **Test Focus**: Servermon diagnostic utility invocation with custom flags (`RunServerMon`), activity log defect triage for specific message codes (`QueryActivityLog` with `SEARCH=ANR0406E`), and cloud migration warning frequency analysis (`QueryActivityLog` with `SEARCH=ANR8468W`).
+### 10.7 Persona R-07: Storage Protect Service Engineer (4 Tests)
+* **Classes**: `TestR07ServiceEngineerDiagnostics` (4).
+* **Test Focus**: Servermon diagnostic utility invocation with custom flags (`RunServerMon`), in-progress job checks before fix-pack windows (`QueryBackgroundJob` → `QUERY PROCESS`), activity log defect triage for specific message codes (`QueryActivityLog` with `SEARCH=ANR0406E`), and cloud migration warning frequency analysis (`QueryActivityLog` with `SEARCH=ANR8468W`).
 
-### 10.8 Persona R-08: Multi-Server Replication & Data Management (7 Tests)
-* **Classes**: `TestR08MultiServerReplication` (7).
-* **Test Focus**: Multi-server replication topology discovery (`QueryReplicationServer`), cross-server storage replication rules (`QueryReplicationRule`), inbound/outbound replication failure record retrieval (`QueryReplicationFailures`), per-node replication progress monitoring (`QueryReplicationStatus`), storage pool synchronization verification (`QueryProtectionStatus`), failover node domain updating (`UpdateNode`), and storage tiering rule queries (`QueryStorageRule`).
+### 10.8 Persona R-08: Multi-Server Replication & Data Management (9 Tests)
+* **Classes**: `TestR08MultiServerReplication` (9).
+* **Test Focus**: Multi-server replication topology discovery (`QueryReplicationServer`), cross-server storage replication rules (`QueryReplicationRule`), inbound/outbound replication failure record retrieval (`QueryReplicationFailures`), per-node replication progress monitoring (`QueryReplicationStatus`), per-node `REPLSTATE` listing for all nodes or a single node/target (`QueryReplicationClient` → `QUERY REPLNODE`), storage pool synchronization verification (`QueryProtectionStatus`), failover node domain updating (`UpdateNode`), and storage tiering rule queries (`QueryStorageRule`).
 
 ### 10.9 Tool Type and Privilege Annotations (30 Tests)
 * **Classes**: `TestPromptToolPrivilegeAnnotations` (18 read-only tool type tests + 12 write tool privilege tier tests).
@@ -362,6 +371,26 @@
   - `TestNegativeR06ResilienceManager` (2): Unprivileged disaster recovery `RESTORE DB` denial, client lock malformed enum handling.
   - `TestNegativeR07ServiceEngineer` (2): Servermon argument array injection defense, activity log invalid date syntax handling.
   - `TestNegativeR08Replication` (3): Cross-server session replay rejection, query replication missing mandatory node name, multi-target replication rule constraint.
+
+### 10.11 Prompt Catalog Structure (`test_sample_prompts_structure.py` — 300 Tests)
+* **Objective**: Keep the human-readable prompt catalogs and the automation in lock-step so a prompt cannot drift from the structure, width, tool names, or test mappings the suite relies on.
+* **Catalogs Under Test**: [`docs/example/sample-prompts.md`](../example/sample-prompts.md) (128 prompts) and [`tests/negative_sample_prompts.md`](../../tests/negative_sample_prompts.md) (18 prompts).
+* **Required Prompt Structure**: `sample-prompts.md` prompts open with `You are a ...` (role) and the context, then contain `Do the following:` → `The following constraints apply:` → `Generate the output with the following format:` in that order. The two long-form "Context-Optimised" blueprint prompts must contain the same three blocks but keep their own `Follow these query success rules:` and `Follow this execution sequence:` blocks, and place constraints last. `negative_sample_prompts.md` keeps labelled sections: `Role:` → `Context:` → `Task:` → `Constraints:` → `Output Format:`.
+
+| Case Group | Test Method | Count | Expected Behavior |
+| :--- | :--- | :---: | :--- |
+| **TC-PS-01** | `TestPositivePromptCatalog::test_prompt_counts_per_persona` | 1 | Prompt counts per persona match the catalog (R-01 17, R-02 13, R-03 14, R-04 8, R-05 13, R-06 13, R-07 11, blueprint 1, R-08 38). |
+| **TC-PS-02** | `TestPositivePromptCatalog::test_prompt_has_all_blocks` | 128 | Every prompt opens with the role and contains the task, constraints, and output-format blocks, in order for standard prompts. |
+| **TC-PS-02b** | `TestPositivePromptCatalog::test_no_legacy_section_labels` | 1 | No `Role:`, `Context:`, `Task:`, `Constraints:`, `Output Format:`, `Query Success Rules:`, or `Required Execution Sequence:` labels remain in `sample-prompts.md`. |
+| **TC-PS-03** | `TestPositivePromptCatalog::test_prompt_lines_within_limit` | 128 | No prompt line exceeds 100 characters. |
+| **TC-PS-04** | `TestPositivePromptCatalog::test_role_matches_persona` | 1 | Opening role sentence names the persona of its section. |
+| **TC-PS-05** | `TestPositivePromptCatalog::test_context_names_mcp_server` | 1 | Opening context identifies the target MCP server (`sp-mcp-...`). |
+| **TC-PS-06** | `TestPositivePromptCatalog::test_referenced_tools_are_registered` | 1 | Every `query_*`, `define_*`, `update_*`, `set_*`, `restore_*`, `run_*` tool named in a prompt is a registered MCP tool. |
+| **TC-PS-07** | `TestPositivePromptCatalog::test_every_prompt_tool_has_positive_test` | 1 | Every registered tool named in a prompt is exercised by `test_sample_prompts_positive.py`. |
+| **TC-PS-08** | `TestPositivePromptCatalog::test_constraints_define_execution_safety` | 1 | Constraints state read-only, advisory, or confirmation-gated behavior. |
+| **TC-PS-09** | `TestNegativePromptCatalog::test_prompt_counts_per_persona` | 1 | Negative prompt counts per persona match NP-R01..NP-R08 (3, 2, 2, 2, 2, 2, 2, 3). |
+| **TC-PS-10** | `TestNegativePromptCatalog::test_prompt_structure_and_width` | 18 | Each negative prompt has all five sections in order and fits 100 characters including its 2-space indent. |
+| **TC-PS-11** | `TestNegativePromptCatalog::test_mapping_resolves_to_test` | 18 | Each `Test Mapping` in the negative catalog points to an existing class and method in `test_sample_prompts_negative.py`. |
 
 ---
 

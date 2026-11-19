@@ -12,11 +12,11 @@
 
 | Procedure ID | Procedure Title | Scope | Execution Frequency |
 | :--- | :--- | :--- | :--- |
-| **PROC-01** | [Automated Unit & Mock Regression Suite](#proc-01-automated-unit--mock-regression-suite) | All 12 test files (188 tests) | Pre-commit, PR CI build |
+| **PROC-01** | [Automated Unit & Mock Regression Suite](#proc-01-automated-unit--mock-regression-suite) | All 15 test files (583 tests) | Pre-commit, PR CI build |
 | **PROC-02** | [Security Controls Verification Runbook](#proc-02-security-controls-verification-runbook) | NET, CRED, ACC, POL, NR, RG security tests | Nightly, Security audit |
 | **PROC-03** | [Dynamic Authentication & Session Lifecycle Runbook](#proc-03-dynamic-authentication--session-lifecycle-runbook) | Challenge-response, TTL, Zeroing | Release verification |
 | **PROC-04** | [OAuth 2 & HTTP Transport Verification Runbook](#proc-04-oauth-2--http-transport-verification-runbook) | AS metadata, JWKS, Introspection, RFC 9470 | Release verification |
-| **PROC-05** | [Persona Prompt & AI Workflow Validation Runbook](#proc-05-persona-prompt--ai-workflow-validation-runbook) | Personas R-01 through R-08 (88 tests) | Sprint validation |
+| **PROC-05** | [Persona Prompt & AI Workflow Validation Runbook](#proc-05-persona-prompt--ai-workflow-validation-runbook) | Personas R-01 through R-08 (92 unit + 18 negative + 300 structure tests) | Sprint validation |
 | **PROC-06** | [Live IBM Storage Protect Integration Procedure](#proc-06-live-ibm-storage-protect-integration-procedure) | End-to-end integration with live SP staging | Staging deployment |
 | **PROC-07** | [Cross-Platform Portability (Windows / Linux) Procedure](#proc-07-cross-platform-portability-procedure) | Platform guards & permissions | Platform qualification |
 | **PROC-08** | [Troubleshooting & Diagnostic Runbook](#proc-08-troubleshooting--diagnostic-runbook) | Test failure diagnosis & state cleanup | On-demand debugging |
@@ -168,12 +168,20 @@ To validate against a running Keycloak identity provider, follow [`docs/guides/l
 ## PROC-05: Persona Prompt & AI Workflow Validation Runbook
 
 ### 5.1 Objective
-Validate AI client interactions, prompt template evaluations, and multi-step tool calls across all eight operational personas defined in [`docs/example/sample-prompts.md`](../example/sample-prompts.md) (88 tests total).
+Validate AI client interactions, prompt template evaluations, and multi-step tool calls across all eight operational personas defined in [`docs/example/sample-prompts.md`](../example/sample-prompts.md) (92 unit tests, 18 negative tests, and 300 prompt-structure tests).
+
+Every catalog prompt carries a role, context, task, constraints, and output format with lines of at most 100 characters. `sample-prompts.md` is written in natural English (opening role-and-context paragraph, then `Do the following:`, `The following constraints apply:`, `Generate the output with the following format:`); the negative catalog keeps labelled sections. Run the structure suite first: it fails when a prompt is missing a section, exceeds the line limit, names an unregistered MCP tool, names a tool that has no positive test, or when a negative prompt's `Test Mapping` no longer resolves.
 
 ### 5.2 Execution Steps
 ```bash
+# Validate prompt catalog structure (sections, 100-char lines, tool names, negative mappings)
+pytest tests/test_sample_prompts_structure.py -v
+
 # Execute entire persona prompt test suite
 pytest tests/test_sample_prompts_positive.py -v
+
+# Execute adversarial persona prompt tests
+pytest tests/test_sample_prompts_negative.py -v
 
 # Run targeted persona prompt suites
 pytest tests/test_sample_prompts_positive.py -k "TestR01" -v  # Operator
@@ -192,10 +200,11 @@ pytest tests/test_sample_prompts_positive.py -k "TestPromptToolPrivilegeAnnotati
 - **R-02 (Data Protection Administrator)** (6 Tests): Performance tuning (`TXNGROUPMAX`, `MOVEBATCHSIZE`), recovery log diagnostics (`QUERY LOG`), and operational audits.
 - **R-03 (Infrastructure Solution Architect)** (4 Tests): Container deduplication analysis (`QUERY DEDUPSTATS`), device class inspections (`QUERY DEVCLASS`), storage pool directory expansions, and license compliance audits.
 - **R-04 (Workload & Application Owner)** (3 Tests): Application backup volume validation (`QUERY FILESPACE`), SAP redo-log archiving copy group definitions (`DEFINE COPYGROUP`), and Oracle occupancy analysis (`QUERY OCCUPANCY`).
-- **R-05 (Security & Compliance Officer)** (10 Tests): Dual-custody command approvals (`APPROVE PENDINGCMD`), session security audits (`SESSIONSECURITY=STRICT`), lockout enforcement, and policy set retention rules.
+- **R-05 (Security & Compliance Officer)** (11 Tests): Dual-custody command approvals (`APPROVE PENDINGCMD`), session security audits (`SESSIONSECURITY=STRICT`), lockout enforcement, policy set retention rules, and retention set verification (`QueryRetentionSet`).
 - **R-06 (Resilience Operations Manager)** (4 Tests): Suspected ransomware node isolation (`SetClientLock`), database disaster recovery restore invocation (`RestoreDB`), DR plan file status queries (`QueryRecoveryPlanFile`), and offsite media tracking (`QueryDRMedia`).
-- **R-07 (Storage Protect Service Engineer)** (3 Tests): Servermon diagnostic utility execution (`RunServerMon`), activity log defect triage (`ANR0406E`), and cloud migration warning frequency analysis (`ANR8468W`).
-- **R-08 (Multi-Server Replication & Data Management)** (7 Tests): Multi-server replication topology discovery (`QueryReplicationServer`), replication rules (`QueryReplicationRule`), failure record retrieval (`QueryReplicationFailures`), per-node replication progress (`QueryReplicationStatus`), storage pool synchronization (`QueryProtectionStatus`), failover node updating (`UpdateNode`), and storage rules (`QueryStorageRule`).
+- **R-07 (Storage Protect Service Engineer)** (4 Tests): Servermon diagnostic utility execution (`RunServerMon`), in-progress job checks (`QueryBackgroundJob`), activity log defect triage (`ANR0406E`), and cloud migration warning frequency analysis (`ANR8468W`).
+- **R-08 (Multi-Server Replication & Data Management)** (9 Tests): Multi-server replication topology discovery (`QueryReplicationServer`), replication rules (`QueryReplicationRule`), failure record retrieval (`QueryReplicationFailures`), per-node replication progress (`QueryReplicationStatus`), per-node `REPLSTATE` listing (`QueryReplicationClient`), storage pool synchronization (`QueryProtectionStatus`), failover node updating (`UpdateNode`), and storage rules (`QueryStorageRule`).
+- **Prompt Catalog Structure** (300 Tests): Required blocks, block order, absence of legacy labels, 100-character line limit, registered tool names, positive-test coverage of referenced tools, and negative prompt `Test Mapping` resolution.
 - **Tool Privilege Tier Annotations** (30 Tests): Parameterized checks verifying that all tools invoked in sample prompts enforce exact privilege levels and read-only invariants.
 
 ---
