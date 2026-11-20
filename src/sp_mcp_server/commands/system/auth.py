@@ -148,23 +148,34 @@ class AuthenticateSession(BaseCommand):
         privileges = _parse_privileges(priv_out)
 
         # Mint session lease in session manager
+        from ...mcp_factory import (
+            current_audit_user,
+            current_session_id,
+            current_auth_model,
+            current_connection_id,
+            current_oidc_subject,
+        )
+
+        conn_id = current_connection_id.get()
+        current_sub = current_oidc_subject.get() or current_audit_user.get()
+        transport_mode = "http" if conn_id or current_oidc_subject.get() else "stdio"
+        bound_conn_id = conn_id or ("stdio" if transport_mode == "stdio" else None)
+
         lease = global_session_manager.create_session(
             username=username,
             privileges=privileges,
             target_server=target_server,
             password=password,
+            oidc_subject=current_sub if current_oidc_subject.get() else None,
+            connection_id=bound_conn_id,
+            transport_mode=transport_mode,
         )
 
         # Set identity context for audit & forensics
-        # ContextVar: valid within this async task only
-        # Module-level: persists across all tool calls in this stdio process
-        from ...mcp_factory import current_audit_user, current_session_id, current_auth_model
-        import sp_mcp_server.mcp_factory as _factory
-        current_audit_user.set(username)
+        if not current_oidc_subject.get():
+            current_audit_user.set(username)
         current_session_id.set(lease.session_id)
         current_auth_model.set("dynamic_session")   # OA-7
-        _factory._process_session_id = lease.session_id
-        _factory._process_audit_user = username
 
         response = {
             "success": True,
@@ -218,14 +229,47 @@ class LogoutSession(BaseCommand):
         }
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        from ...mcp_factory import current_session_id, current_audit_user
+        from ...mcp_factory import (
+            current_session_id,
+            current_audit_user,
+            current_connection_id,
+            current_oidc_subject,
+        )
 
-        sid = (arguments.get("session_id") or "").strip() or current_session_id.get()
+        conn_id = current_connection_id.get()
+        current_sub = current_oidc_subject.get() or current_audit_user.get()
+        stdio_conn_id = conn_id or ("stdio" if not current_oidc_subject.get() else None)
+
+        explicit_sid = (arguments.get("session_id") or "").strip() if arguments else None
+        sid = (
+            explicit_sid
+            or current_session_id.get()
+            or global_session_manager.get_session_id_for_connection(stdio_conn_id)
+        )
 
         if not sid:
             return json.dumps({
                 "success": False,
                 "message": "No active session to revoke.",
+            }, indent=2)
+
+        lease = global_session_manager.get_session(sid)
+        if lease is None:
+            return json.dumps({
+                "success": False,
+                "message": f"Session '{sid[:8]}...' not found or already expired.",
+            }, indent=2)
+
+        # Anti-IDOR check: verify ownership if lease is bound to an OIDC subject
+        if lease.oidc_subject and current_sub and lease.oidc_subject != current_sub:
+            logger.warning(
+                "SECURITY: Cross-client logout rejected! Caller '%s' attempted to revoke session belonging to '%s'",
+                current_sub, lease.oidc_subject,
+            )
+            return json.dumps({
+                "is_error": True,
+                "error_type": "AUTHORIZATION_DENIED",
+                "message": "Cannot revoke a session lease belonging to another user.",
             }, indent=2)
 
         revoked = global_session_manager.revoke_session(sid)
@@ -239,13 +283,11 @@ class LogoutSession(BaseCommand):
             # Clear the context variables for this request context.
             try:
                 current_session_id.set(None)
-                current_audit_user.set(None)
+                if not current_oidc_subject.get():
+                    current_audit_user.set(None)
             except Exception:
                 pass  # context vars may not be settable outside an async frame
-            # Clear module-level store so next tool call triggers a fresh challenge
-            import sp_mcp_server.mcp_factory as _factory
-            _factory._process_session_id = None
-            _factory._process_audit_user = None
+
             return json.dumps({
                 "success": True,
                 "message": "Session revoked. Credentials have been cleared from memory.",

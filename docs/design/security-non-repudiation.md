@@ -48,8 +48,8 @@ sequenceDiagram
     Note over Factory: Intercept write tool (priv in {system, policy, storage, operator})
     Factory->>Factory: Generate correlation_id = uuid4().hex[:12]
     
-    Factory->>LocalLog: INFO POL-4: Emitting MCP_AUDIT user=admin@corp.com tool=delete_node priv=policy corr=a3f8b2c19d44
-    Factory->>SP: DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin@corp.com tool=delete_node priv=policy corr=a3f8b2c19d44"
+    Factory->>LocalLog: INFO POL-4: Emitting MCP_AUDIT oidc_user=admin@corp.com sp_admin=admin_tsm tool=delete_node priv=policy corr=a3f8b2c19d44
+    Factory->>SP: DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=admin@corp.com sp_admin=admin_tsm authmodel=dynamic_session tool=delete_node priv=policy corr=a3f8b2c19d44"
     
     alt Audit Write Succeeded
         SP-->>Factory: ANR0000I SCRATCHPADENTRY defined (recorded in ACTLOG)
@@ -70,7 +70,7 @@ sequenceDiagram
 
 | Control ID | Threat / Gap Addressed | Implemented Mechanism | Code Location |
 |:---|:---|:---|:---|
-| **NR-1** | **Identity Impersonation / Deniability**: Inability to determine human user behind shared SP service accounts | Current implementation propagates a dynamic/OIDC identity through `current_audit_user` and binds it into the scratchpad payload. This does not yet prove that the command executed under that identity; delegated credential binding remains open. | [`src/sp_mcp_server/mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py#L16)<br>[`src/sp_mcp_server/http_server.py:144`](../../src/sp_mcp_server/http_server.py#L144) |
+| **NR-1** | **Identity Impersonation / Deniability**: Inability to determine human user behind shared SP service accounts | In dynamic/OIDC mode, the server records a compound dual-identity payload (`oidc_user=<sub|local>` and `sp_admin=<admin_name>`) into the scratchpad payload (DAUTH-10). The authenticated network principal and the delegated SP administrative execution credentials are both immutably preserved in ACTLOG. | [`src/sp_mcp_server/mcp_factory.py:16`](../../src/sp_mcp_server/mcp_factory.py#L16)<br>[`src/sp_mcp_server/http_server.py:144`](../../src/sp_mcp_server/http_server.py#L144)<br>[`src/sp_mcp_server/session.py:42`](../../src/sp_mcp_server/session.py#L42) |
 | **NR-2** | **Log Tampering / Erasure**: Modification of local server log files | Guidance for forwarding logs to central SIEM (IBM QRadar Suite SIEM) over TLS and write-once WORM retention policies on host log files. | [`docs/implement/impl-security-non-repudiation.md`](../implement/impl-security-non-repudiation.md) |
 | **NR-3** | **Reconnaissance Blindspots**: Unaudited read queries | Targeted diagnostic ACTLOG queries (`query_activity_log`) and guidance for selective high-sensitivity read auditing without log flooding. | [`src/sp_mcp_server/commands/operations/misc.py:104`](../../src/sp_mcp_server/commands/operations/misc.py#L104) |
 | **NR-4** | **Advisory Audit Bypass**: Unaudited operations executing when audit log write fails | Strict fail-closed audit option (`SP_MCP_STRICT_AUDIT=1`). When set, any scratchpad write failure aborts the administrative command immediately. | [`src/sp_mcp_server/mcp_factory.py:403`](../../src/sp_mcp_server/mcp_factory.py#L403) |

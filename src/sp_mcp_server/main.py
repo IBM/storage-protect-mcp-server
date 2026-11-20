@@ -99,6 +99,9 @@ async def main():
 
     if args.transport == "http":
         # ── INT-2: HTTP/SSE transport with OIDC bearer auth ───────────────────
+        if os.environ.get("SP_MCP_AUTH_MODE", "").lower() == "dynamic":
+            logger.info("Starting HTTP transport with dynamic authentication (Multi-Client Connection Isolation active).")
+
         import uvicorn
         from .http_server import create_http_app, _check_idp_pkce_capability
 

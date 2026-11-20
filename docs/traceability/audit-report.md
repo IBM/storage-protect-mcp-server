@@ -24,7 +24,7 @@ All identified defects, discrepancies, and gaps have been remediated and verifie
 
 | Assessment Dimension | Rating | Current Status & Verification Record |
 | :--- | :---: | :--- |
-| **Correctness & Consistency** | ✅ Verified | All 51 security requirements trace accurately across architecture, design, code, and tests. Matrix references and breakdown counts reconciled. |
+| **Correctness & Consistency** | ✅ Verified | All 52 security requirements trace accurately across architecture, design, code, and tests. Matrix references and breakdown counts reconciled. |
 | **Completeness** | ✅ Verified | All 231 command classes, 26 entry points, 8 sample prompt personas, and 30 environment variables cataloged and documented. |
 | **Link Integrity** | ✅ Verified | Automated AST link scanner confirms 0 broken file targets and 0 malformed URL fragment links across all markdown documents. |
 | **Package & Dependencies** | ✅ Verified | `mcp>=2.3.0,<2.4.0`, `allure-pytest>=2.13.0`, and `locust>=2.20.0` aligned across `pyproject.toml` and `requirements*.txt`. `pip check` reports 0 errors. |
@@ -77,7 +77,7 @@ The 13 findings from the comprehensive audit of `docs/` have all been remediated
 
 ## 4. Verified Security Controls Summary
 
-All 51 security requirements are implemented in source, tested, and confirmed correct:
+All 52 security requirements are implemented in source, tested, and confirmed correct:
 
 | Domain | Key Controls Verified | Primary Test Suites |
 | :--- | :--- | :--- |
@@ -87,7 +87,7 @@ All 51 security requirements are implemented in source, tested, and confirmed co
 | **Policy Management (POL)** | Dual-custody command approval, password pre-validation, lockout policy audit | `tests/test_sec_startup.py`, `tests/test_commands.py` |
 | **Secure Integrations (INT)** | OAuth 2.1 / OIDC bearer middleware, HTTP TLS cert enforcement, keyring resolution | `tests/test_sec_audit_trail.py`, `tests/test_config.py` |
 | **Non-Repudiation (NR)** | User identity in ACTLOG, strict audit fail-closed enforcement, ISO 8601 UTC timestamps | `tests/test_sec_audit_trail.py` |
-| **Dynamic Auth (DAUTH)** | Ephemeral session leases, sliding TTL, credential zeroing on deletion, target server binding | `tests/test_sec_dynamic_auth.py`, `tests/test_sec_session_lifecycle.py` |
+| **Dynamic Auth (DAUTH)** | Ephemeral session leases, sliding TTL, credential zeroing on deletion, target server binding, multi-client transport isolation (DAUTH-10) | `tests/test_sec_dynamic_auth.py`, `tests/test_sec_session_lifecycle.py` |
 | **OAuth 2 Extended (OA)** | AS metadata proxy, JWKS TTL cache & rate-limit, PKCE check, introspection, resource doc | `tests/test_sec_oauth2.py` |
 | **Persona Prompts (PROMPT)** | Operational workflows across all 8 personas (R-01..08) from `sample-prompts.md` and adversarial prompt tests | `tests/test_sample_prompts_positive.py` (107 tests: 92 unit + 15 live integration), `tests/test_sample_prompts_negative.py` (18 tests), `tests/test_sample_prompts_structure.py` (300 tests) |
 

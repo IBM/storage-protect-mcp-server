@@ -381,24 +381,39 @@ class OIDCBearerMiddleware:
             else "client_credentials"
         )
 
+        # Extract connection_id / sse session if present in request query params
+        # In SSE transport, POST messages to /mcp/messages include ?session_id=...
+        connection_id = request.query_params.get("session_id") or request.headers.get("x-connection-id")
+
         scope["state"] = scope.get("state", {})
         scope["state"]["mcp_privilege"]  = privilege
         scope["state"]["mcp_subject"]    = payload.get("sub", "unknown")
         scope["state"]["mcp_auth_model"] = auth_model  # OA-7
+        scope["state"]["mcp_connection_id"] = connection_id
 
         logger.info(
             "INT-2/OA-7: subject='%s' authmodel='%s' privilege='%s' scopes=%s",
             scope["state"]["mcp_subject"], auth_model, privilege, scopes,
         )
 
-        from .mcp_factory import current_audit_user, current_request_privilege, current_auth_model
-        user_ctx      = current_audit_user.set(scope["state"]["mcp_subject"])
-        privilege_ctx = current_request_privilege.set(privilege)
+        from .mcp_factory import (
+            current_audit_user,
+            current_request_privilege,
+            current_auth_model,
+            current_connection_id,
+            current_oidc_subject,
+        )
+        user_ctx       = current_audit_user.set(scope["state"]["mcp_subject"])
+        oidc_sub_ctx   = current_oidc_subject.set(scope["state"]["mcp_subject"])
+        privilege_ctx  = current_request_privilege.set(privilege)
         auth_model_ctx = current_auth_model.set(auth_model)  # OA-7
+        conn_ctx       = current_connection_id.set(connection_id)
         try:
             await self.app(scope, receive, send)
         finally:
+            current_connection_id.reset(conn_ctx)
             current_request_privilege.reset(privilege_ctx)
+            current_oidc_subject.reset(oidc_sub_ctx)
             current_audit_user.reset(user_ctx)
             current_auth_model.reset(auth_model_ctx)
 
@@ -427,7 +442,7 @@ def create_http_app(
     from starlette.responses import JSONResponse
     from mcp.server.sse import SseServerTransport
 
-    sse_transport = SseServerTransport("/mcp/messages")
+    sse_transport = SseServerTransport("messages")
 
     async def handle_sse(request: Request):
         async with sse_transport.connect_sse(

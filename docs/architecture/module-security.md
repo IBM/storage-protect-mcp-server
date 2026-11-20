@@ -89,7 +89,18 @@ graph TD
 | `GET /mcp/sse` | `handle_sse` | **Yes** | MCP SSE stream |
 | `POST /mcp/messages` | `sse_transport.handle_post_message` | **Yes** | MCP message submission |
 
+> **SSE Route Path Mounting Note (DAUTH-10)**: In `create_http_app()`, `SseServerTransport("messages")` is initialized with relative endpoint path `"messages"`. Because the transport is mounted under `Mount("/mcp", ...)`, Starlette prefixes `/mcp`, advertising `/mcp/messages` to connecting SSE clients. Initializing with absolute path `"/mcp/messages"` causes route doubling (`/mcp/mcp/messages`) and 404 errors for standard clients.
+
 `OIDCBearerMiddleware` wraps the entire application but exempts `/health` and both `/.well-known/*` paths from token validation.
+
+---
+
+## 3.1 Multi-Client Transport Isolation & Dynamic Session Binding (DAUTH-10)
+
+When the HTTP transport is run with dynamic authentication (`SP_MCP_AUTH_MODE=dynamic`):
+1. **Per-Connection Isolation**: Each incoming SSE stream generates a distinct transport connection ID. The server maintains separate session bindings per connection rather than storing active lease IDs in module-level globals (`_process_session_id`, `_process_audit_user`).
+2. **Caller Principal Binding**: Leases minted via `authenticate_session` record the creator's `oidc_subject` (`sub`) and `connection_id`. Cross-connection or cross-subject lease redemption returns `AUTHORIZATION_DENIED` (Anti-IDOR).
+3. **Compound Non-Repudiation Audit Trail (`POL-4` / `NR-1`)**: The server binds both the caller's OIDC subject and the delegated SP administrator account into SP ACTLOG entries: `MCP_AUDIT oidc_user=<sub|local> sp_admin=<admin_name> ...`.
 
 ---
 

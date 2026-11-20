@@ -1,6 +1,6 @@
 # Dynamic & Delegated User Authentication Design Analysis
 
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
+* **Revision**: 2026-11 (Multi-Client Transport Isolation & Anti-IDOR Enforcement — DAUTH-10, HackerOne #4212881 Remediation)
 * **Domain**: Identity, Credentials & Delegated Authentication
 * **Design Reference**: [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md)
 * **Implementation Reference**: [`docs/implement/impl-security-dynamic-authn.md`](../implement/impl-security-dynamic-authn.md)
@@ -152,8 +152,9 @@ When authentication or step-up verification is required, the tool responds with 
    - `SessionLease.password` is set to `None` on every removal path — `revoke_session()`, expiry in `get_session()`, bulk `cleanup_expired()`, and `clear()` at shutdown.
    - The `logout_session` tool provides user-initiated revocation, zeroing the credential immediately.
 
-3. **Audit Trail & Identity Binding (POL-4 / NR-1)**:
-   - When the user authenticates, their verified username is stored in `current_audit_user` and `current_session_id`, and recorded in the SP Activity Log via `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<username> ..."`.
+3. **Compound Dual-Identity Audit Trail (POL-4 / NR-1)**:
+   - When dynamic authentication operates over HTTP/SSE, `current_audit_user` is not overwritten to erase the OIDC caller's identity.
+   - Mutating commands record both the authenticated OIDC caller (`oidc_user`) and the delegated Storage Protect administrator ID (`sp_admin`) in the SP Activity Log via `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=<oidc_sub> sp_admin=<admin_user> authmodel=dynamic_session tool=<tool> priv=<priv> corr=<uuid>"`, guaranteeing forensic non-repudiation.
 
 4. **Integration with IBM Storage Protect Native Lockout (POL-3)**:
    - Repeated failed dynamic authentication attempts increment the server's invalid sign-on count, triggering native lockouts when `SET INVALIDPWLIMIT` is exceeded.
@@ -161,6 +162,13 @@ When authentication or step-up verification is required, the tool responds with 
 5. **Multi-Server Instance Routing (DAUTH-7)**:
    - `target_server` is bound to command execution via `_check_session_target_server()` in `mcp_factory.py`. Sessions authenticated against one server stanza are rejected with `AUTHORIZATION_DENIED` if reused against a different stanza.
    - Single-server deployments (no `target_server` set) skip the check — fully backward-compatible.
+
+6. **Multi-Client Transport Isolation & Anti-IDOR Enforcement (DAUTH-10)**:
+   - **Elimination of Process Globals**: Module-level globals (`_process_session_id`, `_process_audit_user`) are removed to prevent cross-client credential bleed in multi-client HTTP/SSE transports.
+   - **Principal-Bound Leases**: `SessionLease` records `oidc_subject` and `connection_id`. Sessions can only be redeemed by the client that minted them.
+   - **Strict Lease Resolution**: Priority resolves request ContextVar and transport connection mapping first. If an explicit `_session_id` is supplied, it must match the authenticated caller; mismatched ownership returns `AUTHORIZATION_DENIED`.
+   - **Protected Session Revocation**: `logout_session` asserts caller ownership before revoking a lease, preventing unauthenticated session disruption.
+   - **SSE Route Normalization**: `SseServerTransport("messages")` uses relative routing under `/mcp`, ensuring clients correctly target `/mcp/messages`.
 
 ---
 
@@ -180,6 +188,7 @@ When authentication or step-up verification is required, the tool responds with 
 | `SessionLease.password` zeroed on all removal paths (AUD-08) | ✅ | ✅ |
 | `logout_session` explicit revocation tool (AUD-08) | ✅ | ✅ |
 | Per-scope OIDC privilege mapping and rejection (AUD-03) | ✅ | ✅ |
+| Multi-client transport isolation & session binding (DAUTH-10) | ✅ | ✅ |
 
 ---
 

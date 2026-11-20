@@ -198,6 +198,7 @@
 | **DAUTH-7** | `_check_session_target_server()` enforces `target_server` binding at invocation time; cross-server reuse rejected with `AUTHORIZATION_DENIED` | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) | `impl-security-dynamic-authn.md § 5` | [`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) (`_check_session_target_server`) | `tests/test_sec_session_lifecycle.py::TestTargetServerBinding` (6 paths) | ✅ Implemented & Tested |
 | **DAUTH-8** | `SessionLease.password` zeroed on all removal paths — revoke, expiry, cleanup, clear | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) | `impl-security-dynamic-authn.md § 5` | [`src/sp_mcp_server/session.py`](../../src/sp_mcp_server/session.py) (`SessionManager`) | `tests/test_sec_session_lifecycle.py::TestSessionCredentialLifecycle` (4 paths) | ✅ Implemented & Tested |
 | **DAUTH-9** | `logout_session` tool (`required_privilege: any`) explicitly revokes lease, zeros credential, clears audit context | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md) | `impl-security-dynamic-authn.md § 2` | [`src/sp_mcp_server/commands/system/auth.py`](../../src/sp_mcp_server/commands/system/auth.py) (`LogoutSession`) | `tests/test_sec_session_lifecycle.py::TestSessionCredentialLifecycle` (3 paths) | ✅ Implemented & Tested |
+| **DAUTH-10** | Multi-client transport isolation: eliminates process-global session variables, binds leases to `(connection_id, oidc_subject)`, enforces anti-IDOR caller ownership checks on explicit `_session_id` and `logout_session`, emits compound dual-identity audit trail (`oidc_user` + `sp_admin`) to ACTLOG, and fixes relative SSE endpoint routing | [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md)<br>[`docs/design/security-non-repudiation.md`](../design/security-non-repudiation.md) | `impl-security-dynamic-authn.md § 5.6` | [`src/sp_mcp_server/session.py`](../../src/sp_mcp_server/session.py)<br>[`src/sp_mcp_server/mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py)<br>[`src/sp_mcp_server/commands/system/auth.py`](../../src/sp_mcp_server/commands/system/auth.py)<br>[`src/sp_mcp_server/http_server.py`](../../src/sp_mcp_server/http_server.py) | `tests/test_sec_dynamic_auth.py::TestMultiClientDynamicAuthIsolation` (5 paths) | ✅ Implemented & Tested |
 
 ---
 
@@ -266,7 +267,7 @@ Traceability between sample prompts in [`docs/example/sample-prompts.md`](../exa
 | Category | Total Count | ✅ Implemented & Tested | 📋 Deployment Configuration | 🔲 Open / Not Yet Tested |
 | :--- | :---: | :---: | :---: | :---: |
 | **Security Controls (NET, CRED, ACC, POL, INT, NR, RG)** | 39 | 34 | 5 | 0 |
-| **Dynamic Authentication (DAUTH)** | 11 | 11 | 0 | 0 |
+| **Dynamic Authentication (DAUTH)** | 12 | 12 | 0 | 0 |
 | **OAuth 2 Extended Middleware (OA)** | 7 | 7 | 0 | 0 |
 | **Persona Prompt Suites (PROMPT R-01..R-08 & NEG)** | 10 | 10 | 0 | 0 |
 | **Negative Security Abuse Scenarios (NEG)** | 25 | 25 | 0 | 0 |
@@ -274,7 +275,7 @@ Traceability between sample prompts in [`docs/example/sample-prompts.md`](../exa
 | **Stress, Capacity & Concurrency (STR)** | 10 | 10 | 0 | 0 |
 | **Functional Commands (System, Clients, Storage, Policy, Ops)** | 231 | 231 | 0 | 0 |
 | **Automated Test Suite (`tests/`)** | **15 Test Files (266 collected)** | **248 Passed / 18 Skipped / 0 Failed** | **0** | **0** |
-| **Total Requirements & Assurance Status** | **100% Traceability Coverage** | **All 51 controls, 8 personas + 18 negative prompts + 50 resilience tests verified** | **5 deployment items** | **0 open** |
+| **Total Requirements & Assurance Status** | **100% Traceability Coverage** | **All 52 controls, 8 personas + 18 negative prompts + 50 resilience tests verified** | **5 deployment items** | **0 open** |
 
 > **Verification & Isolation Note (2026-10):** All 266 collected tests pass cleanly with 0 failures under default and randomized suite collection order (248 passed, 18 skipped: 15 live integration stubs + 3 Windows POSIX permission bit tests). Complete persona prompt validation covering all eight operational personas (R-01 through R-08) is automated across `tests/test_sample_prompts_positive.py` (107 tests: 92 unit + 15 live integration), `tests/test_sample_prompts_negative.py` (18 tests), and `tests/test_sample_prompts_structure.py` (300 tests). The historical ordering-dependent ContextVar defect (AUD-F-01) is fully resolved via `tests/conftest.py`. Comprehensive Allure test results are automatically generated in `allure-results/` with environment telemetry and categorization.
 

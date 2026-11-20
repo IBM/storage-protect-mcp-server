@@ -1,8 +1,8 @@
 # Implementation: Dynamic & Delegated User Authentication
 
 * **Domain**: Identity, Credentials & Delegated Authentication
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
-* **Status**: Fully implemented and regression-tested — challenge, bounded leases, authorization, delegated execution, subprocess assertions, credential-lifecycle zeroing, explicit logout, and target-server binding all present
+* **Revision**: 2026-11 (Multi-Client Transport Isolation & Anti-IDOR Enforcement — DAUTH-10, HackerOne #4212881 Remediation)
+* **Status**: Fully implemented and regression-tested — challenge, bounded leases, authorization, delegated execution, subprocess assertions, credential-lifecycle zeroing, explicit logout, target-server binding, and multi-client transport isolation (DAUTH-10) all present
 * **Analysis reference**: [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md)
 * **Design reference**: [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md)
 * **Cross-reference**: [`docs/implement/impl-security-identity-credentials.md`](impl-security-identity-credentials.md) · [`docs/implement/impl-security-integrations.md`](impl-security-integrations.md) · [`docs/implement/impl-security-non-repudiation.md`](impl-security-non-repudiation.md) · [`docs/implement/impl-security-access.md`](impl-security-access.md) · [`docs/implement/impl-security-policy.md`](impl-security-policy.md)
@@ -60,6 +60,9 @@ class SessionLease:
     session_id: str
     username: str
     privilege_classes: Set[str]
+    oidc_subject: Optional[str] = None          # Bound OIDC 'sub' claim (DAUTH-10)
+    connection_id: Optional[str] = None         # Bound transport connection / SSE session (DAUTH-10)
+    transport_mode: str = "http"                # 'stdio' or 'http' (DAUTH-10)
     password: Optional[str] = None          # Retained for delegated execution; see AUD-02 / AUD-08
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -168,6 +171,14 @@ current_session_id.set(lease.session_id)
    * Plaintext passwords received in `authenticate_session` exist only within local stack frames and are zeroed from the session store on the first removal operation.
    * Credential verification commands are strictly routed through `execute_silent()`.
 
+6. **Multi-Client Transport Isolation & Anti-IDOR (DAUTH-10)**:
+   * **Module-Level Globals Eliminated**: Module-level variables `_process_session_id` and `_process_audit_user` are eliminated.
+   * **Session Resolution Hierarchy**: Tool interception in `mcp_factory.py` resolves candidate session IDs from request ContextVars (`current_session_id`) and connection mappings first.
+   * **Anti-IDOR Ownership Verification**: If caller passes explicit `_session_id`, the server validates `session.oidc_subject == current_audit_user.get()`. Mismatched ownership returns `AUTHORIZATION_DENIED`.
+   * **Compound Dual-Identity Logging**: Mutating commands emit both `oidc_user` and `sp_admin` to SP ACTLOG (`DEFINE SCRATCHPADENTRY MCP_AUDIT oidc_user=<sub|local> sp_admin=<admin_name> ...`), maintaining non-repudiation (NR-1 / POL-4).
+   * **Protected Revocation**: `logout_session` verifies that the caller owns the targeted session before calling `revoke_session()`.
+   * **SSE URL Advertisement**: In `http_server.py`, `SseServerTransport("messages")` registers relative to the `/mcp` mount, avoiding route doubling.
+
 ---
 
 ## 6. Testing & Validation Plan
@@ -197,6 +208,11 @@ current_session_id.set(lease.session_id)
 | `TestTargetServerBinding::test_matching_target_server_is_allowed` | Matching `target_server` → command executes (DAUTH-7) | ✅ |
 | `TestTargetServerBinding::test_no_target_server_on_session_is_allowed` | `target_server=None` → check skipped, command executes (DAUTH-7) | ✅ |
 | `TestTargetServerBinding::test_check_session_target_server_helper_*` | Unit tests for `_check_session_target_server()` helper (3 paths) (DAUTH-7) | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_cross_client_session_bleed_denied` | Client B cannot inherit Client A's session in the same process (DAUTH-10) | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_explicit_session_id_idor_rejected` | Supplying another client's explicit `_session_id` returns `AUTHORIZATION_DENIED` (DAUTH-10) | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_logout_does_not_terminate_other_client_sessions` | Client B logout does not disrupt Client A's active session (DAUTH-10) | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_dual_audit_attribution_logged` | POL-4 audit logs record both OIDC `sub` and SP admin username (DAUTH-10) | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_sse_endpoint_advertisement_correct` | SSE endpoint advertises `/mcp/messages` without path duplication (DAUTH-10) | ✅ |
 
 ---
 

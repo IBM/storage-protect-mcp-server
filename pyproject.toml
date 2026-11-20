@@ -102,6 +102,7 @@ include = ["sp_mcp_server*"]
 exclude = ["tests*"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 asyncio_mode = "strict"
 addopts = "--alluredir=allure-results"
 markers = [

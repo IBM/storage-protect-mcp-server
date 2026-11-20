@@ -15,7 +15,7 @@
 | **Section 1** | Startup & Security Invariants | [`tests/test_sec_startup.py`](../../tests/test_sec_startup.py) | 23 | NET-1, RG-1, CRED-3, RG-2, ACC-2, POL-3 |
 | **Section 2** | Password Silent Execution | [`tests/test_sec_password_commands.py`](../../tests/test_sec_password_commands.py) | 13 | RG-3, CRED-2, Log sanitization |
 | **Section 3** | Audit Trail & HTTP TLS | [`tests/test_sec_audit_trail.py`](../../tests/test_sec_audit_trail.py) | 8 | POL-4, RG-4, NR-1, NR-4, RG-5 |
-| **Section 4** | Dynamic Authentication | [`tests/test_sec_dynamic_auth.py`](../../tests/test_sec_dynamic_auth.py) | 17 | DAUTH-1, DAUTH-2, DAUTH-4, DAUTH-5, INT-1, INT-2 |
+| **Section 4** | Dynamic Authentication | [`tests/test_sec_dynamic_auth.py`](../../tests/test_sec_dynamic_auth.py) | 22 | DAUTH-1, DAUTH-2, DAUTH-4, DAUTH-5, DAUTH-10, INT-1, INT-2 |
 | **Section 5** | Session Lifecycle & Server Binding | [`tests/test_sec_session_lifecycle.py`](../../tests/test_sec_session_lifecycle.py) | 14 | CRED-3b, DAUTH-3, DAUTH-7, DAUTH-8, DAUTH-9 |
 | **Section 6** | OAuth 2 Extended Middleware | [`tests/test_sec_oauth2.py`](../../tests/test_sec_oauth2.py) | 26 | OA-1, OA-2, OA-4, OA-5, OA-6, OA-7 |
 | **Section 7** | Subprocess CLI Wrapper | [`tests/test_cli_wrapper.py`](../../tests/test_cli_wrapper.py) | 5 | Subprocess quoting, exit codes, sudo execution |
@@ -166,6 +166,17 @@
 | **TC-OIDC-05** | `test_oidc_scope_readonly_denies_write_tool` | `sp:readonly` | Rejects write tools (`delete_admin`). |
 | **TC-OIDC-06** | `test_oidc_unmapped_scope_denies_all_tools` | `custom:scope` | Rejects all tools with `AUTHORIZATION_DENIED`. |
 | **TC-OIDC-07** | `test_oidc_missing_scope_denies_tools` | No scope claim | Rejects tool calls with `AUTHORIZATION_DENIED`. |
+
+### 4.4 `TestMultiClientDynamicAuthIsolation` (DAUTH-10: Multi-Client Transport Isolation & Anti-IDOR)
+* **Objective**: Ensure dynamic session leases in multi-client deployments are strictly isolated per connection ID, bound to caller OIDC identities, and protected against cross-client credential reuse or tampering (HackerOne #4212881).
+
+| Case ID | Test Method | Condition | Expected Behavior |
+| :--- | :--- | :--- | :--- |
+| **TC-DAUTH-24** | `test_cross_client_session_bleed_denied` | Client B makes request in same server process after Client A authenticates | Client B remains challenged with `AUTHENTICATION_REQUIRED` or confined to own lease; does not inherit Client A's delegated credentials. |
+| **TC-DAUTH-25** | `test_explicit_session_id_idor_rejected` | Client B passes Client A's valid `session_id` in `arguments["_session_id"]` | Rejects invocation with `AUTHORIZATION_DENIED` (`Session does not belong to the authenticated user`). |
+| **TC-DAUTH-26** | `test_logout_does_not_terminate_other_client_sessions` | Client B invokes `logout_session` | Revokes only Client B's session; Client A's active session lease remains valid and unperturbed. |
+| **TC-DAUTH-27** | `test_dual_audit_attribution_logged` | Tool executed under delegated dynamic lease over HTTP/SSE | SP Activity Log correlation entry records both `oidc_user` and `sp_admin` (`MCP_AUDIT oidc_user=... sp_admin=...`). |
+| **TC-DAUTH-28** | `test_sse_endpoint_advertisement_correct` | SSE transport initialized under Starlette app mount | Endpoint path advertises `/mcp/messages` without route duplication. |
 
 ---
 
