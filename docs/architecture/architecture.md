@@ -34,7 +34,8 @@ The architecture provides two operating models:
    - **Local Stdio Transport**: Secured via SSH Ed25519 key authentication, dedicated non-privileged OS user (`mcp-runner`), and explicit strict host key checking.
     - **Remote HTTP/SSE Transport**: Requires TLS 1.2+ certificates (`SP_TLS_CERT` / `SP_TLS_KEY`, RG-5) and OAuth 2.1 / OIDC Bearer Token authentication (`OIDCBearerMiddleware`) with call-time scope enforcement; per-scope privilege mapping (`mcp:*`) and `AUTHORIZATION_DENIED` rejection. The HTTP layer implements the full OAuth 2 resource-server specification: AS metadata endpoint (OA-1), TTL-based JWKS cache with `kid`-miss re-fetch (OA-2), Authorization Code + PKCE support (OA-3/OA-4), optional token introspection (OA-5), RFC 9470 protected-resource metadata (OA-6), and `authmodel=` ACTLOG attribution (OA-7) — see [`module-security.md`](module-security.md).
     - **Dynamic Authentication (Challenge-Response)**: Allows interactive AI chat users to receive structured `AUTHENTICATION_REQUIRED` responses, verifies credentials via zero-trace `execute_silent()`, issues bounded ephemeral leases, enforces lease privileges, applies delegated credentials to command execution, and supports explicit session revocation via `logout_session`.
-    - **Multi-Client Transport Isolation (DAUTH-10)**: In multi-client network deployments (HTTP/SSE), dynamic session leases are strictly isolated per transport connection ID and bound to the authenticated OIDC subject (`oidc_subject`). Module-level process globals (`_process_session_id`, `_process_audit_user`) are eliminated to prevent cross-client credential reuse. Strict lease resolution enforces that ContextVar / connection mappings take precedence, and explicit caller `_session_id` parameters are validated against caller ownership (anti-IDOR). Mutating actions emit compound dual-identity audit records (`oidc_user` + `sp_admin`) to the IBM SP Activity Log (POL-4 / NR-1).
+    - **Multi-Client Transport Isolation & Stream Binding (DAUTH-10)**: In multi-client network deployments (HTTP/SSE), dynamic session leases are strictly isolated per transport connection ID and bound to the authenticated OIDC subject (`oidc_subject`). Module-level process globals (`_process_session_id`, `_process_audit_user`) are eliminated to prevent cross-client credential reuse. Strict lease resolution enforces that ContextVar / connection mappings take precedence, and explicit caller `_session_id` parameters are validated against caller ownership (anti-IDOR). Incoming SSE POST messages are bound to the registered stream owner, rejecting cross-client submissions with HTTP 403 Forbidden. Mutating actions emit compound dual-identity audit records (`oidc_user` + `sp_admin`) to the IBM SP Activity Log (POL-4 / NR-1).
+    - **Per-Message SSE Privilege & Expiration Synchronization (OA-8 / ACC-3)**: In HTTP/SSE transport, tool execution in the long-lived worker task dynamically synchronizes with the active session context (`SSESessionContext`) updated by incoming POST requests. It populates ASGI `scope["user"]` for SDK owner validation, enforces non-expired token lifetimes at execution time, and re-evaluates required privileges against the active POST token's scope, preventing stale administrative privilege retention across token expirations or scope downgrades.
     - **Session Lifecycle**: `SessionManager` uses `RLock` and bounds TTLs to `MAX_SESSION_TTL_SECONDS`. Cleanup is opportunistic (on create / explicit call). `SessionLease.password` is zeroed on every removal path — explicit revocation, inactivity/absolute TTL expiry, bulk sweep, and server shutdown (AUD-08, closed). `logout_session` enforces caller ownership to prevent denial of service.
     - **Backend Storage Protect Channel**: `SESSIONSECURITY=STRICT` validated at startup; `dsm.sys` enforces `SSLREQUIRED Yes` and `PASSWORDACCESS GENERATE`. Service account provisioning script (`scripts/provision-sp-service-accounts.sh`) registers all five tiered accounts with `SESSIONSECURITY=STRICT` and `MFAREQUIRED=NO` (AUD-07, closed).
 
@@ -206,17 +207,22 @@ sequenceDiagram
     Client->>MW: GET /mcp/sse  Authorization: Bearer <token>
     note over MW: OA-2: Resolve signing key (TTL cache / kid-miss re-fetch)
     note over MW: OA-5: Optional token introspection (if near expiry)
-    MW->>MW: Map scopes → privilege tier
+    MW->>MW: Map scopes to privilege tier
     note over MW: OA-7: Detect authmodel (oidc_bearer / client_credentials)
-    MW->>MW: Set current_auth_model ContextVar
+    MW->>MW: Set current_auth_model ContextVar and populate scope user
+    note over MW: DAUTH-10 / OA-8: Bind SSE stream UUID to SSESessionContext
     MW->>Server: Forward request (mcp_privilege, mcp_subject, mcp_auth_model injected)
 
-    Client->>Server: call_tool(name, arguments)
+    Client->>MW: POST /mcp/messages?session_id=<stream_uuid> (call_tool)
+    note over MW: DAUTH-10: Verify caller subject matches stream owner (reject 403 on mismatch)
+    note over MW: OA-8: Update SSESessionContext with active POST privilege and token expiry
+    MW->>Server: Dispatch JSON-RPC tool call into stream worker task
     Server->>Server: Verify tool exists and arguments match JSON Schema
+    note over Server: OA-8 / ACC-3: Synchronize active context, check expiry and verify required privilege
 
     opt Write Operation (tool required_privilege in {system, policy, storage, operator})
-        note over Server: POL-4 / OA-7: Audit Record with authmodel= field
-        Server->>Wrapper: execute('DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=<sub> authmodel=<label> tool=... corr=<uuid>"')
+        note over Server: POL-4 / OA-7 / DAUTH-10: Compound Audit Record (oidc_user + sp_admin)
+        Server->>Wrapper: execute('DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=<sub|local> sp_admin=<admin> authmodel=<label> tool=... corr=<uuid>"')
         Wrapper->>SP: dsmadmc DEFINE SCRATCHPADENTRY ...
         SP-->>Wrapper: OK / Error
         alt Audit write fails

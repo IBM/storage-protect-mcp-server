@@ -165,10 +165,17 @@ When authentication or step-up verification is required, the tool responds with 
 
 6. **Multi-Client Transport Isolation & Anti-IDOR Enforcement (DAUTH-10)**:
    - **Elimination of Process Globals**: Module-level globals (`_process_session_id`, `_process_audit_user`) are removed to prevent cross-client credential bleed in multi-client HTTP/SSE transports.
-   - **Principal-Bound Leases**: `SessionLease` records `oidc_subject` and `connection_id`. Sessions can only be redeemed by the client that minted them.
-   - **Strict Lease Resolution**: Priority resolves request ContextVar and transport connection mapping first. If an explicit `_session_id` is supplied, it must match the authenticated caller; mismatched ownership returns `AUTHORIZATION_DENIED`.
+   - **Principal-Bound Leases**: `SessionLease` records `oidc_subject`, `connection_id`, and `transport_mode`. Sessions can only be redeemed by the client that minted them.
+   - **Strict Lease Resolution**: Priority resolves request ContextVar and transport connection mapping first. If an explicit `_session_id` is supplied, it must match the authenticated caller; mismatched ownership or cross-realm redemption returns `AUTHORIZATION_DENIED`.
    - **Protected Session Revocation**: `logout_session` asserts caller ownership before revoking a lease, preventing unauthenticated session disruption.
    - **SSE Route Normalization**: `SseServerTransport("messages")` uses relative routing under `/mcp`, ensuring clients correctly target `/mcp/messages`.
+
+7. **Residual Vulnerability Analysis (Stream Ownership & Async Task Boundaries)**:
+   - **Decoupled Asynchronous Tasks**: Under MCP HTTP/SSE transport, the EventSource stream handler (`handle_sse`) runs `mcp_server.run()` in a long-lived worker task that maintains the connecting subscriber's ContextVars (`current_oidc_subject`, `current_session_id`). Incoming tool submissions arrive via distinct HTTP POST tasks to `/mcp/messages?session_id=<stream_uuid>`.
+   - **AnyIO Queue Context Loss**: In ASGI frameworks, messages from POST requests are transferred into the SSE worker task via an AnyIO in-memory stream (`MemoryObjectReceiveStream`), which does not propagate Python `ContextVar` state.
+   - **Stream POST Injection Threat**: If an attacker with a valid OIDC token acquires another user's SSE stream UUID (e.g. from proxy access logs or URLs), POSTing to `/mcp/messages?session_id=<victim_uuid>` executes tools in the victim's task context using the victim's delegated SP credentials. The audit log records the victim as the perpetrator.
+   - **Implemented Mitigation (Stream Ownership Gate)**: The ASGI application enforces a stream-level ownership gate in `http_server.py` (`guarded_post_messages`), mapping `stream_uuid -> oidc_subject` and rejecting POST requests with **HTTP 403 Forbidden** if the caller's subject does not match the stream creator (`TC-DAUTH-29`).
+   - **Stdio LIFO Resolution**: In stdio mode, sequential authentications use reverse iteration (`reversed(list(self._sessions.items()))`) so the newest lease supersedes earlier leases, preventing FIFO dictionary iteration shadowing (`TC-DAUTH-30`).
 
 ---
 
@@ -188,7 +195,7 @@ When authentication or step-up verification is required, the tool responds with 
 | `SessionLease.password` zeroed on all removal paths (AUD-08) | ✅ | ✅ |
 | `logout_session` explicit revocation tool (AUD-08) | ✅ | ✅ |
 | Per-scope OIDC privilege mapping and rejection (AUD-03) | ✅ | ✅ |
-| Multi-client transport isolation & session binding (DAUTH-10) | ✅ | ✅ |
+| Multi-client transport isolation & session binding (DAUTH-10) | ✅ | ✅ (TC-DAUTH-24..32 Verified) |
 
 ---
 

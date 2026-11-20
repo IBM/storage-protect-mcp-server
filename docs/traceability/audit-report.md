@@ -124,3 +124,15 @@ graph TD
 * **Allure Reports**: Generated in `allure-results/` with automated metadata (`environment.properties`) and defect categories (`categories.json`)
 * **Test-Bed Harness**: Fully specified in [`docs/test/test-bed.md`](../test/test-bed.md) with `fault_dsmadmc.py` shim, Toxiproxy chaos proxy, and Locust load generator
 
+---
+
+## 6. Security Audit Findings & Residual Remediations (DAUTH-10)
+
+| Audit ID | Severity | Finding Description | Remediation Status |
+| :--- | :--- | :--- | :--- |
+| **AUD-10** | High | Residual SSE POST Stream Hijacking via AnyIO Task Decoupling | Specification updated; ASGI stream ownership gate planned (TC-DAUTH-29) |
+| **AUD-11** | Medium | Stdio Dictionary Iteration Shadowing on Re-Authentication | Specification updated; reverse-lookup LIFO lease resolution planned (TC-DAUTH-30) |
+| **AUD-12** | Low | Documentation Code Snippet & Audit Schema Discrepancies | Remediated in `impl-security-dynamic-authn.md` and `module-security.md` |
+| **AUD-13** | High | Authorization Bypass via Stale SSE Session Context (Privilege Retention on Scope Downgrade & Expiration) | Remediated in design & implementation specifications via OA-8: `SSESessionContext`, call-time dynamic privilege & token expiration gate, and `scope["user"]` ASGI compliance (`TC-OA8-01`, `TC-OA8-02`, `TC-OA8-03`) |
+| **AUD-14** | Medium | Route Doubling in Starlette SSE Transport Advertisement (`/mcp/mcp/messages`) | Corrected in `http_server.py` / `SseServerTransport` mounting specifications |
+

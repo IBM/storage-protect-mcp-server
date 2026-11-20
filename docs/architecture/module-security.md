@@ -99,8 +99,34 @@ graph TD
 
 When the HTTP transport is run with dynamic authentication (`SP_MCP_AUTH_MODE=dynamic`):
 1. **Per-Connection Isolation**: Each incoming SSE stream generates a distinct transport connection ID. The server maintains separate session bindings per connection rather than storing active lease IDs in module-level globals (`_process_session_id`, `_process_audit_user`).
-2. **Caller Principal Binding**: Leases minted via `authenticate_session` record the creator's `oidc_subject` (`sub`) and `connection_id`. Cross-connection or cross-subject lease redemption returns `AUTHORIZATION_DENIED` (Anti-IDOR).
+2. **Caller Principal Binding**: Leases minted via `authenticate_session` record the creator's `oidc_subject` (`sub`), `connection_id`, and `transport_mode`. Cross-connection or cross-subject lease redemption returns `AUTHORIZATION_DENIED` (Anti-IDOR).
 3. **Compound Non-Repudiation Audit Trail (`POL-4` / `NR-1`)**: The server binds both the caller's OIDC subject and the delegated SP administrator account into SP ACTLOG entries: `MCP_AUDIT oidc_user=<sub|local> sp_admin=<admin_name> ...`.
+
+## 3.2 SSE Stream Ownership & POST Message Validation
+
+Under the Model Context Protocol (MCP) Server-Sent Events (SSE) transport:
+1. **Asynchronous Stream Decoupling**: A persistent HTTP GET request to `/mcp/sse` establishes an event stream serviced by a long-running background worker coroutine (`mcp_server.run()`). Message submissions arrive as discrete HTTP POST requests to `/mcp/messages?session_id=<stream_uuid>`.
+2. **ASGI Standard `scope["user"]` Population**: `OIDCBearerMiddleware` populates ASGI-standard `scope["user"]` with an authenticated principal dictionary containing `sub`, `privilege`, `exp`, and `auth_model`. This satisfies the MCP Python SDK's internal `_session_owners[session_id]` binding mechanism, ensuring native SDK-level stream ownership validation.
+3. **Stream Ownership Gate**: In addition to SDK checks, the server maintains an active application registry mapping each stream UUID to its authenticated creator subject (`stream_id -> oidc_subject`).
+4. **Cross-Client Message Rejection**: When an HTTP POST arrives at `/mcp/messages?session_id=...`, `guarded_post_messages` verifies that the Bearer token caller subject matches the registered stream owner. Mismatched submissions are rejected with **HTTP 403 Forbidden** before message ingestion, preventing rogue injection into another client's task frame.
+
+## 3.3 Per-Message SSE Privilege & Expiration Synchronization (OA-8 / ACC-3)
+
+While stream ownership gates prevent cross-client hijacking (Caller B injecting into Stream A), intra-stream context decay can occur if a caller's permissions are downgraded or their initial token expires while the SSE connection remains open.
+
+1. **Context Decay Vulnerability**: Python `ContextVar` state (`current_request_privilege`, `current_oidc_subject`) captured in the background worker task (`mcp_server.run()`) during `GET /mcp/sse` does not automatically update when subsequent `POST /mcp/messages` requests arrive in independent ASGI task frames.
+2. **Live Session Context Registry (`SSESessionContext`)**: The server maintains a structured session state registry:
+   * `owner_sub`: Initial authenticated stream creator.
+   * `active_privilege`: Highest privilege tier derived from the latest valid POST request.
+   * `active_exp`: Unix expiration timestamp of the latest valid POST token.
+   * `active_auth_model`: Auth model (`oidc_bearer` or `client_credentials`) of the latest POST.
+   * `last_post_at`: Timestamp of the most recent message submission.
+3. **Per-Message Synchronization Gate**:
+   * On every incoming POST, `guarded_post_messages` validates caller ownership and updates the session's active privilege and expiration timestamp.
+   * At tool call execution time (`handle_call_tool`), the runtime authorization gate resolves effective privilege and token expiration directly from the active `SSESessionContext`.
+   * **Token Expiration Gate**: If `time.time() > session.active_exp`, execution terminates with `AUTHENTICATION_REQUIRED` (`code: -32001`, `Active OIDC token expired`).
+   * **Scope Downgrade Gate**: If the active privilege tier is insufficient for the requested tool (`not _privilege_satisfies(session.active_privilege, tool_privilege)`), execution terminates with `AUTHORIZATION_DENIED` (`code: -32001`, `OIDC token does not have the privilege required by this tool`).
+   * This completely prevents an operator connecting with temporary `mcp:system` rights from retaining administrative execution after their token expires or is replaced by an `mcp:read` token.
 
 ---
 
@@ -130,7 +156,7 @@ flowchart TD
     ACTIVE -- no --> UNAUTH4[401 token_revoked]
     ACTIVE -- yes --> MAPSCOPE[Map scopes → privilege tier\nhighest scope wins]
     MAPSCOPE --> AUTHMODEL[Detect authmodel\npreferred_username present?\n→ oidc_bearer : client_credentials\nOA-7]
-    AUTHMODEL --> INJECT[Inject into request.state:\nmcp_privilege · mcp_subject · mcp_auth_model\nSet current_auth_model ContextVar]
+    AUTHMODEL --> INJECT["Inject into request.state and scope['user']:\nmcp_privilege · mcp_subject · mcp_auth_model · exp\nSet current_auth_model ContextVar"]
     INJECT --> NEXT[Call next handler]
 ```
 
@@ -289,29 +315,34 @@ Scopes are mapped to SP privilege tiers by `OIDCBearerMiddleware`. The **highest
 
 ---
 
-## 9. ACTLOG Audit Record Format (OA-7)
+## 9. ACTLOG Audit Record Format (OA-7, POL-4, NR-1)
 
-Every write tool call emits a `DEFINE SCRATCHPADENTRY MCP_AUDIT` entry. The `authmodel=` field was added by OA-7:
+Every write tool call emits a `DEFINE SCRATCHPADENTRY MCP_AUDIT` entry. The `authmodel=` field was added by OA-7, and compound dual-identity attribution (`oidc_user` + `sp_admin`) was added by DAUTH-10:
 
 ```
-# client_credentials machine token
-MCP_AUDIT user=mcp-client  authmodel=client_credentials  tool=query_status      priv=any    corr=3a9f1c00
+# client_credentials machine token (Model A service account)
+MCP_AUDIT user=mcp-client                          authmodel=client_credentials  tool=query_status      priv=any    corr=3a9f1c00
 
-# Authorization Code interactive user token
-MCP_AUDIT user=alice@corp  authmodel=oidc_bearer          tool=delete_node       priv=policy corr=e8f7a192
+# Authorization Code interactive user token (Model A service account)
+MCP_AUDIT user=alice@corp                          authmodel=oidc_bearer          tool=delete_node       priv=policy corr=e8f7a192
 
-# Dynamic challenge-response session (Model B)
-MCP_AUDIT user=alice       authmodel=dynamic_session      tool=delete_node       priv=policy corr=c3b2a191
+# Dynamic challenge-response session with OIDC bearer (Model B, DAUTH-10 Compound Audit)
+MCP_AUDIT oidc_user=alice@corp sp_admin=admin_alice authmodel=dynamic_session      tool=delete_node       priv=policy corr=c3b2a191
 
-# stdio / local (no HTTP auth)
-MCP_AUDIT user=local       authmodel=local                tool=query_status      priv=any    corr=5b2d9e04
+# stdio / local dynamic challenge-response session (Model B)
+MCP_AUDIT oidc_user=local      sp_admin=admin_alice authmodel=dynamic_session      tool=delete_node       priv=policy corr=a1b2c3d4
+
+# stdio / local static service account (no HTTP auth)
+MCP_AUDIT user=local                               authmodel=local                tool=query_status      priv=any    corr=5b2d9e04
 ```
 
 Query all MCP audit records from the SP Activity Log:
 ```
 QUERY ACTLOG SEARCH=MCP_AUDIT BEGINDATE=TODAY-7
 QUERY ACTLOG SEARCH=authmodel=oidc_bearer BEGINDATE=TODAY-30
-QUERY ACTLOG SEARCH=corr=e8f7a192
+QUERY ACTLOG SEARCH=oidc_user=alice@corp BEGINDATE=TODAY-30
+QUERY ACTLOG SEARCH=sp_admin=admin_alice BEGINDATE=TODAY-30
+QUERY ACTLOG SEARCH=corr=c3b2a191
 ```
 
 ---
@@ -328,7 +359,8 @@ All 26 tests are in [`tests/test_sec_oauth2.py`](../../tests/test_sec_oauth2.py)
 | `TestIntrospection` | 5 | OA-5 — revoked/active token, long-lived skip, fail-open, no secret |
 | `TestProtectedResourceMetadata` | 5 | OA-6 — RFC 9470 doc fields, public_url, WWW-Authenticate header |
 | `TestAuthModelAudit` | 4 | OA-3 / OA-7 — authmodel label in ACTLOG for all four auth paths |
-| **Total** | **26** | **OA-1–OA-7** |
+| `TestSSEStreamIsolation` | 3 | OA-8 — Per-message SSE privilege downgrade, token expiry, scope['user'] |
+| **Total** | **29** | **OA-1–OA-8** |
 
 Run:
 ```bash

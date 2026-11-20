@@ -16,8 +16,8 @@ The implemented static controls are:
 | ID | Change | Gaps closed |
 |----|--------|-------------|
 | ACC-1 | Add `required_privilege` property to `BaseCommand`, `BaseOfflineCommand`, `BaseServermonCommand` | A1, A2 |
-| ACC-2 | Self-narrowing tool registration in `mcp_factory.py` based on configured service-account privilege | Static gate implemented; dynamic/OIDC call-time gate pending |
-| ACC-3 | Annotate all existing command classes with `required_privilege` | A2, A3 |
+| ACC-2 | Self-narrowing tool registration in `mcp_factory.py` based on configured service-account privilege | Static gate implemented |
+| ACC-3 | Annotate all command classes with `required_privilege` + runtime call-time privilege & expiration enforcement (OA-8) | A2, A3, OA-8 |
 | ACC-4 | Replace `su` with `sudo` + sudoers allowlist in `DsmServWrapper` / `ServermonWrapper` | A4 |
 
 ---

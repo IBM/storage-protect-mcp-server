@@ -25,6 +25,7 @@ current_auth_model: contextvars.ContextVar[str] = contextvars.ContextVar("curren
 # DAUTH-10: Per-connection transport ID and OIDC subject context variables
 current_connection_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_connection_id", default=None)
 current_oidc_subject: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_oidc_subject", default=None)
+current_transport_mode: contextvars.ContextVar[str] = contextvars.ContextVar("current_transport_mode", default="stdio")
 
 # Process-level state (deprecated & eliminated in DAUTH-10; maintained for legacy compatibility only)
 _process_session_id: Optional[str] = None
@@ -43,9 +44,15 @@ def reset_execution_state() -> None:
     current_request_privilege.set(None)
     current_connection_id.set(None)
     current_oidc_subject.set(None)
+    current_transport_mode.set("stdio")
     try:
         from .session import global_session_manager
         global_session_manager.clear()
+    except Exception:
+        pass
+    try:
+        from .http_server import _sse_session_contexts
+        _sse_session_contexts.clear()
     except Exception:
         pass
 
@@ -522,7 +529,9 @@ def create_mcp_server(
         if auth_mode == "dynamic" and name != "authenticate_session":
             current_sub = current_oidc_subject.get() or current_audit_user.get()
             conn_id = current_connection_id.get()
-            stdio_conn_id = conn_id or ("stdio" if not current_oidc_subject.get() else None)
+            tmode = current_transport_mode.get()
+            is_stdio = (tmode == "stdio" and not conn_id and not current_oidc_subject.get())
+            stdio_conn_id = conn_id or ("stdio" if is_stdio else None)
 
             # 1. Resolve candidate session ID (ContextVar, explicit arg, or connection mapping)
             explicit_sid = (
@@ -555,6 +564,29 @@ def create_mcp_server(
                 return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
 
             # 2. Strict Principal Verification (Anti-Hijacking / Anti-IDOR - DAUTH-10)
+            if explicit_sid:
+                if session.oidc_subject:
+                    if not current_sub or session.oidc_subject != current_sub:
+                        logger.warning(
+                            "SECURITY: Cross-client session lease reuse blocked! lease_sub='%s' req_sub='%s'",
+                            session.oidc_subject, current_sub,
+                        )
+                        return [TextContent(type="text", text=json.dumps({
+                            "is_error": True,
+                            "error_type": "AUTHORIZATION_DENIED",
+                            "message": "Session lease does not belong to the authenticated caller.",
+                        }))]
+                elif session.transport_mode == "stdio" and tmode != "stdio":
+                    logger.warning(
+                        "SECURITY: Cross-realm session lease reuse blocked! stdio lease redeemed over '%s' transport",
+                        tmode,
+                    )
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHORIZATION_DENIED",
+                        "message": "Local stdio session leases cannot be redeemed over network transports.",
+                    }))]
+
             if session.oidc_subject and current_sub and session.oidc_subject != current_sub:
                 logger.warning(
                     "SECURITY: Cross-client session lease reuse blocked! lease_sub='%s' req_sub='%s'",
@@ -590,8 +622,27 @@ def create_mcp_server(
             if session.password is not None:
                 current_execution_credentials.set((session.username, session.password))
 
-        # ── INT-2: enforce OIDC request privilege at call time ────────────────
-        request_privilege = current_request_privilege.get()
+        # ── INT-2 / OA-8: enforce OIDC request privilege and expiration at call time ────
+        from .http_server import get_sse_session_context
+        conn_id = current_connection_id.get()
+        session_ctx = get_sse_session_context(conn_id) if conn_id else None
+
+        if session_ctx is not None:
+            # 1. Token expiration check (OA-8)
+            if session_ctx.active_exp and time.time() > session_ctx.active_exp:
+                logger.warning(
+                    "SECURITY: SSE tool execution rejected: active OIDC token expired for subject='%s' (stream_id=%s)",
+                    session_ctx.owner_sub, conn_id[:8] if conn_id else "unknown",
+                )
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHENTICATION_REQUIRED",
+                    "message": "Active OIDC token has expired. Please refresh your token.",
+                }))]
+            request_privilege = session_ctx.active_privilege
+        else:
+            request_privilege = current_request_privilege.get()
+
         if request_privilege and not _privilege_satisfies(request_privilege, tool_privilege):
             return [TextContent(type="text", text=json.dumps({
                 "is_error": True,
@@ -603,12 +654,20 @@ def create_mcp_server(
         correlation_id = None
         if tool_privilege in _WRITE_PRIVILEGES:
             correlation_id = uuid.uuid4().hex[:12]
-            # OA-7: include auth model in audit record for cross-model attribution
-            auth_model_label = current_auth_model.get()
+            # OA-7 / OA-8: include auth model in audit record for cross-model attribution
+            auth_model_label = (
+                session_ctx.active_auth_model
+                if session_ctx is not None
+                else current_auth_model.get()
+            )
 
-            # POL-4 / NR-1 / DAUTH-10: Compound Dual-Identity Audit Trail
+            # POL-4 / NR-1 / DAUTH-10 / OA-8: Compound Dual-Identity Audit Trail
             if session is not None:
-                oidc_user = current_oidc_subject.get() or current_audit_user.get() or "unknown"
+                oidc_user = (
+                    session_ctx.owner_sub
+                    if session_ctx is not None
+                    else (current_oidc_subject.get() or current_audit_user.get() or "unknown")
+                )
                 sp_admin = session.username
                 audit_msg = (
                     f"MCP_AUDIT oidc_user={oidc_user} "
@@ -619,7 +678,11 @@ def create_mcp_server(
                     f"corr={correlation_id}"
                 )
             else:
-                user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
+                user_id = (
+                    session_ctx.owner_sub
+                    if session_ctx is not None
+                    else (current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local")
+                )
                 audit_msg = (
                     f"MCP_AUDIT user={user_id} "
                     f"authmodel={auth_model_label} "

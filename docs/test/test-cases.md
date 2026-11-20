@@ -177,6 +177,10 @@
 | **TC-DAUTH-26** | `test_logout_does_not_terminate_other_client_sessions` | Client B invokes `logout_session` | Revokes only Client B's session; Client A's active session lease remains valid and unperturbed. |
 | **TC-DAUTH-27** | `test_dual_audit_attribution_logged` | Tool executed under delegated dynamic lease over HTTP/SSE | SP Activity Log correlation entry records both `oidc_user` and `sp_admin` (`MCP_AUDIT oidc_user=... sp_admin=...`). |
 | **TC-DAUTH-28** | `test_sse_endpoint_advertisement_correct` | SSE transport initialized under Starlette app mount | Endpoint path advertises `/mcp/messages` without route duplication. |
+| **TC-DAUTH-29** | `test_sse_stream_post_cross_client_rejected_403` | Client B POSTs JSON-RPC tool call to Client A's active SSE stream UUID using Client B's valid token | ASGI middleware rejects request with HTTP 403 Forbidden; tool does not execute in Client A's task context. |
+| **TC-DAUTH-30** | `test_stdio_reauthentication_newest_lease_wins` | Client authenticates as `admin1`, then authenticates as `admin2` in stdio mode without explicit logout | `get_session_id_for_connection('stdio')` returns `admin2` lease via reverse-lookup; subsequent tool calls execute as `admin2`. |
+| **TC-DAUTH-31** | `test_http_cannot_redeem_stdio_lease_via_idor` | Network HTTP client passes `arguments["_session_id"] = <stdio_lease_id>` | Resolver detects cross-realm lease redemption and rejects with `AUTHORIZATION_DENIED`. |
+| **TC-DAUTH-32** | `test_unauthenticated_http_does_not_inherit_stdio_lease` | HTTP request arrives without OIDC token or connection parameter while an active stdio lease exists | Server does not default connection ID to `"stdio"`; returns `AUTHENTICATION_REQUIRED` challenge. |
 
 ---
 
@@ -279,6 +283,14 @@
 | **TC-OA7-02** | `test_client_credentials_authmodel_in_actlog` | Service-to-service client credentials token | `MCP_AUDIT ... authmodel=client_credentials ...` |
 | **TC-OA7-03** | `test_oidc_bearer_authmodel_in_actlog` | Interactive user OIDC bearer token | `MCP_AUDIT ... authmodel=oidc_bearer ...` |
 | **TC-OA7-04** | `test_dynamic_session_authmodel_set_after_authenticate` | Ephemeral leased session | `MCP_AUDIT ... authmodel=dynamic_session ...` |
+
+### 6.8 Per-Message SSE Privilege & Expiration Enforcement (OA-8 — 3 Tests)
+
+| Case ID | Test Method | Test Scenario | Expected Outcome |
+| :--- | :--- | :--- | :--- |
+| **TC-OA8-01** | `test_sse_privilege_downgrade_rejected` | Client opens SSE stream with `mcp:system` token, then POSTs tool call (`grant_authority`) presenting valid `mcp:read` token. | Rejected with `AUTHORIZATION_DENIED`; does not execute under stale initial `system` scope. |
+| **TC-OA8-02** | `test_sse_expired_token_rejected` | Client opens SSE stream with short-lived token; token expires; client POSTs tool call without refreshed token. | Rejected with `AUTHENTICATION_REQUIRED` (token expired); halts execution fail-closed. |
+| **TC-OA8-03** | `test_asgi_scope_user_populated` | HTTP request processed through `OIDCBearerMiddleware`. | ASGI `scope["user"]` populated with authenticated dictionary (`sub`, `privilege`, `exp`, `auth_model`). |
 
 ---
 

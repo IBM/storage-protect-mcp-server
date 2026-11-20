@@ -154,11 +154,13 @@ class AuthenticateSession(BaseCommand):
             current_auth_model,
             current_connection_id,
             current_oidc_subject,
+            current_transport_mode,
         )
 
         conn_id = current_connection_id.get()
         current_sub = current_oidc_subject.get() or current_audit_user.get()
-        transport_mode = "http" if conn_id or current_oidc_subject.get() else "stdio"
+        tmode = current_transport_mode.get()
+        transport_mode = "http" if conn_id or current_oidc_subject.get() or tmode == "http" else "stdio"
         bound_conn_id = conn_id or ("stdio" if transport_mode == "stdio" else None)
 
         lease = global_session_manager.create_session(
@@ -234,11 +236,14 @@ class LogoutSession(BaseCommand):
             current_audit_user,
             current_connection_id,
             current_oidc_subject,
+            current_transport_mode,
         )
 
         conn_id = current_connection_id.get()
         current_sub = current_oidc_subject.get() or current_audit_user.get()
-        stdio_conn_id = conn_id or ("stdio" if not current_oidc_subject.get() else None)
+        tmode = current_transport_mode.get()
+        is_stdio = (tmode == "stdio" and not conn_id and not current_oidc_subject.get())
+        stdio_conn_id = conn_id or ("stdio" if is_stdio else None)
 
         explicit_sid = (arguments.get("session_id") or "").strip() if arguments else None
         sid = (

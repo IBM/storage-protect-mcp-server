@@ -24,7 +24,8 @@ References:
 import os
 import logging
 import time
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Dict
 
 import httpx
 
@@ -43,6 +44,27 @@ SCOPE_PRIVILEGE_MAP = {
 def _privilege_rank(p: str) -> int:
     order = {"any": 0, "operator": 1, "storage": 2, "policy": 3, "system": 4}
     return order.get(p, 0)
+
+
+# ── OA-8: SSE live session context store ─────────────────────────────────────
+@dataclass
+class SSESessionContext:
+    stream_id: str
+    owner_sub: str
+    active_privilege: str
+    active_exp: float
+    active_auth_model: str
+    last_post_at: float
+
+
+_sse_session_contexts: Dict[str, SSESessionContext] = {}
+
+
+def get_sse_session_context(stream_id: Optional[str]) -> Optional[SSESessionContext]:
+    """Retrieve active SSESessionContext for the given SSE stream UUID (OA-8)."""
+    if not stream_id:
+        return None
+    return _sse_session_contexts.get(stream_id)
 
 
 # ── OA-1: AS metadata cache ───────────────────────────────────────────────────
@@ -391,6 +413,14 @@ class OIDCBearerMiddleware:
         scope["state"]["mcp_auth_model"] = auth_model  # OA-7
         scope["state"]["mcp_connection_id"] = connection_id
 
+        # OA-8: Populate ASGI-standard scope["user"] for MCP Python SDK compatibility
+        scope["user"] = {
+            "sub": payload.get("sub", "unknown"),
+            "privilege": privilege,
+            "exp": float(payload.get("exp", 0.0)),
+            "auth_model": auth_model,
+        }
+
         logger.info(
             "INT-2/OA-7: subject='%s' authmodel='%s' privilege='%s' scopes=%s",
             scope["state"]["mcp_subject"], auth_model, privilege, scopes,
@@ -402,15 +432,18 @@ class OIDCBearerMiddleware:
             current_auth_model,
             current_connection_id,
             current_oidc_subject,
+            current_transport_mode,
         )
         user_ctx       = current_audit_user.set(scope["state"]["mcp_subject"])
         oidc_sub_ctx   = current_oidc_subject.set(scope["state"]["mcp_subject"])
         privilege_ctx  = current_request_privilege.set(privilege)
         auth_model_ctx = current_auth_model.set(auth_model)  # OA-7
         conn_ctx       = current_connection_id.set(connection_id)
+        trans_ctx      = current_transport_mode.set("http")
         try:
             await self.app(scope, receive, send)
         finally:
+            current_transport_mode.reset(trans_ctx)
             current_connection_id.reset(conn_ctx)
             current_request_privilege.reset(privilege_ctx)
             current_oidc_subject.reset(oidc_sub_ctx)
@@ -443,16 +476,89 @@ def create_http_app(
     from mcp.server.sse import SseServerTransport
 
     sse_transport = SseServerTransport("messages")
+    _sse_stream_owners: Dict[str, str] = {}
 
     async def handle_sse(request: Request):
+        sub = request.scope.get("state", {}).get("mcp_subject")
+        priv = request.scope.get("state", {}).get("mcp_privilege", "any")
+        exp = float(request.scope.get("user", {}).get("exp", 0.0))
+        auth_m = request.scope.get("state", {}).get("mcp_auth_model", "oidc_bearer")
+        active_before = set(sse_transport._read_stream_writers.keys())
         async with sse_transport.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
-            await mcp_server.run(
-                streams[0],
-                streams[1],
-                mcp_server.create_initialization_options(),
-            )
+            new_sids = set(sse_transport._read_stream_writers.keys()) - active_before
+            bound_sid = None
+            if new_sids and sub:
+                bound_sid = next(iter(new_sids)).hex
+                _sse_stream_owners[bound_sid] = sub
+                _sse_session_contexts[bound_sid] = SSESessionContext(
+                    stream_id=bound_sid,
+                    owner_sub=sub,
+                    active_privilege=priv,
+                    active_exp=exp,
+                    active_auth_model=auth_m,
+                    last_post_at=time.time(),
+                )
+                logger.debug("DAUTH-10/OA-8: Bound SSE stream %s to OIDC subject '%s'", bound_sid[:8], sub)
+
+            tok_conn = None
+            if bound_sid:
+                from .mcp_factory import current_connection_id
+                tok_conn = current_connection_id.set(bound_sid)
+            try:
+                await mcp_server.run(
+                    streams[0],
+                    streams[1],
+                    mcp_server.create_initialization_options(),
+                )
+            finally:
+                if tok_conn:
+                    from .mcp_factory import current_connection_id
+                    current_connection_id.reset(tok_conn)
+                if bound_sid:
+                    _sse_stream_owners.pop(bound_sid, None)
+                    _sse_session_contexts.pop(bound_sid, None)
+                    logger.debug("DAUTH-10/OA-8: Unbound SSE stream %s", bound_sid[:8])
+
+    async def guarded_post_messages(scope, receive, send):
+        """Reject POST requests targeting an SSE stream owned by another principal (DAUTH-10 / OA-8)."""
+        if scope["type"] == "http":
+            request = Request(scope, receive)
+            stream_id = request.query_params.get("session_id")
+            caller_sub = scope.get("state", {}).get("mcp_subject")
+            caller_priv = scope.get("state", {}).get("mcp_privilege", "any")
+            caller_exp = float(scope.get("user", {}).get("exp", 0.0))
+            caller_auth = scope.get("state", {}).get("mcp_auth_model", "oidc_bearer")
+            if stream_id and caller_sub:
+                session_ctx = _sse_session_contexts.get(stream_id)
+                owner_sub = session_ctx.owner_sub if session_ctx else _sse_stream_owners.get(stream_id)
+                if owner_sub and owner_sub != caller_sub:
+                    logger.warning(
+                        "SECURITY: Cross-client SSE stream message rejected! "
+                        "Caller '%s' attempted to POST to stream owned by '%s' (stream_id=%s)",
+                        caller_sub, owner_sub, stream_id[:8],
+                    )
+                    response = JSONResponse(
+                        {
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32001,
+                                "message": "Forbidden: Caller does not own this SSE session stream.",
+                            },
+                            "id": None,
+                        },
+                        status_code=403,
+                    )
+                    await response(scope, receive, send)
+                    return
+                # OA-8: Update live session context with latest validated POST claims
+                if session_ctx:
+                    session_ctx.active_privilege = caller_priv
+                    session_ctx.active_exp = caller_exp
+                    session_ctx.active_auth_model = caller_auth
+                    session_ctx.last_post_at = time.time()
+        await sse_transport.handle_post_message(scope, receive, send)
 
     async def health(_: Request):
         return JSONResponse({"status": "ok"})
@@ -481,10 +587,12 @@ def create_http_app(
             Route("/.well-known/oauth-protected-resource",         protected_resource_metadata),
             Mount("/mcp", routes=[
                 Route("/sse",      handle_sse),
-                Mount("/messages", app=sse_transport.handle_post_message),
+                Mount("/messages", app=guarded_post_messages),
             ]),
         ]
     )
+    app.state.sse_stream_owners = _sse_stream_owners
+    app.state.sse_session_contexts = _sse_session_contexts
 
     app.add_middleware(
         OIDCBearerMiddleware,

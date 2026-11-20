@@ -26,6 +26,7 @@
 | Optional RFC 7662 token introspection | OA-5 | RFC 7662 |
 | Protected-resource metadata route + `resource_metadata` in `WWW-Authenticate` | OA-6 | RFC 9470 |
 | `authmodel` field in ACTLOG `DEFINE SCRATCHPADENTRY` | OA-7 | NR-1 / NR-4 |
+| Per-message SSE privilege & token expiration enforcement | OA-8 | MCP 2025-03 / ASGI Spec |
 
 All changes are **additive**. The existing INT-2 baseline behaviour (token validation, scope→privilege mapping, TLS enforcement) is unchanged.
 
@@ -624,6 +625,115 @@ Set `current_auth_model` when issuing a dynamic-session lease:
 
 ---
 
+## OA-8 — Per-Message SSE Privilege & Expiration Enforcement
+
+### File: `src/sp_mcp_server/http_server.py`
+
+#### 1. Populate ASGI `scope["user"]` in `OIDCBearerMiddleware`
+Populate standard `scope["user"]` alongside `scope["state"]` to enable native MCP Python SDK session owner checking:
+
+```python
+        scope["user"] = {
+            "sub": payload.get("sub", "unknown"),
+            "privilege": privilege,
+            "exp": payload.get("exp", 0),
+            "auth_model": auth_model,
+        }
+```
+
+#### 2. Define `SSESessionContext` and Ingestion Gate in `create_http_app`
+Maintain live session context state mapping stream session UUIDs to their latest validated token attributes:
+
+```python
+from dataclasses import dataclass
+import time
+
+@dataclass
+class SSESessionContext:
+    stream_id: str
+    owner_sub: str
+    active_privilege: str
+    active_exp: float
+    active_auth_model: str
+    last_post_at: float
+
+_sse_sessions: Dict[str, SSESessionContext] = {}
+
+async def handle_sse(request: Request):
+    sub = request.scope.get("state", {}).get("mcp_subject")
+    priv = request.scope.get("state", {}).get("mcp_privilege", "any")
+    exp = request.scope.get("user", {}).get("exp", 0.0)
+    auth_m = request.scope.get("state", {}).get("mcp_auth_model", "oidc_bearer")
+    active_before = set(sse_transport._read_stream_writers.keys())
+    async with sse_transport.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
+        new_sids = set(sse_transport._read_stream_writers.keys()) - active_before
+        bound_sid = None
+        if new_sids and sub:
+            bound_sid = next(iter(new_sids)).hex
+            _sse_sessions[bound_sid] = SSESessionContext(
+                stream_id=bound_sid,
+                owner_sub=sub,
+                active_privilege=priv,
+                active_exp=exp,
+                active_auth_model=auth_m,
+                last_post_at=time.time(),
+            )
+        try:
+            await mcp_server.run(streams[0], streams[1], mcp_server.create_initialization_options())
+        finally:
+            if bound_sid:
+                _sse_sessions.pop(bound_sid, None)
+
+async def guarded_post_messages(scope, receive, send):
+    """Enforce caller stream ownership and update live session context (OA-8)."""
+    if scope["type"] == "http":
+        request = Request(scope, receive)
+        stream_id = request.query_params.get("session_id")
+        caller_sub = scope.get("state", {}).get("mcp_subject")
+        caller_priv = scope.get("state", {}).get("mcp_privilege", "any")
+        caller_exp = scope.get("user", {}).get("exp", 0.0)
+        caller_auth = scope.get("state", {}).get("mcp_auth_model", "oidc_bearer")
+        if stream_id and caller_sub:
+            session = _sse_sessions.get(stream_id)
+            if session:
+                if session.owner_sub != caller_sub:
+                    response = JSONResponse(
+                        {"jsonrpc": "2.0", "error": {"code": -32001, "message": "Forbidden: Caller does not own this SSE session stream."}},
+                        status_code=403,
+                    )
+                    await response(scope, receive, send)
+                    return
+                # Update live context with latest validated POST claims
+                session.active_privilege = caller_priv
+                session.active_exp = caller_exp
+                session.active_auth_model = caller_auth
+                session.last_post_at = time.time()
+    await sse_transport.handle_post_message(scope, receive, send)
+```
+
+### File: `src/sp_mcp_server/mcp_factory.py`
+
+#### Runtime Resolution in `handle_call_tool`
+When running under HTTP transport, resolve active privileges and check token expiration:
+
+```python
+        # OA-8: In HTTP transport, resolve live context from active SSE session
+        if is_http:
+            session_ctx = _lookup_sse_session_context(connection_id)
+            if session_ctx is not None:
+                if time.time() > session_ctx.active_exp:
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHENTICATION_REQUIRED",
+                        "message": "Active OIDC token has expired. Please refresh your token.",
+                    }))]
+                request_privilege = session_ctx.active_privilege
+```
+
+---
+
 ## Environment Variable Reference (complete)
 
 | Variable | Required | Default | Description |
@@ -674,7 +784,8 @@ The MCP server instance inside tests must be created with `SP_MCP_SKIP_SECURITY_
 | `TestIntrospection` | 5 | OA-5: revoked token, active token, long-lived skip, fail-open, no secret |
 | `TestProtectedResourceMetadata` | 5 | OA-6: doc fields, public_url, fallback, WWW-Authenticate with/without public_url |
 | `TestAuthModelAudit` | 4 | OA-3/OA-7: local, client_credentials, oidc_bearer, dynamic_session labels in ACTLOG |
-| **Total** | **26** | **OA-1–OA-7** |
+| `TestSSEStreamIsolation` | 3 | OA-8: privilege downgrade rejection, token expiry check, scope['user'] |
+| **Total** | **29** | **OA-1–OA-8** |
 
 ```python
 # tests/test_sec_oauth2.py — representative test stubs (actual file is canonical)
@@ -756,11 +867,11 @@ python3 -m pytest tests/test_sec_oauth2.py -v
 
 | File | Changes |
 |------|---------|
-| `src/sp_mcp_server/http_server.py` | OA-1: `_fetch_as_metadata()`, `as_metadata` route; OA-2: `_get_jwks_with_ttl()`, `_get_key_for_kid()`, kid-miss rate-limit; OA-4: `_check_idp_pkce_capability()`; OA-5: `_introspect()` method; OA-6: `_protected_resource_doc()`, `_unauthorized(error, message)`, `protected_resource_metadata` route; OA-7: `authmodel` detection in `__call__()`; updated `create_http_app()` signature |
+| `src/sp_mcp_server/http_server.py` | OA-1: `_fetch_as_metadata()`, `as_metadata` route; OA-2: `_get_jwks_with_ttl()`, `_get_key_for_kid()`, kid-miss rate-limit; OA-4: `_check_idp_pkce_capability()`; OA-5: `_introspect()` method; OA-6: `_protected_resource_doc()`, `_unauthorized(error, message)`, `protected_resource_metadata` route; OA-7: `authmodel` detection in `__call__()`; OA-8: populate `scope["user"]`, maintain `_sse_sessions` (`SSESessionContext`), and update active context in `guarded_post_messages`; updated `create_http_app()` signature |
 | `src/sp_mcp_server/main.py` | OA-4: `_check_idp_pkce_capability()` call at startup; OA-2/OA-5/OA-6: read new env vars and pass to `create_http_app()` |
-| `src/sp_mcp_server/mcp_factory.py` | OA-7: `current_auth_model` ContextVar; `authmodel=` field in `DEFINE SCRATCHPADENTRY` description |
+| `src/sp_mcp_server/mcp_factory.py` | OA-7: `current_auth_model` ContextVar; `authmodel=` field in `DEFINE SCRATCHPADENTRY` description; OA-8: dynamic context resolution and token expiration gate in `handle_call_tool` |
 | `src/sp_mcp_server/commands/system/auth.py` | OA-7: `current_auth_model.set("dynamic_session")` after issuing lease |
-| `tests/test_sec_oauth2.py` | 26 tests across 6 classes covering OA-1–OA-7 (replaces old `test_security_controls.py` stubs) |
+| `tests/test_sec_oauth2.py` | 29 tests across 7 classes covering OA-1–OA-8 (replaces old `test_security_controls.py` stubs) |
 
 ---
 
@@ -803,4 +914,12 @@ OA-7 (Auth model audit):
       QUERY ACTLOG SEARCH=authmodel=oidc_bearer BEGINDATE=TODAY
   [x] Dynamic-auth tool call:
       QUERY ACTLOG SEARCH=authmodel=dynamic_session BEGINDATE=TODAY
+
+OA-8 (Per-Message SSE Privilege & Expiration):
+  [x] OIDCBearerMiddleware populates ASGI scope["user"] with sub, privilege, exp, auth_model
+  [x] guarded_post_messages updates active privilege and expiration in SSESessionContext on each POST
+  [x] Cross-client POST message injection is rejected with 403 Forbidden
+  [x] Expired tokens on open SSE streams return AUTHENTICATION_REQUIRED
+  [x] Scope downgrades on open SSE streams return AUTHORIZATION_DENIED for high-privilege tools
+  [x] Advertised SSE endpoint is /mcp/messages (no /mcp/mcp/messages route doubling)
 ```

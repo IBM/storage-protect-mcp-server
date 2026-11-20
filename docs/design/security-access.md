@@ -128,6 +128,18 @@ mcp-runner ALL=(tsmsvr01) NOPASSWD: /opt/tivoli/tsm/server/bin/dsmserv
 mcp-runner ALL=(tsmsvr01) NOPASSWD: /opt/tivoli/tsm/server/bin/servermon
 ```
 
+### Runtime Privilege Enforcement (ACC-3 & OA-8)
+
+While ACC-2 filters tool registration at startup for static service accounts, the runtime gate in `mcp_factory.py:handle_call_tool()` enforces privilege on every tool call across all transport and authentication modes:
+
+1. **Dynamic Session Verification (DAUTH-1..10)**: If running in dynamic mode (`SP_MCP_AUTH_MODE=dynamic`), verifies that the active session lease matches caller identity, target server, and possesses sufficient privilege (`_privilege_satisfies_for_session`).
+2. **OIDC Request Privilege Enforcement (INT-2 & OA-8)**:
+   * **Stdio / Local**: Resolves from request ContextVar.
+   * **HTTP / SSE Transport (OA-8)**: Resolves effective privilege directly from the stream's live `SSESessionContext`. In asynchronous SSE transports, where the long-running worker task is decoupled from discrete POST request tasks, static task ContextVars are vulnerable to context decay. The runtime gate checks:
+     - **Token Expiry**: `time.time() <= session.active_exp` (terminates with `AUTHENTICATION_REQUIRED` if expired).
+     - **Scope Compliance**: `_privilege_satisfies(session.active_privilege, tool_privilege)` (terminates with `AUTHORIZATION_DENIED` if insufficient).
+   This prevents operators from retaining administrative privileges on open streams when their tokens expire or are replaced by reduced-scope tokens.
+
 ---
 
 ## Privilege Mapping by Command Group
