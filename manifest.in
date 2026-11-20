@@ -8,6 +8,7 @@ include build/build_wheel.sh
 
 # Include documentation directory
 recursive-include docs *.md *.txt
+prune docs/tmp
 
 # Exclude unnecessary files
 global-exclude __pycache__

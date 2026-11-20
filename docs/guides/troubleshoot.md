@@ -1012,6 +1012,51 @@ The provided username or password was rejected by the IBM Storage Protect server
 
 ---
 
+### Symptom C — `AUTHORIZATION_DENIED: Session does not belong to the authenticated user`
+
+Tool call with explicit `_session_id` returns:
+
+```json
+{
+  "is_error": true,
+  "error_type": "AUTHORIZATION_DENIED",
+  "message": "Session does not belong to the authenticated user."
+}
+```
+
+### Cause
+Anti-IDOR protection (DAUTH-10) detected that the supplied session lease was minted by a different OIDC subject or connection. Cross-client lease redemption is rejected.
+
+### Remediation
+1. Call `authenticate_session` to establish a lease under your own OIDC identity.
+2. In interactive chats, omit `_session_id` to allow the server to automatically resolve your connection-scoped lease.
+
+---
+
+### Symptom D — SSE Client receives HTTP 404 on POST requests
+
+Client connects to `/mcp/sse` successfully but tool invocations fail with HTTP 404.
+
+### Cause
+The server is advertising a doubled URL path (`/mcp/mcp/messages`) because `SseServerTransport` was initialized with an absolute path while mounted under `/mcp`.
+
+### Remediation
+Initialize `SseServerTransport("messages")` with a relative path in `create_http_app()`, or configure custom clients to send POST requests to `/mcp/messages/?session_id=...`.
+
+---
+
+### Symptom E — `logout_session` returns `AUTHORIZATION_DENIED`
+
+Calling `logout_session` with an explicit `session_id` fails.
+
+### Cause
+Callers are only authorized to revoke session leases that belong to their own connection or OIDC identity. Revoking another user's session is blocked.
+
+### Remediation
+Omit `session_id` to revoke your current active session lease, or supply only a session ID that belongs to your authenticated account.
+
+---
+
 ## 17. Log File Access
 
 ```bash

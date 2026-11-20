@@ -1,8 +1,8 @@
 # Security Design: Dynamic & Delegated User Authentication
 
 * **Domain**: Identity, Credentials & Delegated Authentication
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
-* **Status**: Fully implemented and regression-tested — challenge, bounded leases, privilege enforcement, delegated execution, credential lifecycle zeroing, explicit logout, and target-server binding all present
+* **Revision**: 2026-11 (Multi-Client Transport Isolation & Anti-IDOR Enforcement — DAUTH-10, HackerOne #4212881 Remediation)
+* **Status**: Fully implemented and regression-tested — challenge, bounded leases, privilege enforcement, delegated execution, credential lifecycle zeroing, explicit logout, target-server binding, and multi-client transport isolation (DAUTH-10) all present
 * **Implementation spec**: [`docs/implement/impl-security-dynamic-authn.md`](../implement/impl-security-dynamic-authn.md)
 * **Analysis reference**: [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 * **Cross-reference**: [`docs/design/security-identity-credentials.md`](security-identity-credentials.md) · [`docs/design/security-integrations.md`](security-integrations.md) · [`docs/design/security-non-repudiation.md`](security-non-repudiation.md) · [`docs/design/security-access.md`](security-access.md) · [`docs/design/security-policy.md`](security-policy.md)
@@ -53,7 +53,7 @@ flowchart TD
 | **Credential Storage** | Local `.env` (0600), OS keyring, `dsm.sys` stash | Ephemeral in-memory lease; credentials provided at runtime by human |
 | **Identity Attribution** | Service account name (`mcp-svc-*`) | Actual human administrator ID bound into `current_audit_user` and used for delegated command execution |
 | **Session Lifetime** | Persistent daemon lifetime | Short-lived lease (15-minute sliding TTL, max 60 minutes) |
-| **Transport Compatibility**| stdio, SSE, HTTP | stdio, SSE, HTTP |
+| **Transport Compatibility**| stdio, SSE, HTTP | stdio, SSE, HTTP (HTTP/SSE requires per-connection session binding under DAUTH-10; module-level process globals eliminated) |
 | **MFA Compatibility** | Exemption with compensating controls (CRED-4) | Native SP password verification + potential MFA challenge |
 
 ---
@@ -161,23 +161,37 @@ In accordance with security requirement **CRED-2** and **RG-3**, the password su
 2. The session lease retains the verified plaintext password in-memory for delegated command execution. `SessionLease.password` is set to `None` on every removal path — explicit `revoke_session()`, inactivity/absolute TTL expiry in `get_session()`, bulk `cleanup_expired()`, and `clear()` at shutdown (AUD-08).
 3. Subsequent commands use `current_execution_credentials` to pass `(-ID=, -PA=)` arguments to `dsmadmc`, which are cleared in the `finally` block of `handle_call_tool()`.
 4. **Target-server binding (DAUTH-7):** `_check_session_target_server()` validates `SessionLease.target_server` against `config.server_address` immediately after privilege confirmation. Mismatched sessions are rejected with `AUTHORIZATION_DENIED`; single-server deployments (no `target_server` set) are unaffected.
-5. The `logout_session` tool (`required_privilege: any`) allows users to explicitly revoke their session before TTL expiry, zeroing the in-memory credential immediately.
+5. The `logout_session` tool (`required_privilege: any`) allows users to explicitly revoke their session before TTL expiry, zeroing the in-memory credential immediately. Under **DAUTH-10**, `logout_session` asserts caller ownership before revoking a lease, preventing unauthenticated disruption of other active sessions.
+
+### 4.4 Secure Lease Resolution Precedence & Anti-IDOR Enforcement (DAUTH-10)
+
+In multi-client deployments, `handle_call_tool()` resolves active sessions without relying on process-wide globals:
+1. **Resolution Priority**: Request-local ContextVar (`current_session_id`) and transport connection mapping (`conn_id`) take precedence.
+2. **Anti-IDOR Ownership Gate**: If an explicit `_session_id` argument is passed, the server verifies that the session's recorded `oidc_subject` matches the caller's validated token subject (`current_audit_user.get()`). Cross-client redemption attempts are rejected with `AUTHORIZATION_DENIED`.
+3. **Challenge on Miss**: If no valid, unexpired session matches the caller's context, the server emits the structured `AUTHENTICATION_REQUIRED` challenge.
 
 ---
 
 ## 5. Security & Forensic Alignment
 
-### 5.1 Non-Repudiation Binding (NR-1 & POL-4)
-When dynamic authentication succeeds:
-1. The validated username is injected into `contextvars.ContextVar("current_audit_user")`.
-2. All subsequent mutating commands executed during this session emit the user identity to the IBM Storage Protect Activity Log:
+### 5.1 Compound Dual-Identity Audit Binding (NR-1 & POL-4)
+When dynamic authentication is active:
+1. The validated human administrator ID is preserved alongside the authenticated OIDC token subject.
+2. In multi-client HTTP/SSE mode, `current_audit_user` is not overwritten to erase the OIDC identity.
+3. Mutating operations emit compound dual-identity correlation records to the IBM Storage Protect Activity Log:
    ```
-   DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin_alice tool=delete_node priv=policy corr=e8f7a192b0c3"
+   DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=alice_oidc sp_admin=admin_alice authmodel=dynamic_session tool=delete_node priv=policy corr=e8f7a192b0c3"
    ```
-3. This adds the human administrator to the SP audit correlation record and aligns the command execution context with the authenticated session.
+4. This ensures incontrovertible forensic attribution: investigators can identify both the originating network identity and the delegated Storage Protect credential used for execution.
 
 ### 5.2 Native Lockout Protection (POL-3)
 Authentication attempts directly exercise the IBM Storage Protect authentication engine. Failed attempts increment the administrator's failed sign-on counter on the SP server, preserving native brute-force protection (`SET INVALIDPWLIMIT`).
+
+### 5.3 Multi-Client Transport Isolation (DAUTH-10)
+To prevent cross-session credential bleeding:
+1. **Removal of Module Globals**: Process-wide variables `_process_session_id` and `_process_audit_user` are eliminated.
+2. **Connection-Scoped Leases**: Ephemeral leases are scoped to the transport connection ID and OIDC subject.
+3. **Transport Routing Alignment**: `SseServerTransport` registers with relative endpoint `"messages"` to prevent route duplication when mounted under `/mcp`.
 
 ---
 

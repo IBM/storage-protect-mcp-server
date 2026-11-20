@@ -45,6 +45,9 @@ class SessionLease:
     session_id: str
     username: str
     privilege_classes: Set[str]
+    oidc_subject: Optional[str] = None          # Bound OIDC 'sub' claim (DAUTH-10)
+    connection_id: Optional[str] = None         # Bound transport connection / SSE session (DAUTH-10)
+    transport_mode: str = "http"                # 'stdio' or 'http' (DAUTH-10)
     password: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -82,6 +85,9 @@ class SessionManager:
         target_server: Optional[str] = None,
         ttl_seconds: Optional[int] = None,
         password: Optional[str] = None,
+        oidc_subject: Optional[str] = None,
+        connection_id: Optional[str] = None,
+        transport_mode: str = "http",
     ) -> SessionLease:
         """Create and store a new ephemeral session lease."""
         with self._lock:
@@ -92,6 +98,9 @@ class SessionManager:
                 username=username,
                 privilege_classes=privileges or {"any"},
                 password=password,
+                oidc_subject=oidc_subject,
+                connection_id=connection_id,
+                transport_mode=transport_mode,
                 ttl_seconds=min(max(ttl_seconds or self._default_ttl, 1), MAX_SESSION_TTL_SECONDS),
                 target_server=target_server,
             )
@@ -103,6 +112,16 @@ class SessionManager:
             lease.ttl_seconds,
         )
         return lease
+
+    def get_session_id_for_connection(self, connection_id: Optional[str]) -> Optional[str]:
+        """Look up active unexpired session ID bound to a transport connection ID."""
+        if not connection_id:
+            return None
+        with self._lock:
+            for sid, lease in self._sessions.items():
+                if lease.connection_id == connection_id and not lease.is_expired():
+                    return sid
+        return None
 
     def get_session(self, session_id: str) -> Optional[SessionLease]:
         """Retrieve and refresh a session lease if valid and unexpired."""

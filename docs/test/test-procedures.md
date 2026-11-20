@@ -96,12 +96,15 @@ python -m pytest tests/test_sec_audit_trail.py -v
 ## PROC-03: Dynamic Authentication & Session Lifecycle Runbook
 
 ### 3.1 Objective
-Verify Model B dynamic challenge-response authentication, bounded session TTLs, delegated CLI execution, memory zeroing on deletion, and cross-server binding.
+Verify Model B dynamic challenge-response authentication, bounded session TTLs, delegated CLI execution, memory zeroing on deletion, cross-server binding, and multi-client transport isolation (DAUTH-10).
 
 ### 3.2 Execution Steps
 ```bash
-# Run dynamic auth tests
+# Run dynamic auth tests (including challenge-response and session expiration)
 python -m pytest tests/test_sec_dynamic_auth.py -v
+
+# Run multi-client dynamic authentication isolation tests (DAUTH-10)
+python -m pytest tests/test_sec_dynamic_auth.py -k TestMultiClientDynamicAuthIsolation -v
 
 # Run session lifecycle & server binding tests
 python -m pytest tests/test_sec_session_lifecycle.py -v
@@ -120,6 +123,7 @@ python -m pytest tests/test_sec_session_lifecycle.py -v
   ```
 - **Target Server Protection**: Verify that a session issued for server `spsvr01.corp` is rejected with `AUTHORIZATION_DENIED` when attempted against `spsvr02.corp`.
 - **Memory Zeroing**: Verify that `session.password` is overwritten upon `logout_session`, `revoke_session()`, and background expiration.
+- **Multi-Client Isolation (DAUTH-10)**: Verify that when client A authenticates under dynamic auth, client B cannot inherit client A's active session, cannot supply client A's `session_id` via anti-IDOR checks (`AUTHORIZATION_DENIED`), and cannot delete client A's session via `logout_session`. Verify compound dual-identity audit attribution (`oidc_user` + `sp_admin`) in ACTLOG.
 
 ---
 

@@ -63,10 +63,19 @@ flowchart TD
     E -->|mcp:read| F[privilege = any]
     E -->|mcp:system| G[privilege = system]
     E -->|mcp:storage| H[privilege = storage]
-    F & G & H --> I[inject request.state.mcp_privilege & current_audit_user]
+    F & G & H --> I[inject request.state: mcp_privilege, mcp_subject, connection_id]
     I --> J[SSE handler /mcp/sse]
-    J --> K[MCP Server call-time privilege gate]
+    J --> K[MCP Server call-time privilege & dynamic lease isolation gate]
 ```
+
+### Multi-Client Dynamic Authentication Isolation (DAUTH-10)
+
+When `--transport http` is used alongside `SP_MCP_AUTH_MODE=dynamic`:
+* `OIDCBearerMiddleware` extracts and injects the caller's `sub` claim into `request.state.mcp_subject` and `current_audit_user`.
+* The SSE transport associates each active client connection with a distinct `connection_id`.
+* Dynamic session leases in `SessionManager` are bound to `(connection_id, oidc_subject)`. Cross-client session inheritance is strictly blocked.
+* In mutating operations, the server emits compound dual-identity audit markers to IBM SP ACTLOG: `MCP_AUDIT oidc_user=<sub|local> sp_admin=<admin_name> ...`.
+* In `create_http_app()`, `SseServerTransport("messages")` uses a relative path under `/mcp` mount to ensure proper route advertisement without route doubling.
 
 ### Token scope → privilege mapping
 

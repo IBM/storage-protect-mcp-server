@@ -42,7 +42,7 @@ This directory contains the complete documentation for the IBM Storage Protect M
 
 9. [`design/`](design/) — Security design specs per domain (network, credentials, access, policy, integrations, dynamic authentication, non-repudiation, OAuth 2)
 10. [`implement/`](implement/) — Implementation specs per domain, tracing design decisions to source files
-11. [`traceability/traceability-matrix.md`](traceability/traceability-matrix.md) — End-to-end requirements traceability (51 security requirements + 50 resilience tests)
+11. [`traceability/traceability-matrix.md`](traceability/traceability-matrix.md) — End-to-end requirements traceability (52 security requirements + 50 resilience tests)
 12. [`traceability/gap-analysis.md`](traceability/gap-analysis.md) — Consolidated security, prompt & documentation gap status (all closed, 248 tests collected)
 13. [`traceability/audit-report.md`](traceability/audit-report.md) — Comprehensive independent audit and verification report (all code, runtime, and documentation findings remediated)
 

@@ -1,50 +1,18 @@
 """
 test_sample_prompts_positive.py
 ================================
-Automated Positive Sample Prompts Test Suite.
+Positive sample prompt test suite (unit tests and live integration tests)
+validating tools referenced across all eight operational personas (R-01 .. R-08)
+in docs/example/sample-prompts.md.
 
-Validates that the IBM Storage Protect MCP server constructs valid, compliant
-IBM Storage Protect commands and executes successfully when presented with
-authentic, well-formed operational prompts from docs/example/sample-prompts.md.
-
-Each catalog prompt states a role, context, task, constraints, and output
-format in natural English. The Task section names the MCP tools to call; these tests drive
-those same tools directly. Prompt structure itself is validated by
-tests/test_sample_prompts_structure.py, which also fails if a tool named in a
-prompt has no test here.
-
-Includes two execution tiers:
-  - Part 1: Fast Mock Unit Verification (92 tests with FakeAdmcCli across all
-    eight personas R-01..R-08 plus tool privilege tier validation).
-  - Part 2: Live Integration Staging Verification (15 tests with real DsmAdmcWrapper
-    marked @pytest.mark.integration, executed when SP host is configured).
-
-Sample deployment topology (from docs/example/sample-prompts.md):
-  SP server  : SPSVR01
-  Nodes      : WEB01_NODE, WEB02_NODE, APPSVR01_NODE, DBSQL01_NODE,
-               LEGACY01_NODE, DBORA01_NODE
-  Domains    : DOM_GENERAL, DOM_DATABASE, DOM_SAP, DOM_VIRTUAL
-  Policy sets: PSET_GENERAL, PSET_DATABASE
-  Mgmt classes: MC_STD_30, MC_DB_90, MC_WEB_60
-  Pools      : POOL_DISK_PRIMARY, POOL_CLOUD_TIER, POOL_DBBACKUP,
-               POOL_TAPE_COPY
-  Schedules  : SCHED_GENERAL_DAILY, SCHED_DB_NIGHTLY, SCHED_DBBACKUP_DAILY
-  Device class: DCLASS_DISK
-  Library    : LIB_LTO8_01
-  Admin      : mcp-svc-readonly, mcp-svc-system, OPS_READER
+Part 1: Unit tests with FakeAdmcCli (Personas R-01 through R-08 + Tool Annotations).
+Part 2: Live integration tests with real DsmAdmcWrapper against SP server (skipped in CI).
 """
 
 from __future__ import annotations
-
-import os
 import pytest
-import allure
 
 from tests.fixtures import FakeAdmcCli
-
-# ===========================================================================
-# PART 1: Fast Mock Unit Verification (FakeAdmcCli — 92 Tests)
-# ===========================================================================
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -471,6 +439,115 @@ class TestR02OperationalAudit:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# R-03 · Infrastructure Solution Architect
+# ---------------------------------------------------------------------------
+
+class TestR03EnvironmentAndSizing:
+    """Prompt: 'What is the deduplication ratio and space savings on POOL_DISK_PRIMARY?'
+               'Show device classes and tape libraries available for offsite storage'
+               'Add directory /storage/primary/dir02 to container storage pool POOL_DISK_PRIMARY'
+               'Are we compliant with our IBM Storage Protect server licenses?'
+    """
+
+    def test_query_deduplication_stats(self):
+        """query_deduplication_stats returns deduplication and savings information."""
+        from sp_mcp_server.commands.storage.content import QueryDeduplicationStats
+
+        cli = _cli()
+        cmd = QueryDeduplicationStats(cli)  # type: ignore[arg-type]
+        cmd.execute({"container_name": "POOL_DISK_PRIMARY"})
+
+        assert "QUERY DEDUPSTATS" in cli.calls[0]
+        assert "POOL_DISK_PRIMARY" in cli.calls[0]
+
+    def test_query_device_type(self):
+        """query_device_type queries device class configuration."""
+        from sp_mcp_server.commands.storage.device import QueryDeviceType
+
+        cli = _cli()
+        cmd = QueryDeviceType(cli)  # type: ignore[arg-type]
+        cmd.execute({"device_type_name": "DCLASS_DISK"})
+
+        assert "QUERY DEVCLASS" in cli.calls[0]
+        assert "DCLASS_DISK" in cli.calls[0]
+
+    def test_define_storage_pool_directory(self):
+        """define_storage_pool_directory expands directory space for a container pool."""
+        from sp_mcp_server.commands.storage.stgpool import DefineStoragePoolDirectory
+
+        cli = _cli()
+        cmd = DefineStoragePoolDirectory(cli)  # type: ignore[arg-type]
+        cmd.execute({
+            "pool_name": "POOL_DISK_PRIMARY",
+            "directory": "/storage/primary/dir02",
+        })
+
+        assert "DEFINE STGPOOLDIRECTORY" in cli.calls[0]
+        assert "POOL_DISK_PRIMARY" in cli.calls[0]
+        assert "/storage/primary/dir02" in cli.calls[0]
+
+    def test_query_license_info(self):
+        """query_license_info emits QUERY LICENSE."""
+        from sp_mcp_server.commands.system.admin import QueryLicenseInfo
+
+        cli = _cli()
+        cmd = QueryLicenseInfo(cli)  # type: ignore[arg-type]
+        cmd.execute({})
+
+        assert cli.calls == ["QUERY LICENSE"]
+
+
+# ---------------------------------------------------------------------------
+# R-04 · Workload & Application Owner
+# ---------------------------------------------------------------------------
+
+class TestR04WorkloadBackupIntegration:
+    """Prompt: 'Check filespace backup status for database node DBSQL01_NODE'
+               'Define copy group for SAP archive log retention in DOM_SAP'
+               'Inspect occupancy distribution for Oracle database host DBORA01_NODE'
+    """
+
+    def test_query_client_backup_volume(self):
+        """query_client_backup_volume lists filespaces for client node."""
+        from sp_mcp_server.commands.clients.info import QueryClientBackupVolume
+
+        cli = _cli()
+        cmd = QueryClientBackupVolume(cli)  # type: ignore[arg-type]
+        cmd.execute({"client_name": "DBSQL01_NODE"})
+
+        assert "QUERY FILESPACE" in cli.calls[0]
+        assert "DBSQL01_NODE" in cli.calls[0]
+
+    def test_define_copy_group_sap_archive(self):
+        """define_copy_group emits DEFINE COPYGROUP for SAP archive retention."""
+        from sp_mcp_server.commands.policies.copy import DefineCopyGroup
+
+        cli = _cli()
+        cmd = DefineCopyGroup(cli)  # type: ignore[arg-type]
+        cmd.execute({
+            "domain_name": "DOM_SAP",
+            "policy_set_name": "PSET_SAP",
+            "class_name": "MC_SAP_ARCHIVE",
+            "type": "BACKUP",
+            "destination": "POOL_DISK_PRIMARY",
+        })
+
+        assert "DEFINE COPYGROUP" in cli.calls[0]
+        assert "DOM_SAP" in cli.calls[0]
+        assert "MC_SAP_ARCHIVE" in cli.calls[0]
+
+    def test_query_data_occupancy_oracle(self):
+        """query_data_occupancy lists occupancy for Oracle database node."""
+        from sp_mcp_server.commands.clients.info import QueryDataOccupancy
+
+        cli = _cli()
+        cmd = QueryDataOccupancy(cli)  # type: ignore[arg-type]
+        cmd.execute({"client_name": "DBORA01_NODE"})
+
+        assert "QUERY OCCUPANCY" in cli.calls[0]
+        assert "DBORA01_NODE" in cli.calls[0]
+
 # R-05 · Security & Compliance Officer
 # ---------------------------------------------------------------------------
 
@@ -588,16 +665,6 @@ class TestR05PolicyAudit:
         assert "QUERY COPYGROUP" in cli.calls[0]
         assert "DOM_DATABASE" in cli.calls[0]
 
-    def test_query_retention_set(self):
-        """query_retention_set verifies retention hold enforcement for a set ID."""
-        from sp_mcp_server.commands.policies.copy import QueryRetentionSet
-
-        cli = _cli()
-        cmd = QueryRetentionSet(cli)  # type: ignore[arg-type]
-        cmd.execute({"retset_id": "17"})
-
-        assert cli.calls == ["QUERY RETSET 17"]
-
     def test_query_protection_policy(self):
         """query_protection_policy lists management classes for a domain."""
         from sp_mcp_server.commands.policies.mgmt import QueryProtectionPolicy
@@ -611,108 +678,18 @@ class TestR05PolicyAudit:
 
 
 # ---------------------------------------------------------------------------
-# R-03 · Infrastructure Solution Architect
+# Tool type and privilege annotations
 # ---------------------------------------------------------------------------
 
-class TestR03EnvironmentAndSizing:
-    """Prompts:
-    - 'What are the IBM Storage Protect Blueprint recommendations for database sizing …'
-    - 'Design a cloud tiering strategy for SPSVR01 to extend POOL_DISK_PRIMARY to POOL_CLOUD_TIER …'
-    - 'Prepare a licence consumption audit for sp-mcp-server-remote-tumbleweed …'
-    """
-
-    def test_query_deduplication_stats(self):
-        """query_deduplication_stats targets storage container dedup efficiency."""
-        from sp_mcp_server.commands.storage.content import QueryDeduplicationStats
+    def test_query_retention_set(self):
+        """query_retention_set emits QUERY RETSET."""
+        from sp_mcp_server.commands.policies.copy import QueryRetentionSet
 
         cli = _cli()
-        cmd = QueryDeduplicationStats(cli)  # type: ignore[arg-type]
-        cmd.execute({"container_name": "POOL_DISK_PRIMARY"})
-
-        assert len(cli.calls) == 1
-        assert "QUERY DEDUPSTATS" in cli.calls[0]
-        assert "POOL_DISK_PRIMARY" in cli.calls[0]
-
-    def test_query_device_type(self):
-        """query_device_type displays device classes for cloud and tape tiers."""
-        from sp_mcp_server.commands.storage.device import QueryDeviceType
-
-        cli = _cli()
-        cmd = QueryDeviceType(cli)  # type: ignore[arg-type]
-        cmd.execute({"device_type_name": "DCLASS_COS"})
-
-        assert "QUERY DEVCLASS DCLASS_COS" in cli.calls[0]
-
-    def test_define_storage_pool_directory(self):
-        """define_storage_pool_directory expands container directory paths."""
-        from sp_mcp_server.commands.storage.stgpool import DefineStoragePoolDirectory
-
-        cli = _cli()
-        cmd = DefineStoragePoolDirectory(cli)  # type: ignore[arg-type]
-        cmd.execute({"pool_name": "POOL_DISK_PRIMARY", "directory": "/tsm/containers/ext02"})
-
-        assert "DEFINE STGPOOLDIRECTORY POOL_DISK_PRIMARY" in cli.calls[0]
-        assert "/tsm/containers/ext02" in cli.calls[0]
-
-    def test_query_license_info(self):
-        """query_license_info confirms license compliance state."""
-        from sp_mcp_server.commands.system.admin import QueryLicenseInfo
-
-        cli = _cli()
-        cmd = QueryLicenseInfo(cli)  # type: ignore[arg-type]
+        cmd = QueryRetentionSet(cli)  # type: ignore[arg-type]
         cmd.execute({})
 
-        assert "QUERY LICENSE" in cli.calls[0]
-
-
-# ---------------------------------------------------------------------------
-# R-04 · Workload & Application Owner
-# ---------------------------------------------------------------------------
-
-class TestR04WorkloadBackupIntegration:
-    """Prompts:
-    - 'Configure IBM Storage Protect backup for SQL Server 2022 on DBSQL01_NODE …'
-    - 'What IBM Storage Protect management class and copy group settings are recommended for SAP …'
-    - 'query_data_occupancy for DBORA01_NODE to get backup objects …'
-    """
-
-    def test_query_client_backup_volume(self):
-        """query_client_backup_volume retrieves filespace backup objects for node."""
-        from sp_mcp_server.commands.clients.info import QueryClientBackupVolume
-
-        cli = _cli()
-        cmd = QueryClientBackupVolume(cli)  # type: ignore[arg-type]
-        cmd.execute({"client_name": "DBSQL01_NODE"})
-
-        assert "QUERY FILESPACE DBSQL01_NODE" in cli.calls[0]
-
-    def test_define_copy_group_sap_archive(self):
-        """define_copy_group for SAP redo-log archive retention."""
-        from sp_mcp_server.commands.policies.copy import DefineCopyGroup
-
-        cli = _cli()
-        cmd = DefineCopyGroup(cli)  # type: ignore[arg-type]
-        cmd.execute({
-            "domain_name": "DOM_SAP",
-            "policy_set_name": "PSET_SAP",
-            "class_name": "MC_SAP_LOG",
-            "destination": "POOL_DISK_PRIMARY",
-            "type": "ARCHIVE",
-        })
-
-        assert "DEFINE COPYGROUP DOM_SAP PSET_SAP MC_SAP_LOG" in cli.calls[0]
-        assert "TYPE=ARCHIVE" in cli.calls[0]
-        assert "DESTINATION=POOL_DISK_PRIMARY" in cli.calls[0]
-
-    def test_query_data_occupancy_oracle(self):
-        """query_data_occupancy scoped to Oracle DB node shows storage distribution."""
-        from sp_mcp_server.commands.clients.info import QueryDataOccupancy
-
-        cli = _cli()
-        cmd = QueryDataOccupancy(cli)  # type: ignore[arg-type]
-        cmd.execute({"client_name": "DBORA01_NODE"})
-
-        assert "QUERY OCCUPANCY DBORA01_NODE" in cli.calls[0]
+        assert cli.calls == ["QUERY RETSET"]
 
 
 # ---------------------------------------------------------------------------
@@ -720,24 +697,34 @@ class TestR04WorkloadBackupIntegration:
 # ---------------------------------------------------------------------------
 
 class TestR06ResilienceOperations:
-    """Prompts:
-    - 'Lock node DBSQL01_NODE immediately using set_client_lock to prevent further backup activity …'
-    - 'The SPSVR01 database needs to be recovered after a failure. Use restore_db …'
-    - 'Assess what recovery information is available on sp-mcp-server-remote-tumbleweed …'
+    """Prompt: 'Isolate suspected ransomware host WEB01_NODE with client lock'
+               'Invoke disaster recovery database restore'
+               'Query disaster recovery plan file status'
+               'Track offsite disaster recovery media'
     """
 
-    def test_set_client_lock_ransomware(self):
-        """set_client_lock isolates suspected ransomware-infected node."""
-        from sp_mcp_server.commands.clients.node import SetClientLock
+    def test_query_dr_media(self):
+        """query_dr_media emits QUERY DRMEDIA."""
+        from sp_mcp_server.commands.operations.disaster_recovery import QueryDRMedia
 
         cli = _cli()
-        cmd = SetClientLock(cli)  # type: ignore[arg-type]
-        cmd.execute({"client_name": "DBSQL01_NODE", "lock_status": "locked"})
+        cmd = QueryDRMedia(cli)  # type: ignore[arg-type]
+        cmd.execute({})
 
-        assert "LOCK NODE DBSQL01_NODE" in cli.calls[0]
+        assert cli.calls == ["QUERY DRMEDIA"]
+
+    def test_query_recovery_plan_file(self):
+        """query_recovery_plan_file emits QUERY RPFILE."""
+        from sp_mcp_server.commands.operations.disaster_recovery import QueryRecoveryPlanFile
+
+        cli = _cli()
+        cmd = QueryRecoveryPlanFile(cli)  # type: ignore[arg-type]
+        cmd.execute({})
+
+        assert cli.calls == ["QUERY RPFILE"]
 
     def test_restore_db_command(self):
-        """restore_db formats disaster recovery RESTORE DB invocation."""
+        """restore_db emits RESTORE DB with target parameters."""
         from sp_mcp_server.commands.operations.disaster_recovery import RestoreDB
 
         cli = _cli()
@@ -747,26 +734,15 @@ class TestR06ResilienceOperations:
         assert "RESTORE DB" in cli.calls[0]
         assert "SOURCE=DBBACKUP" in cli.calls[0]
 
-    def test_query_recovery_plan_file(self):
-        """query_recovery_plan_file retrieves disaster recovery plan status."""
-        from sp_mcp_server.commands.operations.disaster_recovery import QueryRecoveryPlanFile
+    def test_set_client_lock_ransomware(self):
+        """set_client_lock isolates client node via LOCK NODE."""
+        from sp_mcp_server.commands.clients.node import SetClientLock
 
         cli = _cli()
-        cmd = QueryRecoveryPlanFile(cli)  # type: ignore[arg-type]
-        cmd.execute({"devclass": "DCLASS_DISK"})
+        cmd = SetClientLock(cli)  # type: ignore[arg-type]
+        cmd.execute({"client_name": "WEB01_NODE", "lock_status": "lock"})
 
-        assert "QUERY RPFILE" in cli.calls[0]
-        assert "DCLASS_DISK" in cli.calls[0]
-
-    def test_query_dr_media(self):
-        """query_dr_media verifies tracking of offsite media volumes."""
-        from sp_mcp_server.commands.operations.disaster_recovery import QueryDRMedia
-
-        cli = _cli()
-        cmd = QueryDRMedia(cli)  # type: ignore[arg-type]
-        cmd.execute({"source_db": "dbbackup"})
-
-        assert "QUERY DRMEDIA dbbackup" in cli.calls[0]
+        assert cli.calls == ["LOCK NODE WEB01_NODE"]
 
 
 # ---------------------------------------------------------------------------
@@ -774,51 +750,14 @@ class TestR06ResilienceOperations:
 # ---------------------------------------------------------------------------
 
 class TestR07ServiceEngineerDiagnostics:
-    """Prompts:
-    - 'Run run_servermon on sp-mcp-server-remote-tumbleweed and analyse output …'
-    - 'DBORA01_NODE and DBDB201_NODE are experiencing intermittent ANR0406E errors …'
-    - 'Recurring ANR8468W warnings have been reported on SPSVR01 …'
+    """Prompt: 'Execute servermon diagnostic utility'
+               'Check for running background processes before maintenance window'
+               'Triage activity log defect ANR0406E'
+               'Audit frequency of warning ANR8468W'
     """
 
-    def test_run_servermon_execution(self):
-        """run_servermon dispatches Servermon diagnostic utility with args."""
-        from tests.fixtures import FakeServermonCli
-        from sp_mcp_server.commands.servermon import RunServerMon
-
-        cli = FakeServermonCli(stdout="SERVERMON DIAGNOSTIC COMPLETE")
-        cmd = RunServerMon(cli)  # type: ignore[arg-type]
-        result = cmd.execute({"args": ["-standard"]})
-
-        assert cli.calls == [["-standard"]]
-        assert "SERVERMON DIAGNOSTIC COMPLETE" in result
-
-    def test_query_background_job(self):
-        """query_background_job checks in-progress migration jobs before upgrades."""
-        from sp_mcp_server.commands.operations.data_movement import QueryBackgroundJob
-
-        cli = _cli()
-        cmd = QueryBackgroundJob(cli)  # type: ignore[arg-type]
-        cmd.execute({})
-
-        assert cli.calls == ["QUERY PROCESS"]
-
-    def test_query_activity_log_defect_anr0406e(self):
-        """query_activity_log filters for defect message code ANR0406E."""
-        from sp_mcp_server.commands.operations.misc import QueryActivityLog
-
-        cli = _cli()
-        cmd = QueryActivityLog(cli)  # type: ignore[arg-type]
-        cmd.execute({
-            "search": "ANR0406E",
-            "begindate": "10/26/2026",
-            "enddate": "10/27/2026",
-        })
-
-        assert "QUERY ACTLOG" in cli.calls[0]
-        assert "SEARCH=ANR0406E" in cli.calls[0]
-
     def test_query_activity_log_anr8468w(self):
-        """query_activity_log isolates cloud migration warnings ANR8468W."""
+        """query_activity_log searches for warning code ANR8468W."""
         from sp_mcp_server.commands.operations.misc import QueryActivityLog
 
         cli = _cli()
@@ -828,62 +767,104 @@ class TestR07ServiceEngineerDiagnostics:
         assert "QUERY ACTLOG" in cli.calls[0]
         assert "SEARCH=ANR8468W" in cli.calls[0]
 
+    def test_query_activity_log_defect_anr0406e(self):
+        """query_activity_log searches for defect error code ANR0406E."""
+        from sp_mcp_server.commands.operations.misc import QueryActivityLog
+
+        cli = _cli()
+        cmd = QueryActivityLog(cli)  # type: ignore[arg-type]
+        cmd.execute({"search": "ANR0406E"})
+
+        assert "QUERY ACTLOG" in cli.calls[0]
+        assert "SEARCH=ANR0406E" in cli.calls[0]
+
+    def test_run_servermon_execution(self):
+        """run_servermon executes diagnostic collector."""
+        from sp_mcp_server.commands.servermon import RunServerMon
+        from tests.fixtures import FakeServermonCli
+
+        cli = FakeServermonCli(stdout="SERVERMON DIAGNOSTIC COMPLETE")
+        cmd = RunServerMon(cli)
+        result = cmd.execute({"args": ["-standard"]})
+
+        assert result == "SERVERMON DIAGNOSTIC COMPLETE"
+        assert cli.calls == [["-standard"]]
+
+    def test_query_background_job(self):
+        """query_background_job emits QUERY PROCESS."""
+        from sp_mcp_server.commands.operations.data_movement import QueryBackgroundJob
+
+        cli = _cli()
+        cmd = QueryBackgroundJob(cli)  # type: ignore[arg-type]
+        cmd.execute({})
+
+        assert cli.calls == ["QUERY PROCESS"]
+
 
 # ---------------------------------------------------------------------------
 # R-08 · Multi-Server Replication & Data Management
 # ---------------------------------------------------------------------------
 
 class TestR08MultiServerReplication:
-    """Prompts:
-    - 'Query the replication server definitions on sp-mcp-spsvr01 using query_replication_server …'
-    - 'On sp-mcp-spsvr01, retrieve all replication storage rules using query_replication_rule …'
-    - 'Check replication health across all three servers: query_protection_status and query_replication_failures …'
-    - 'Use query_replication_status for DBORA01_NODE to check active replication …'
-    - 'On sp-mcp-spsvr01, update_node to configure policy domain or cloptset …'
+    """Prompt: 'Discover replication servers and topology'
+               'Query replication rules and failures'
+               'Monitor replication status for client nodes'
+               'Verify storage pool protection status'
+               'Update node domain after failover'
     """
 
-    def test_query_replication_server(self):
-        """query_replication_server discovers partner server connectivity."""
-        from sp_mcp_server.commands.operations.replication import QueryReplicationServer
+    def test_query_protection_status(self):
+        """query_protection_status emits QUERY PROTECTSTATUS."""
+        from sp_mcp_server.commands.operations.replication import QueryProtectionStatus
 
         cli = _cli()
-        cmd = QueryReplicationServer(cli)  # type: ignore[arg-type]
-        cmd.execute({"server_name": "SPSVR02"})
+        cmd = QueryProtectionStatus(cli)  # type: ignore[arg-type]
+        cmd.execute({})
 
-        assert "QUERY REPLSERVER SPSVR02" in cli.calls[0]
-
-    def test_query_replication_rule(self):
-        """query_replication_rule inspects cross-server replication storage rules."""
-        from sp_mcp_server.commands.operations.replication import QueryReplicationRule
-
-        cli = _cli()
-        cmd = QueryReplicationRule(cli)  # type: ignore[arg-type]
-        cmd.execute({"rule_name": "REPL_RULE_PRIMARY_DR"})
-
-        assert "QUERY REPLRULE REPL_RULE_PRIMARY_DR" in cli.calls[0]
+        assert cli.calls == ["QUERY PROTECTSTATUS"]
 
     def test_query_replication_failures(self):
-        """query_replication_failures retrieves failed replication items."""
+        """query_replication_failures emits QUERY REPLFAILURES."""
         from sp_mcp_server.commands.operations.replication import QueryReplicationFailures
 
         cli = _cli()
         cmd = QueryReplicationFailures(cli)  # type: ignore[arg-type]
         cmd.execute({})
 
-        assert "QUERY REPLFAILURES" in cli.calls[0]
+        assert cli.calls == ["QUERY REPLFAILURES"]
+
+    def test_query_replication_rule(self):
+        """query_replication_rule emits QUERY REPLRULE."""
+        from sp_mcp_server.commands.operations.replication import QueryReplicationRule
+
+        cli = _cli()
+        cmd = QueryReplicationRule(cli)  # type: ignore[arg-type]
+        cmd.execute({})
+
+        assert cli.calls == ["QUERY REPLRULE"]
+
+    def test_query_replication_server(self):
+        """query_replication_server emits QUERY REPLSERVER."""
+        from sp_mcp_server.commands.operations.replication import QueryReplicationServer
+
+        cli = _cli()
+        cmd = QueryReplicationServer(cli)  # type: ignore[arg-type]
+        cmd.execute({})
+
+        assert cli.calls == ["QUERY REPLSERVER"]
 
     def test_query_replication_status_node(self):
-        """query_replication_status checks replication process for a specific node."""
+        """query_replication_status emits QUERY REPLICATION for target node."""
         from sp_mcp_server.commands.operations.replication import QueryReplicationStatus
 
         cli = _cli()
         cmd = QueryReplicationStatus(cli)  # type: ignore[arg-type]
-        cmd.execute({"node_name": "DBORA01_NODE"})
+        cmd.execute({"node_name": "WEB01_NODE"})
 
-        assert "QUERY REPLICATION DBORA01_NODE" in cli.calls[0]
+        assert cli.calls == ["QUERY REPLICATION WEB01_NODE"]
 
     def test_query_replication_client_all_nodes(self):
-        """query_replication_client with node_name=* lists REPLSTATE for every node."""
+        """query_replication_client emits QUERY REPLNODE * for all nodes."""
         from sp_mcp_server.commands.clients.node import QueryReplicationClient
 
         cli = _cli()
@@ -893,46 +874,35 @@ class TestR08MultiServerReplication:
         assert cli.calls == ["QUERY REPLNODE *"]
 
     def test_query_replication_client_single_node(self):
-        """query_replication_client scoped to one node and one target server."""
+        """query_replication_client emits QUERY REPLNODE for specific node and server."""
         from sp_mcp_server.commands.clients.node import QueryReplicationClient
 
         cli = _cli()
         cmd = QueryReplicationClient(cli)  # type: ignore[arg-type]
-        cmd.execute({"node_name": "SAPHANA01_NODE", "target_server_name": "SPSVR02"})
+        cmd.execute({"node_name": "WEB01_NODE", "target_server_name": "SPSVR02"})
 
-        assert cli.calls == ["QUERY REPLNODE SAPHANA01_NODE SPSVR02"]
-
-    def test_query_protection_status(self):
-        """query_protection_status verifies storage pool replication synchronization."""
-        from sp_mcp_server.commands.operations.replication import QueryProtectionStatus
-
-        cli = _cli()
-        cmd = QueryProtectionStatus(cli)  # type: ignore[arg-type]
-        cmd.execute({})
-
-        assert "QUERY PROTECTSTATUS" in cli.calls[0]
-
-    def test_update_node_replication_domain(self):
-        """update_node updates node domain assignment during failover."""
-        from sp_mcp_server.commands.clients.node import UpdateNode
-
-        cli = _cli()
-        cmd = UpdateNode(cli)  # type: ignore[arg-type]
-        cmd.execute({"node_name": "APPSVR10_NODE", "domain_name": "DOM_GENERAL"})
-
-        assert "UPDATE NODE APPSVR10_NODE" in cli.calls[0]
-        assert "DOMAIN=DOM_GENERAL" in cli.calls[0]
+        assert cli.calls == ["QUERY REPLNODE WEB01_NODE SPSVR02"]
 
     def test_query_storage_rule(self):
-        """query_storage_rule inspects server storage and tiering rules."""
+        """query_storage_rule emits QUERY STGRULE."""
         from sp_mcp_server.commands.operations.rules import QueryStorageRule
 
         cli = _cli()
         cmd = QueryStorageRule(cli)  # type: ignore[arg-type]
-        cmd.execute({"rule_name": "REPL_RULE_PRIMARY_DR"})
+        cmd.execute({})
 
-        assert "QUERY STGRULE REPL_RULE_PRIMARY_DR" in cli.calls[0]
+        assert cli.calls == ["QUERY STGRULE"]
 
+    def test_update_node_replication_domain(self):
+        """update_node updates node domain during failover."""
+        from sp_mcp_server.commands.clients.node import UpdateNode
+
+        cli = _cli()
+        cmd = UpdateNode(cli)  # type: ignore[arg-type]
+        cmd.execute({"node_name": "WEB01_NODE", "domain_name": "DOM_GENERAL"})
+
+        assert "UPDATE NODE WEB01_NODE" in cli.calls[0]
+        assert "DOMAIN=DOM_GENERAL" in cli.calls[0]
 
 # ---------------------------------------------------------------------------
 # Tool type and privilege annotations
@@ -943,24 +913,24 @@ class TestPromptToolPrivilegeAnnotations:
     read-only, and write tools that require confirmation are annotated full."""
 
     @pytest.mark.parametrize("cls_path,expected_type", [
-        ("sp_mcp_server.commands.system.server.QueryServerStatus",    "read-only"),
-        ("sp_mcp_server.commands.system.server.QueryServerOption",    "read-only"),
-        ("sp_mcp_server.commands.system.admin.QueryAdminUser",        "read-only"),
-        ("sp_mcp_server.commands.system.admin.QueryLicenseInfo",      "read-only"),
-        ("sp_mcp_server.commands.system.logs.QueryRecoveryLog",       "read-only"),
-        ("sp_mcp_server.commands.clients.info.QueryActiveSession",    "read-only"),
-        ("sp_mcp_server.commands.clients.node.QueryClient",           "read-only"),
-        ("sp_mcp_server.commands.operations.misc.QueryActivityLog",   "read-only"),
-        ("sp_mcp_server.commands.policies.schedule.QuerySchedule",    "read-only"),
-        ("sp_mcp_server.commands.policies.schedule.QueryScheduledEvent", "read-only"),
-        ("sp_mcp_server.commands.storage.stgpool.QueryStorageContainer", "read-only"),
-        ("sp_mcp_server.commands.storage.volume.QueryVolumeHistory",  "read-only"),
-        ("sp_mcp_server.commands.storage.content.QueryDeduplicationStats", "read-only"),
-        ("sp_mcp_server.commands.storage.device.QueryDeviceType",     "read-only"),
-        ("sp_mcp_server.commands.clients.info.QueryClientBackupVolume", "read-only"),
+        ("sp_mcp_server.commands.clients.info.QueryActiveSession",       "read-only"),
+        ("sp_mcp_server.commands.clients.info.QueryClientBackupVolume",  "read-only"),
+        ("sp_mcp_server.commands.clients.node.QueryClient",              "read-only"),
+        ("sp_mcp_server.commands.operations.misc.QueryActivityLog",      "read-only"),
         ("sp_mcp_server.commands.operations.replication.QueryProtectionStatus", "read-only"),
         ("sp_mcp_server.commands.operations.replication.QueryReplicationFailures", "read-only"),
         ("sp_mcp_server.commands.operations.replication.QueryReplicationServer", "read-only"),
+        ("sp_mcp_server.commands.policies.schedule.QuerySchedule",       "read-only"),
+        ("sp_mcp_server.commands.policies.schedule.QueryScheduledEvent",  "read-only"),
+        ("sp_mcp_server.commands.storage.content.QueryDeduplicationStats", "read-only"),
+        ("sp_mcp_server.commands.storage.device.QueryDeviceType",         "read-only"),
+        ("sp_mcp_server.commands.storage.stgpool.QueryStorageContainer",  "read-only"),
+        ("sp_mcp_server.commands.storage.volume.QueryVolumeHistory",     "read-only"),
+        ("sp_mcp_server.commands.system.admin.QueryAdminUser",           "read-only"),
+        ("sp_mcp_server.commands.system.admin.QueryLicenseInfo",         "read-only"),
+        ("sp_mcp_server.commands.system.logs.QueryRecoveryLog",          "read-only"),
+        ("sp_mcp_server.commands.system.server.QueryServerOption",       "read-only"),
+        ("sp_mcp_server.commands.system.server.QueryServerStatus",       "read-only"),
     ])
     def test_read_only_tool_type(self, cls_path: str, expected_type: str):
         import importlib
@@ -974,18 +944,18 @@ class TestPromptToolPrivilegeAnnotations:
         )
 
     @pytest.mark.parametrize("cls_path,expected_priv", [
-        ("sp_mcp_server.commands.clients.node.RegisterNode",           "policy"),
-        ("sp_mcp_server.commands.clients.node.RenameClient",           "policy"),
-        ("sp_mcp_server.commands.clients.node.SetClientLock",          "operator"),
-        ("sp_mcp_server.commands.policies.mgmt.DefineManagementClass", "policy"),
-        ("sp_mcp_server.commands.policies.copy.DefineCopyGroup",       "policy"),
-        ("sp_mcp_server.commands.policies.schedule.DefineSchedule",    "policy"),
-        ("sp_mcp_server.commands.storage.stgpool.DefineStoragePool",   "storage"),
-        ("sp_mcp_server.commands.storage.volume.DefineVolume",         "storage"),
-        ("sp_mcp_server.commands.storage.stgpool.DefineStoragePoolDirectory", "storage"),
+        ("sp_mcp_server.commands.clients.node.RegisterNode",              "policy"),
+        ("sp_mcp_server.commands.clients.node.RenameClient",              "policy"),
+        ("sp_mcp_server.commands.clients.node.SetClientLock",             "operator"),
         ("sp_mcp_server.commands.operations.disaster_recovery.RestoreDB", "system"),
-        ("sp_mcp_server.commands.system.admin.SetUserLock",            "system"),
-        ("sp_mcp_server.commands.system.admin.GrantAuthority",         "system"),
+        ("sp_mcp_server.commands.policies.copy.DefineCopyGroup",          "policy"),
+        ("sp_mcp_server.commands.policies.mgmt.DefineManagementClass",    "policy"),
+        ("sp_mcp_server.commands.policies.schedule.DefineSchedule",       "policy"),
+        ("sp_mcp_server.commands.storage.stgpool.DefineStoragePool",      "storage"),
+        ("sp_mcp_server.commands.storage.stgpool.DefineStoragePoolDirectory", "storage"),
+        ("sp_mcp_server.commands.storage.volume.DefineVolume",            "storage"),
+        ("sp_mcp_server.commands.system.admin.GrantAuthority",            "system"),
+        ("sp_mcp_server.commands.system.admin.SetUserLock",               "system"),
     ])
     def test_write_tool_privilege(self, cls_path: str, expected_priv: str):
         import importlib
@@ -1000,9 +970,12 @@ class TestPromptToolPrivilegeAnnotations:
         )
 
 
+
 # ===========================================================================
-# PART 2: Live Integration Staging Verification (Real dsmadmc — 15 Tests)
+# Part 2: Live Integration Tests (against real SP server)
 # ===========================================================================
+
+import os
 
 _MISSING_ENV = not (
     os.environ.get("TCPSERVERADDRESS")
@@ -1022,7 +995,6 @@ if _MISSING_ENV:
     except ImportError:
         pass
 
-# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 

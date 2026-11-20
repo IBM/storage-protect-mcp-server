@@ -330,7 +330,9 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlet
     """
     from mcp.server.sse import SseServerTransport
 
-    sse_transport = SseServerTransport("/mcp/messages")
+    # DAUTH-10: SseServerTransport uses relative "messages" path when mounted under /mcp
+    # Initializing with "/mcp/messages" under Mount("/mcp") causes route doubling (/mcp/mcp/messages).
+    sse_transport = SseServerTransport("messages")
 
     async def handle_sse(request: Request):
         async with sse_transport.connect_sse(

@@ -530,6 +530,8 @@ Use `QUERY ACTLOG SEARCH=corr=<correlation-id>` to trace a specific tool call ac
 | `authmodel=local` in ACTLOG | stdio transport in use | Start with `--transport http` for HTTP; `local` is correct for stdio |
 | `preferred_username` absent, `authmodel=client_credentials` for interactive user | IdP not including claim | Add `preferred_username` protocol mapper to IdP client |
 | All tools return `403 insufficient privilege` | Token scope too narrow | Request a higher `mcp:*` scope when obtaining the token |
+| `404 Not Found` on SSE POST requests (`/mcp/mcp/messages`) | Route duplication in SSE transport mount | Use relative endpoint `"messages"` in `SseServerTransport` initialization under `/mcp` mount |
+| `AUTHORIZATION_DENIED` on valid session ID | Cross-client or cross-connection lease access attempt (Anti-IDOR) | Dynamic leases are bound to the caller's connection and OIDC subject (DAUTH-10). Ensure client authenticates within its own session |
 
 ---
 
@@ -584,7 +586,8 @@ sequenceDiagram
 ### Security Properties of Dynamic Authentication
 1. **Zero-Trace Credential Verification**: Passwords provided to `authenticate_session` are verified via [`cli_wrapper.DsmAdmcWrapper.execute_silent()`](../../src/sp_mcp_server/cli_wrapper.py) and are **never** logged to `/var/log/ibm-sp-mcp-server/mcp-server.log` or shell process trees.
 2. **Ephemeral In-Memory Leases**: Session leases are kept only in memory with a sliding inactivity window (`SP_MCP_SESSION_TTL`, default 15 minutes) and are destroyed upon process restart or explicit timeout.
-3. **Forensic Attribution (Non-Repudiation)**: Once authenticated, the user's verified identity is stored in `current_audit_user` ContextVar and emitted to the IBM Storage Protect Activity Log (`DEFINE SCRATCHPADENTRY MCP_AUDIT user=<username> ...`) for every modifying operation.
+3. **Forensic Attribution (Non-Repudiation)**: Once authenticated, the user's verified identity is stored in `current_audit_user` ContextVar. In HTTP/SSE mode, compound dual-identity audit markers (`DEFINE SCRATCHPADENTRY MCP_AUDIT oidc_user=<sub|local> sp_admin=<username> ...`) are emitted to the SP Activity Log for every modifying operation, preventing identity erasure.
+4. **Multi-Client Transport Isolation (DAUTH-10)**: When dynamic authentication is deployed over the HTTP/SSE transport (`--transport http`), session leases are bound to the client's transport connection identifier (`connection_id`) and OIDC subject (`oidc_subject`). Process-wide session globals are eliminated, and explicit `_session_id` parameters are checked against caller ownership to prevent cross-session credential hijacking and IDOR. Session revocation (`logout_session`) enforces caller ownership to prevent denial of service.
 
 ---
 

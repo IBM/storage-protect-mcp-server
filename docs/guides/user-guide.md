@@ -61,7 +61,7 @@ The MCP server supports two authentication operational models:
    The server connects to IBM SP using pre-configured service accounts stored in `.env` (0600), system keyring, or password stash (`dsm.sys PASSWORDACCESS GENERATE`). Ideal for automated pipelines, background daemons, and dedicated single-tenant bots.
 
 2. **Dynamic Challenge-Response (`SP_MCP_AUTH_MODE=dynamic`)**:
-   Interactive chat users (e.g. Claude Desktop) are challenged for administrator credentials when invoking their first tool. The MCP server verifies credentials using zero-trace silent execution (`dsmadmc execute_silent`), issues an ephemeral sliding-window session lease (default: 15 minutes), and binds the user's verified identity into forensic audit logs.
+   Interactive chat users (e.g. Claude Desktop) are challenged for administrator credentials when invoking their first tool. The MCP server verifies credentials using zero-trace silent execution (`dsmadmc execute_silent`), issues an ephemeral sliding-window session lease (default: 15 minutes), and binds the user's verified identity into forensic audit logs. In multi-client HTTP/SSE deployments, session leases are cryptographically and transport-isolated (`DAUTH-10`): leases are strictly bound to the caller's connection and OIDC identity, preventing cross-client credential sharing or session tampering.
 
 ### Privilege Tiers and Tool Access
 
@@ -222,10 +222,10 @@ The MCP server handles credentials with several layered controls:
 Every write operation (tools requiring `system`, `policy`, `storage`, or `operator` privilege) emits a forensic correlation record to the IBM SP Activity Log before executing:
 
 ```
-DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin_alice tool=delete_admin priv=system corr=a3f8b2c19d44"
+DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=alice@corp.internal sp_admin=admin_alice authmodel=dynamic tool=delete_admin priv=system corr=a3f8b2c19d44"
 ```
 
-The record explicitly attributes the action to the authenticated user (`user=...`), captured from OIDC tokens (`sub`), dynamic authentication sessions, or the environment.
+The record explicitly attributes the action to the authenticated user (`oidc_user=... sp_admin=...`), capturing both the perimeter identity (from OIDC tokens) and the authenticated IBM SP administrator without identity erasure (DAUTH-10 / NR-1 / POL-4). In service account mode, `sp_admin` reflects the configured service account.
 
 The correlation ID appears in both `mcp-server.log` and the IBM SP `ACTLOG`. To cross-reference:
 

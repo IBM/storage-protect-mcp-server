@@ -22,10 +22,11 @@ current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextV
 current_request_privilege: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_request_privilege", default=None)
 # OA-7: authentication model label ("local", "client_credentials", "oidc_bearer", "dynamic_session")
 current_auth_model: contextvars.ContextVar[str] = contextvars.ContextVar("current_auth_model", default="local")
+# DAUTH-10: Per-connection transport ID and OIDC subject context variables
+current_connection_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_connection_id", default=None)
+current_oidc_subject: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_oidc_subject", default=None)
 
-# Module-level session store — persists the active session ID across tool calls
-# within the same stdio process lifetime (ContextVars are per-async-task and do
-# not survive between separate MCP tool call invocations).
+# Process-level state (deprecated & eliminated in DAUTH-10; maintained for legacy compatibility only)
 _process_session_id: Optional[str] = None
 _process_audit_user: Optional[str] = None
 
@@ -40,6 +41,8 @@ def reset_execution_state() -> None:
     current_execution_credentials.set(None)
     current_auth_model.set("local")
     current_request_privilege.set(None)
+    current_connection_id.set(None)
+    current_oidc_subject.set(None)
     try:
         from .session import global_session_manager
         global_session_manager.clear()
@@ -56,18 +59,10 @@ from .cli_wrapper import current_execution_credentials
 # Configure logging with both file and stderr output
 def setup_logging():
     """Configure logging with file rotation and stderr output."""
+    import tempfile
     # Get log file path from environment or use default
     log_dir = os.environ.get("SP_MCP_LOG_DIR", "/var/log/ibm-sp-mcp-server")
     log_file = os.path.join(log_dir, "mcp-server.log")
-
-    # Create log directory if it doesn't exist
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-    except (OSError, PermissionError) as e:
-        # If we can't create /var/log directory, fall back to /tmp
-        log_dir = "/tmp/ibm-sp-mcp-server"
-        log_file = os.path.join(log_dir, "mcp-server.log")
-        os.makedirs(log_dir, exist_ok=True)
 
     # Create formatters (NR-5: ISO 8601 UTC timestamping)
     detailed_formatter = logging.Formatter(
@@ -78,14 +73,23 @@ def setup_logging():
     simple_formatter = logging.Formatter('%(levelname)s: %(message)s')
 
     # File handler with rotation (10MB max, keep 5 backups)
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5,
-        encoding='utf-8'
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(detailed_formatter)
+    file_handler = None
+    for candidate_dir in [log_dir, "/tmp/ibm-sp-mcp-server", os.path.join(tempfile.gettempdir(), "ibm-sp-mcp-server")]:
+        try:
+            os.makedirs(candidate_dir, exist_ok=True)
+            candidate_file = os.path.join(candidate_dir, "mcp-server.log")
+            file_handler = RotatingFileHandler(
+                candidate_file,
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(detailed_formatter)
+            log_file = candidate_file
+            break
+        except (OSError, PermissionError):
+            continue
 
     # Console handler (stderr) - less verbose for console
     console_handler = logging.StreamHandler(sys.stderr)
@@ -95,7 +99,8 @@ def setup_logging():
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    root_logger.addHandler(file_handler)
+    if file_handler:
+        root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
     # Get our logger
@@ -510,15 +515,25 @@ def create_mcp_server(
         cmd = commands[name]
         tool_privilege = getattr(cmd, "required_privilege", "any")
 
+        session: Optional[Any] = None
+
         # ── Dynamic Auth Challenge Interceptor ──────────────────────────────
         auth_mode = os.environ.get("SP_MCP_AUTH_MODE", "service_account").lower()
         if auth_mode == "dynamic" and name != "authenticate_session":
-            # Prefer module-level store (survives across tool calls in stdio)
-            # then ContextVar (set within same async task), then explicit arg.
+            current_sub = current_oidc_subject.get() or current_audit_user.get()
+            conn_id = current_connection_id.get()
+            stdio_conn_id = conn_id or ("stdio" if not current_oidc_subject.get() else None)
+
+            # 1. Resolve candidate session ID (ContextVar, explicit arg, or connection mapping)
+            explicit_sid = (
+                str(arguments["_session_id"]).strip()
+                if arguments and "_session_id" in arguments and arguments["_session_id"]
+                else None
+            )
             active_sid: Optional[str] = (
-                _process_session_id
-                or current_session_id.get()
-                or (str(arguments["_session_id"]) if arguments and "_session_id" in arguments else None)
+                current_session_id.get()
+                or explicit_sid
+                or global_session_manager.get_session_id_for_connection(stdio_conn_id)
             )
             session = global_session_manager.get_session(active_sid) if active_sid is not None else None
             if session is None:
@@ -538,27 +553,42 @@ def create_mcp_server(
                     },
                 }
                 return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
-            else:
-                # Update user identity and execution context from active session.
-                global _process_audit_user
+
+            # 2. Strict Principal Verification (Anti-Hijacking / Anti-IDOR - DAUTH-10)
+            if session.oidc_subject and current_sub and session.oidc_subject != current_sub:
+                logger.warning(
+                    "SECURITY: Cross-client session lease reuse blocked! lease_sub='%s' req_sub='%s'",
+                    session.oidc_subject, current_sub,
+                )
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": "Session lease does not belong to the authenticated caller.",
+                }))]
+
+            # 3. Target Server Verification (DAUTH-7)
+            target_err = _check_session_target_server(session, config)
+            if target_err:
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": target_err,
+                }))]
+
+            # 4. Privilege Verification
+            if not _privilege_satisfies_for_session(session, tool_privilege):
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": "Authenticated session does not have the privilege required by this tool.",
+                }))]
+
+            # In stdio or non-OIDC dynamic sessions, update audit user to SP admin name
+            if not current_oidc_subject.get():
                 current_audit_user.set(session.username)
-                _process_audit_user = session.username
-                if not _privilege_satisfies_for_session(session, tool_privilege):
-                    return [TextContent(type="text", text=json.dumps({
-                        "is_error": True,
-                        "error_type": "AUTHORIZATION_DENIED",
-                        "message": "Authenticated session does not have the privilege required by this tool.",
-                    }))]
-                # ── DAUTH-7: reject cross-server session reuse ────────────────
-                target_err = _check_session_target_server(session, config)
-                if target_err:
-                    return [TextContent(type="text", text=json.dumps({
-                        "is_error": True,
-                        "error_type": "AUTHORIZATION_DENIED",
-                        "message": target_err,
-                    }))]
-                if session.password is not None:
-                    current_execution_credentials.set((session.username, session.password))
+
+            if session.password is not None:
+                current_execution_credentials.set((session.username, session.password))
 
         # ── INT-2: enforce OIDC request privilege at call time ────────────────
         request_privilege = current_request_privilege.get()
@@ -573,17 +603,30 @@ def create_mcp_server(
         correlation_id = None
         if tool_privilege in _WRITE_PRIVILEGES:
             correlation_id = uuid.uuid4().hex[:12]
-            # NR-1: Bind authenticated end-user / subject or fallback to local account
-            user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
             # OA-7: include auth model in audit record for cross-model attribution
             auth_model_label = current_auth_model.get()
-            audit_msg = (
-                f"MCP_AUDIT user={user_id} "
-                f"authmodel={auth_model_label} "
-                f"tool={name} "
-                f"priv={tool_privilege} "
-                f"corr={correlation_id}"
-            )
+
+            # POL-4 / NR-1 / DAUTH-10: Compound Dual-Identity Audit Trail
+            if session is not None:
+                oidc_user = current_oidc_subject.get() or current_audit_user.get() or "unknown"
+                sp_admin = session.username
+                audit_msg = (
+                    f"MCP_AUDIT oidc_user={oidc_user} "
+                    f"sp_admin={sp_admin} "
+                    f"authmodel={auth_model_label} "
+                    f"tool={name} "
+                    f"priv={tool_privilege} "
+                    f"corr={correlation_id}"
+                )
+            else:
+                user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
+                audit_msg = (
+                    f"MCP_AUDIT user={user_id} "
+                    f"authmodel={auth_model_label} "
+                    f"tool={name} "
+                    f"priv={tool_privilege} "
+                    f"corr={correlation_id}"
+                )
             logger.info("POL-4: Emitting audit correlation: %s", audit_msg)
             strict_audit = os.environ.get("SP_MCP_STRICT_AUDIT", "0") == "1"
             try:

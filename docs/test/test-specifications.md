@@ -60,7 +60,7 @@ Comprehensive validation of all **51 formal security requirements**:
 - **POL-1 – POL-4**: Dual-custody command approval (`APPROVE PENDINGCMD`), `MINPWLENGTH` pre-validation, lockout policy verification (`INVALIDPWLIMIT`), and ACTLOG scratchpad audit attribution.
 - **INT-1 – INT-4**: OIDC bearer token privilege mapping, HTTP transport TLS certificate enforcement (`RG-5`), keyring secret resolution.
 - **NR-1 – NR-5**: End-user identity binding in ACTLOG, fail-closed audit mode (`SP_MCP_STRICT_AUDIT=1`), ISO 8601 UTC timestamps.
-- **DAUTH-1 – DAUTH-11**: Challenge-response dynamic auth, ephemeral bounded lease TTL, zero-trace subprocess arguments, credential zeroing on deletion, target server binding (`_check_session_target_server`).
+- **DAUTH-1 – DAUTH-11**: Challenge-response dynamic auth, ephemeral bounded lease TTL, zero-trace subprocess arguments, credential zeroing on deletion, target server binding (`_check_session_target_server`), and multi-client transport isolation & anti-IDOR checks (`DAUTH-10`).
 - **OA-1 – OA-7**: RFC 8414 AS metadata proxying, JWKS TTL rotation and kid-miss throttling, PKCE capability validation, RFC 7662 token introspection, RFC 9470 protected resource metadata, and cross-model `authmodel` audit attribution.
 
 ---
