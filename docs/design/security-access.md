@@ -15,8 +15,9 @@ The implementation adds per-tool privilege annotations, static service-account t
 |--------|-----|-------------|
 | `required_privilege` property on all base command classes | ACC-1 | A1, A2 |
 | Self-narrowing tool registration in `mcp_factory.py` | ACC-2 | A1, A2, A3 |
-| Annotate all ~130 concrete command classes | ACC-3 | A2, A3 |
+| Annotate all ~130 concrete command classes & dynamic call-time gate | ACC-3 | A2, A3 |
 | Replace `su` with `sudo -u -- ` in `DsmServWrapper` / `ServermonWrapper` | ACC-4 | A4 |
+| Live SSE session context synchronization & call-time token expiration / privilege gating | OA-8 | OA-8, VUL0790479 |
 
 ---
 
@@ -59,6 +60,17 @@ flowchart TD
     J -- no --> L[skip tool\nlog debug]
     K --> M[Server ready with\nfiltered tool set]
 ```
+
+### Dynamic & OIDC Call-Time Authorization Gate (ACC-3 & OA-8)
+
+While static service-account tool registration filters available tools at startup (ACC-2), runtime invocation over multi-tenant network transports requires dynamic call-time evaluation:
+
+1. **Stdio Transport**: Tool execution evaluates `current_request_privilege.get()`.
+2. **HTTP/SSE Transport (`OA-8`)**:
+   - Because Starlette/AnyIO SSE executes `mcp_server.run()` in a long-lived task that captures static connection-time context, tool execution dynamically resolves live context from `get_sse_session_context(connection_id)`.
+   - **Token Expiration Gate**: Prior to privilege checks, the gate verifies `time.time() <= session_ctx.active_exp`. If expired, execution fails closed with `AUTHENTICATION_REQUIRED` (`code: -32001`).
+   - **Dynamic Scope Enforcement**: The gate verifies `_privilege_satisfies(session_ctx.active_privilege, tool_privilege)`. If the caller's active POST token does not possess the required privilege tier, execution fails closed with `AUTHORIZATION_DENIED` (`code: -32001`).
+   - This eliminates in-stream privilege retention across scope downgrades or token expirations on open streams.
 
 ### Privilege Annotation on Command Classes (ACC-3)
 

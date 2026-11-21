@@ -30,6 +30,15 @@ from .cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
 from .commands.base import BaseCommand, BaseOfflineCommand, BaseServermonCommand, PRIVILEGE_TIERS
 from .cli_wrapper import current_execution_credentials
 
+
+def reset_execution_state() -> None:
+    """Reset task-local execution context variables to default state."""
+    current_session_id.set(None)
+    current_audit_user.set(None)
+    current_request_privilege.set(None)
+    current_execution_credentials.set((None, None))
+    current_connection_id.set(None)
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 # Security notes:
 #   * The root logger must NOT run at DEBUG.  Third-party libraries (notably the
@@ -688,6 +697,11 @@ def create_mcp_server(
                 (arguments and arguments.get("_session_id"))
                 or current_session_id.get()
                 or global_session_manager.get_session_id_for_connection(conn_id)
+                or (
+                    global_session_manager.get_session_id_for_connection("stdio")
+                    if not conn_id
+                    else None
+                )
             )
 
             challenge_payload = {
@@ -718,7 +732,7 @@ def create_mcp_server(
                 return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
 
             # 2. Strict Principal & Connection Verification (Anti-Hijacking / Anti-IDOR — DAUTH-10)
-            if session.oidc_subject and current_sub and session.oidc_subject != current_sub:
+            if session.oidc_subject and session.oidc_subject != current_sub:
                 logger.warning(
                     "SECURITY: Cross-client session use attempt! OIDC subject '%s' "
                     "attempted to use session belonging to '%s'.",
@@ -728,6 +742,18 @@ def create_mcp_server(
                     "is_error": True,
                     "error_type": "AUTHORIZATION_DENIED",
                     "message": "Session does not belong to the authenticated user.",
+                }))]
+
+            if conn_id and session.connection_id and session.connection_id != conn_id:
+                logger.warning(
+                    "SECURITY: Cross-transport session use attempt! Network caller (conn='%s') "
+                    "attempted to use session bound to connection '%s'.",
+                    conn_id, session.connection_id,
+                )
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": "Cross-transport session access denied.",
                 }))]
 
             # 3. Target Server Verification (DAUTH-7)
@@ -754,9 +780,31 @@ def create_mcp_server(
             # Apply delegated execution credentials
             current_execution_credentials.set((session.username, session.password))
 
-        # ── INT-2: enforce OIDC request privilege at call time ────────────────
-        request_privilege = current_request_privilege.get()
-        if request_privilege and not _privilege_satisfies(request_privilege, tool_privilege):
+        # ── OA-8 & INT-2: Enforce live OIDC request privilege & token lifetime at call time ──
+        effective_privilege = None
+        conn_id = current_connection_id.get()
+        session_ctx = None
+        if conn_id:
+            from .http_server import get_sse_session_context
+            session_ctx = get_sse_session_context(conn_id)
+            if session_ctx:
+                # 1. Token Lifetime & Expiration Gate (OA-8 / CWE-613)
+                if session_ctx.active_exp and time.time() > session_ctx.active_exp:
+                    logger.warning(
+                        "SECURITY (OA-8): Tool execution blocked! OIDC token for stream '%s' (owner='%s') expired at %f (now=%f).",
+                        conn_id, session_ctx.owner_sub, session_ctx.active_exp, time.time(),
+                    )
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHENTICATION_REQUIRED",
+                        "message": "OIDC access token has expired. Please re-authenticate.",
+                    }))]
+                effective_privilege = session_ctx.active_privilege
+
+        if effective_privilege is None:
+            effective_privilege = current_request_privilege.get()
+
+        if effective_privilege and not _privilege_satisfies(effective_privilege, tool_privilege):
             return [TextContent(type="text", text=json.dumps({
                 "is_error": True,
                 "error_type": "AUTHORIZATION_DENIED",
@@ -778,7 +826,7 @@ def create_mcp_server(
                     f"corr={correlation_id}"
                 )
             else:
-                user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
+                user_id = (session_ctx.owner_sub if session_ctx else None) or current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
                 audit_msg = (
                     f"MCP_AUDIT user={user_id} "
                     f"tool={name} "

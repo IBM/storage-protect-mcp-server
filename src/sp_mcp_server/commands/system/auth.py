@@ -157,7 +157,7 @@ class AuthenticateSession(BaseCommand):
             target_server=target_server,
             password=password,
             oidc_subject=caller_sub,
-            connection_id=conn_id,
+            connection_id=conn_id or "stdio",
             transport_mode="http" if conn_id else "stdio",
         )
 
@@ -227,6 +227,11 @@ class LogoutSession(BaseCommand):
             (arguments.get("session_id") or "").strip()
             or current_session_id.get()
             or global_session_manager.get_session_id_for_connection(conn_id)
+            or (
+                global_session_manager.get_session_id_for_connection("stdio")
+                if not conn_id and not caller_sub
+                else None
+            )
         )
 
         if not sid:
@@ -255,12 +260,17 @@ class LogoutSession(BaseCommand):
                 "message": "Cannot revoke a session belonging to another user.",
             }, indent=2)
 
-        if lease.connection_id and conn_id and lease.connection_id != conn_id and not caller_sub:
+        if conn_id and lease.connection_id and lease.connection_id != conn_id:
             logger.warning(
                 "SECURITY: Cross-connection logout attempt! Connection '%s' tried to revoke session owned by '%s'.",
                 conn_id,
                 lease.connection_id,
             )
+            return json.dumps({
+                "success": False,
+                "error_type": "AUTHORIZATION_DENIED",
+                "message": "Cannot revoke a session belonging to another connection.",
+            }, indent=2)
             return json.dumps({
                 "success": False,
                 "error_type": "AUTHORIZATION_DENIED",

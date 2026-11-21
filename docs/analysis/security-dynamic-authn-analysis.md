@@ -1,6 +1,6 @@
 # Dynamic & Delegated User Authentication Design Analysis
 
-* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, Dual-Identity Audit Trail, AUD-07, AUD-08, DAUTH-7 Closed)
+* **Revision**: 2026-11 (Remediation Analysis — DAUTH-10 Stdio Session Persistence & DAUTH-11 SSE Stream Principal Invariant Enforcement)
 * **Domain**: Identity, Credentials & Delegated Authentication
 * **Design Reference**: [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md)
 * **Implementation Reference**: [`docs/implement/impl-security-dynamic-authn.md`](../implement/impl-security-dynamic-authn.md)
@@ -44,24 +44,34 @@ flowchart TD
     end
 ```
 
-### 2.1 Multi-Client Transport Isolation Requirements (HTTP/SSE) — DAUTH-10
+### 2.1 Transport Modes & Concurrency Isolation Requirements (DAUTH-10)
 
 A critical architectural distinction exists between transport modes regarding state isolation and concurrency:
 
-1. **`stdio` Transport (Single-Tenant Local Process)**:
+1. **`stdio` Transport (Single-Tenant Local Process — DAUTH-10)**:
    * The MCP server executes as a dedicated child process spawned by a single client application (e.g., Claude Desktop).
    * Process memory is private to that single client.
-   * State isolation within the process is managed via asynchronous task-scoped context variables (`contextvars.ContextVar`).
+   * **Task Boundary & Context Decay:** In asynchronous Python execution, each incoming JSON-RPC tool request executes inside an independent `asyncio.Task`. Mutations to `contextvars.ContextVar` performed in one task (such as `AuthenticateSession.execute()`) do not persist to subsequent sibling tasks.
+   * **Deterministic Stdio Fallback:** Because no OIDC subject or network connection ID exists in stdio mode, `authenticate_session` binds the created lease to `connection_id="stdio"`. The tool interceptor in `mcp_factory.py` deterministically falls back to this lease when no network connection identifier is present.
+   * **Reverse-Chronological Resolution:** To prevent FIFO dictionary iteration lock-in, `SessionManager.get_session_id_for_connection()` traverses sessions in reverse order (`reversed(list(self._sessions.items()))`), ensuring subsequent logins supersede older active leases.
 
-2. **`HTTP/SSE` Transport (Multi-Tenant Shared Daemon)**:
+2. **`HTTP/SSE` Transport (Multi-Tenant Shared Daemon — DAUTH-10 & DAUTH-11)**:
    * The MCP server runs as a long-lived network service (`--transport http`), accepting concurrent Server-Sent Events (SSE) connections and HTTP POST messages from multiple distinct clients.
-   * **Strict Elimination of Process Globals:** Module-level global variables (such as `_process_session_id`, `_process_audit_user`) are strictly prohibited for storing client lease or identity state. Shared global state causes cross-client credential bleeding and session hijacking across concurrent network streams (`DAUTH-10`).
+   * **Strict Elimination of Process Globals:** Module-level global variables (`_process_session_id`, `_process_audit_user`) are strictly prohibited. Storing client lease state in module globals causes cross-client credential bleeding across concurrent streams (`DAUTH-10`).
    * **Mandatory Cryptographic Principal & Connection Binding (`DAUTH-10`)**:
      * Every ephemeral `SessionLease` created over network transports must record:
        1. `oidc_subject`: The cryptographically validated OIDC `sub` claim extracted by `OIDCBearerMiddleware`.
        2. `connection_id`: The unique transport connection / SSE stream identifier assigned during connection initialization.
        3. `transport_mode`: Explicitly marked as `"http"` or `"stdio"`.
      * **Invocation-Time Enforcement:** Before executing any tool using a delegated lease, the server interceptor verifies that the lease's `oidc_subject` matches the active caller's `request.state.mcp_subject`. If a cross-client session reuse attempt is detected, execution is immediately aborted with `AUTHORIZATION_DENIED`.
+
+### 2.2 Asynchronous Execution Boundaries & Ingress Stream Ownership (DAUTH-11)
+
+In Starlette and AnyIO SSE transport architectures, stream reception (`GET /mcp/sse`) and message intake (`POST /mcp/messages?session_id=<UUID>`) are architecturally decoupled:
+1. **Long-Lived Stream Context:** When an authorized user (Alice) establishes an SSE stream, `mcp_server.run()` executes within the asynchronous reader task of `handle_sse`, holding Alice's validated `current_audit_user` context.
+2. **Decoupled Message Enqueuing:** When a POST request arrives at `/mcp/messages`, Starlette delegates to `sse_transport.handle_post_message`. If stream ownership is not validated, any caller with a valid OIDC token (Bob) who possesses Alice's 128-bit stream UUID can POST messages that are placed onto Alice's stream queue.
+3. **Identity & Privilege Hijacking:** Alice's long-running worker task dequeues Bob's tool call. Inside that task, `current_audit_user` is Alice, and `conn_id` is Alice's stream identifier. The tool executes with Alice's Storage Protect lease and emits compound audit records (`POL-4` / `NR-1`) naming Alice, creating an authorization bypass and repudiation failure (`CWE-284` / `CWE-613` / `ASI03`).
+4. **Remediation Invariant (DAUTH-11):** The ingress endpoint `/mcp/messages` must be guarded by `guarded_post_messages`, cross-referencing the POST caller's OIDC subject against the `StreamOwnershipRegistry` and rejecting mismatches with **HTTP 403 Forbidden** (`code: -32001`).
 
 ---
 

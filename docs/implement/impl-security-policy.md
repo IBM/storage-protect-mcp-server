@@ -655,5 +655,5 @@ All three should succeed. If `DEFINE SCRATCHPADENTRY` fails, the audit trail wil
 
 ### Automated test coverage
 
-[`tests/test_security_controls.py::TestAuditTrail`](../../tests/test_security_controls.py)
+[`tests/test_sec_audit_trail.py::TestAuditTrail`](../../tests/test_sec_audit_trail.py)
 

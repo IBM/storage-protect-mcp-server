@@ -69,6 +69,7 @@ All controls listed below are implemented in source, regression-tested, and conf
 | OIDC scope → SP privilege mapping (`SCOPE_PRIVILEGE_MAP`) | [`http_server.py`](../../src/sp_mcp_server/http_server.py) line 29 | `TestOIDCAuthorization` (7 paths) |
 | Per-scope OIDC privilege enforced at MCP tool invocation | `mcp_factory.handle_call_tool` lines 495–502 | `TestOIDCAuthorization` |
 | HTTP transport rejected without TLS cert/key | [`main.py`](../../src/sp_mcp_server/main.py) lines 115–146 | `TestHttpTransportTLS` (5 paths) |
+| Live SSE session context synchronization & call-time token expiration / privilege gating (OA-8 / VUL0790479) | [`http_server.py`](../../src/sp_mcp_server/http_server.py) (`SSESessionContext`), [`mcp_factory.py`](../../src/sp_mcp_server/mcp_factory.py) (`handle_call_tool`) | `tests/test_sec_oauth2.py` (TC-OA8-01, TC-OA8-02, TC-OA8-03) |
 
 ### 3.6 Non-Repudiation & Forensic Auditability (NR)
 

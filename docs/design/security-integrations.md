@@ -54,16 +54,23 @@ flowchart TD
     A[MCP Client] -->|Bearer token| B[OIDCBearerMiddleware]
     B --> C{token valid?}
     C -- no --> D[401 Unauthorized]
-    C -- yes --> E[Extract Claims: sub, scope, connection_id]
-    E --> F[Inject Request Context: mcp_subject, mcp_privilege, connection_id]
-    F --> G[SSE handler /mcp/sse]
-    G --> H{SP_MCP_AUTH_MODE}
-    H -->|service_account| I[Call-Time Privilege Gate]
-    H -->|dynamic| J[Dynamic Session Resolver]
-    J --> K{Validate session.oidc_subject == mcp_subject}
-    K -- Mismatch (IDOR) --> L[AUTHORIZATION_DENIED: Cross-Client Bleed Blocked]
-    K -- Match --> M[Execute with Delegated SP Credentials]
-    M --> N[Compound Audit: oidc_user=sub sp_admin=username]
+    C -- yes --> E[Extract Claims: sub, scope, exp, connection_id]
+    E --> F[Populate scope user & state: mcp_subject, mcp_privilege, mcp_exp]
+    F --> G[SSE Stream /mcp/sse & Guarded POST /mcp/messages]
+    G --> H[SSESessionContext Registry OA-8 & StreamOwnershipRegistry DAUTH-11]
+    H --> I{SP_MCP_AUTH_MODE}
+    I -->|service_account| J[Dynamic Runtime Privilege & Expiration Gate OA-8]
+    J --> K{time.time > active_exp?}
+    K -- yes --> L[AUTHENTICATION_REQUIRED: Token Expired]
+    K -- no --> M{_privilege_satisfies active_privilege, tool_priv?}
+    M -- no --> N[AUTHORIZATION_DENIED: Insufficient Scope]
+    M -- yes --> O[Execute Command with Service Account Credentials]
+    I -->|dynamic| P[Dynamic Session Resolver DAUTH-10]
+    P --> Q{Validate session.oidc_subject == mcp_subject}
+    Q -- Mismatch IDOR --> R[AUTHORIZATION_DENIED: Cross-Client Bleed Blocked]
+    Q -- Match --> S[Execute with Delegated SP Credentials]
+    S --> T[Compound Audit: oidc_user=sub sp_admin=username]
+    O --> U[Compound Audit: user=mcp_subject tool=tool corr=uuid]
 ```
 
 ### Context Propagation to Dynamic Session Management (DAUTH-10)
@@ -85,6 +92,19 @@ When the HTTP transport is deployed alongside Dynamic Authentication (`SP_MCP_AU
      `DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=<mcp_subject> sp_admin=<session.username> tool=<tool> ..."`
 5. **SSE Route Mounting**:
    * `SseServerTransport("messages")` mounted under Starlette's `/mcp` mount correctly advertises `/mcp/messages` to MCP clients, preventing double-prefix 404 errors (`/mcp/mcp/messages`).
+6. **SSE Stream Ownership Validation on POST Messages (`DAUTH-11`)**:
+   * In decoupled SSE transport architectures, incoming tool calls arrive via HTTP POST to `/mcp/messages?session_id=<UUID>` while the MCP server reader loop executes inside the asynchronous task context established during `GET /mcp/sse`.
+   * To prevent an attacker with a valid token from injecting commands into a victim's active SSE stream, the application enforces Control **`DAUTH-11`**: a thread-safe `StreamOwnershipRegistry` records the stream UUID and creator's OIDC subject upon `GET /mcp/sse`.
+   * The message intake handler (`guarded_post_messages`) validates that the POST caller's OIDC `sub` matches the registered stream owner. Mismatches are rejected with **HTTP 403 Forbidden** and JSON-RPC error payload (`code: -32001`), preventing foreign command injection before the payload can enter the stream queue.
+7. **Per-Message SSE Privilege & Expiration Enforcement (`OA-8`)**:
+   * **The Asynchronous Context Disconnect**: In Starlette and AnyIO SSE transports, `handle_sse` creates a long-lived worker task running `mcp_server.run()`, capturing the initial connection's `ContextVar`s (e.g. `mcp:system`). When subsequent `POST /mcp/messages?session_id=<UUID>` requests arrive, incoming tool calls are placed on an in-memory AnyIO queue and executed by the worker task in the **initial `GET` request's task context**, bypassing the `POST` request's validated scopes and expiry.
+   * **Live Session Context Synchronization**: Control **`OA-8`** eliminates this disconnect via a thread-safe `SSESessionContext` registry (`_sse_session_contexts`) in `http_server.py`.
+   * **ASGI `scope["user"]` Integration**: `OIDCBearerMiddleware` populates ASGI-standard `scope["user"] = {"sub": ..., "privilege": ..., "exp": ..., "auth_model": "oidc"}` so native MCP Python SDK session ownership checks function properly.
+   * **Stream Ingress Synchronization**: `guarded_post_messages` validates stream ownership (`owner_sub == caller_sub`) and dynamically updates the stream's `active_privilege`, `active_exp`, and `last_post_at` with incoming POST claims.
+   * **Call-Time Token Expiration & Privilege Gating**: In `mcp_factory.py`, `handle_call_tool()` resolves `session_ctx = get_sse_session_context(conn_id)`:
+     1. **Token Expiration Gate**: If `time.time() > session_ctx.active_exp`, tool execution is rejected with `AUTHENTICATION_REQUIRED` (`code: -32001, message: "OIDC access token has expired. Please re-authenticate."`).
+     2. **Dynamic Privilege Gate**: If `not _privilege_satisfies(session_ctx.active_privilege, tool_privilege)`, tool execution is rejected with `AUTHORIZATION_DENIED` (`code: -32001, message: "OIDC token does not have the privilege required by this tool."`).
+   * This prevents in-stream privilege retention across token expirations or scope downgrades.
 
 ### Token scope → privilege mapping
 

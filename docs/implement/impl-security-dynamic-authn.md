@@ -1,8 +1,8 @@
 # Implementation: Dynamic & Delegated User Authentication
 
 * **Domain**: Identity, Credentials & Delegated Authentication
-* **Revision**: 2026-11 (Post-Audit Remediation — DAUTH-10 Multi-Client Transport Isolation, Dual-Identity Audit Trail, AUD-07, AUD-08, DAUTH-7)
-* **Status**: Fully implemented and regression-tested — challenge, bounded leases, authorization, delegated execution, subprocess assertions, credential-lifecycle zeroing, explicit logout, target-server binding, and multi-client transport isolation specification all present
+* **Revision**: 2026-11 (Remediation Specification — DAUTH-10 Stdio Session Persistence & DAUTH-11 SSE Stream Principal Invariant Enforcement)
+* **Status**: Specification updated — defines deterministic single-tenant stdio lease fallback (DAUTH-10), reverse-chronological lease resolution in SessionManager, and guarded SSE message intake (DAUTH-11)
 * **Analysis reference**: [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md)
 * **Design reference**: [`docs/design/security-dynamic-authn.md`](../design/security-dynamic-authn.md)
 * **Cross-reference**: [`docs/implement/impl-security-identity-credentials.md`](impl-security-identity-credentials.md) · [`docs/implement/impl-security-integrations.md`](impl-security-integrations.md) · [`docs/implement/impl-security-non-repudiation.md`](impl-security-non-repudiation.md) · [`docs/implement/impl-security-access.md`](impl-security-access.md) · [`docs/implement/impl-security-policy.md`](impl-security-policy.md)
@@ -21,7 +21,7 @@ This document details the implementation architecture, data structures, and code
 The dynamic authentication subsystem consists of four core components:
 
 1. **`SessionManager` (`src/sp_mcp_server/session.py`)**:
-   Stores synchronized in-memory ephemeral session leases with bounded sliding inactivity expiration. Maps sessions to caller connection identifiers (`connection_id`) and OIDC identities (`oidc_subject`) for network transport isolation (`DAUTH-10`).
+   Stores synchronized in-memory ephemeral session leases with bounded sliding inactivity expiration. Maps sessions to caller connection identifiers (`connection_id`) and OIDC identities (`oidc_subject`) for network transport isolation (`DAUTH-10`), using reverse-chronological search order to ensure re-authentication supersedes prior leases.
 2. **`authenticate_session` Tool (`src/sp_mcp_server/commands/system/auth.py`)**:
    Verifies supplied credentials via zero-trace `execute_silent()`, captures caller OIDC metadata (`oidc_subject`) and transport connection IDs (`connection_id`), and provisions a bounded lease containing the username, password, and parsed privilege classes. Sets only request-scoped context variables (`current_session_id`, `current_audit_user`); module-level process globals are strictly prohibited.
 3. **`logout_session` Tool (`src/sp_mcp_server/commands/system/auth.py`)**:
@@ -145,7 +145,7 @@ lease = global_session_manager.create_session(
     target_server=target_server,
     password=password,
     oidc_subject=caller_sub,
-    connection_id=conn_id,
+    connection_id=conn_id or "stdio",  # Bind "stdio" for single-tenant local process (DAUTH-10)
     transport_mode="http" if conn_id else "stdio",
 )
 
@@ -167,11 +167,16 @@ if auth_mode == "dynamic" and name != "authenticate_session":
     current_sub = current_audit_user.get()  # Injected by OIDC middleware
     conn_id = current_connection_id.get()   # Injected by SSE transport handler
 
-    # 1. Resolve candidate session ID (Strict Order)
+    # 1. Resolve candidate session ID (Strict Order — DAUTH-10)
     candidate_sid = (
         (arguments and arguments.get("_session_id"))
         or current_session_id.get()
         or global_session_manager.get_session_id_for_connection(conn_id)
+        or (
+            global_session_manager.get_session_id_for_connection("stdio")
+            if not conn_id and not current_sub
+            else None
+        )
     )
 
     if not candidate_sid:
@@ -218,6 +223,17 @@ In `src/sp_mcp_server/commands/system/auth.py`, `LogoutSession`:
 1. Requires that the session being revoked matches the caller's connection ID or OIDC subject (`sub`), rejecting cross-user IDOR revocation attempts.
 2. If no `session_id` argument is passed, revokes only the caller's active connection session.
 3. Completely removes assignments resetting global state (`_factory._process_session_id = None`), ensuring another client's concurrent session is never disrupted.
+
+### 4.4 Reverse-Chronological Session Lookup in `SessionManager` (DAUTH-10)
+
+In `src/sp_mcp_server/session.py`, `get_session_id_for_connection()` traverses active sessions in reverse chronological order (`reversed(list(self._sessions.items()))`). When a user logs in under account B in a single-client stdio session that previously authenticated under account A, the newest active lease is returned, preventing FIFO dictionary lock-in.
+
+### 4.5 SSE Stream Ownership Verification in `http_server.py` (DAUTH-11)
+
+In `src/sp_mcp_server/http_server.py`, the ASGI application maintains a thread-safe registry `_sse_stream_owners: dict[str, str]` protected by `RLock`.
+1. When `/mcp/sse` establishes an SSE connection, `record_stream_owner(conn_id, caller_sub)` registers the mapping.
+2. The POST message route is wrapped in `guarded_post_messages`. The guard extracts `session_id` from the URL query string, queries the registry, and compares the registered owner's OIDC `sub` against `scope["state"]["mcp_subject"]`.
+3. Caller mismatch immediately returns **HTTP 403 Forbidden** with JSON-RPC error `-32001`, blocking unauthenticated command execution across foreign streams.
 
 ---
 
@@ -277,6 +293,11 @@ In `src/sp_mcp_server/commands/system/auth.py`, `LogoutSession`:
 | `TestMultiClientDynamicAuthIsolation::test_logout_does_not_terminate_other_client_sessions` | Client B logging out revokes only their own session; does not affect Client A's active lease (`DAUTH-10`) | ✅ |
 | `TestMultiClientDynamicAuthIsolation::test_dual_audit_attribution_logged` | Mutating tools in dynamic mode log compound attribution (`oidc_user=sub sp_admin=username`) (`POL-4` / `NR-1`) | ✅ |
 | `TestMultiClientDynamicAuthIsolation::test_sse_endpoint_advertisement_correct` | SSE endpoint advertises `/mcp/messages` and accepts standard MCP HTTP clients | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_stdio_dynamic_auth_multi_turn_sequence` | Sequential dispatch of `authenticate_session` and tool calls across discrete `asyncio.Task` instances succeeds via stdio fallback (`DAUTH-10`) | 📋 Spec Defined |
+| `TestMultiClientDynamicAuthIsolation::test_stdio_reauthentication_supersedes_prior_lease` | Sequential authentication under new admin account supersedes prior lease via reverse search (`DAUTH-10`) | 📋 Spec Defined |
+| `TestMultiClientDynamicAuthIsolation::test_sse_cross_user_post_rejected_with_403` | Foreign caller POST to active stream UUID rejected with HTTP 403 Forbidden (`DAUTH-11`) | 📋 Spec Defined |
+| `TestMultiClientDynamicAuthIsolation::test_sse_legitimate_post_accepted_with_202` | Stream owner POST to matching stream UUID accepted with HTTP 202 (`DAUTH-11`) | 📋 Spec Defined |
+| `TestMultiClientDynamicAuthIsolation::test_cross_transport_stdio_leak_blocked` | Unauthenticated network HTTP request never inherits local `"stdio"` lease (`DAUTH-10`) | 📋 Spec Defined |
 
 ---
 

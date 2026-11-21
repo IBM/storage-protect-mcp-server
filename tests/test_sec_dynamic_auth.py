@@ -55,6 +55,22 @@ def _admc(cfg):
     return admc
 
 
+@pytest.fixture(autouse=True)
+def clean_session_context():
+    """Ensure clean global session store and task contextvars between tests."""
+    from sp_mcp_server.session import global_session_manager
+    from sp_mcp_server.mcp_factory import current_session_id, current_audit_user, current_connection_id
+    global_session_manager.clear()
+    tok_sid = current_session_id.set(None)
+    tok_user = current_audit_user.set(None)
+    tok_conn = current_connection_id.set(None)
+    yield
+    global_session_manager.clear()
+    current_session_id.reset(tok_sid)
+    current_audit_user.reset(tok_user)
+    current_connection_id.reset(tok_conn)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Dynamic authentication: session manager lifecycle
 # ─────────────────────────────────────────────────────────────────────────────
@@ -749,3 +765,300 @@ class TestMultiClientDynamicAuthIsolation:
         sub_paths = [getattr(r, "path", None) for r in mcp_mount.routes]
         assert "/sse" in sub_paths
         assert "/messages" in sub_paths
+
+    @pytest.mark.asyncio
+    async def test_stdio_dynamic_auth_multi_turn_sequence(self, monkeypatch):
+        """
+        DAUTH-10: Sequential dispatch of authenticate_session and subsequent tool calls
+        across discrete asyncio.Task instances succeeds via single-tenant stdio fallback.
+        """
+        from sp_mcp_server.mcp_factory import create_mcp_server
+        from sp_mcp_server.commands.system.auth import AuthenticateSession
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from sp_mcp_server.session import global_session_manager
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+
+        cfg = _cfg()
+        admc = _admc(cfg)
+        admc.execute_silent.side_effect = [
+            (SP_OUTPUT_AUTH_OK, "", 0),
+            ("Administrator Name: DYN_ADMIN\nSystem Privilege: Yes", "", 0),
+        ]
+
+        server = create_mcp_server(
+            server_name="stdio-turn-server",
+            tool_classes=[AuthenticateSession, DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        # Task 1: Human admin authenticates in first interaction turn
+        async def turn_1():
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="authenticate_session",
+                    arguments={"username": "dyn_admin", "password": "valid_password_123"},
+                ),
+            )
+            return await handler(req)
+
+        t1_res = await asyncio.create_task(turn_1())
+        t1_payload = json.loads(t1_res.root.content[0].text)
+        assert t1_payload["success"] is True
+        assert t1_payload["username"] == "dyn_admin"
+        sid = t1_payload["session_id"]
+        assert global_session_manager.get_session_id_for_connection("stdio") == sid
+
+        # Task 2: Discrete asyncio.Task executes subsequent tool WITHOUT explicit _session_id or inherited contextvar
+        async def turn_2():
+            with patch.object(DeleteAdmin, "execute", return_value="Admin target deleted"):
+                req = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="delete_admin",
+                        arguments={"admin_name": ADMIN_NAME_TARGET},
+                    ),
+                )
+                return await handler(req)
+
+        t2_res = await asyncio.create_task(turn_2())
+        assert isinstance(t2_res.root, CallToolResult)
+        assert t2_res.root.content[0].text == "Admin target deleted"
+
+    @pytest.mark.asyncio
+    async def test_stdio_reauthentication_supersedes_prior_lease(self, monkeypatch):
+        """
+        DAUTH-10: Sequential re-authentication under a new admin account supersedes prior lease
+        in reverse-chronological order.
+        """
+        from sp_mcp_server.mcp_factory import create_mcp_server, current_execution_credentials
+        from sp_mcp_server.commands.system.auth import AuthenticateSession
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from sp_mcp_server.session import global_session_manager
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+
+        cfg = _cfg()
+        admc = _admc(cfg)
+
+        server = create_mcp_server(
+            server_name="stdio-reauth-server",
+            tool_classes=[AuthenticateSession, DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        # Mint Lease 1: Alice (Storage privilege)
+        lease_alice = global_session_manager.create_session(
+            username="alice_sp",
+            privileges={"storage"},
+            connection_id="stdio",
+            transport_mode="stdio",
+            password="alice_password",
+        )
+
+        # Mint Lease 2: Bob (System privilege) - created later, must supersede Lease 1
+        lease_bob = global_session_manager.create_session(
+            username="bob_sp",
+            privileges={"system"},
+            connection_id="stdio",
+            transport_mode="stdio",
+            password="bob_password",
+        )
+
+        # Verify reverse lookup resolves to Bob
+        resolved_sid = global_session_manager.get_session_id_for_connection("stdio")
+        assert resolved_sid == lease_bob.session_id
+
+        # Execute tool requiring 'system' privilege in a fresh task
+        captured_cred = None
+
+        def record_and_run(*a, **kw):
+            nonlocal captured_cred
+            captured_cred = current_execution_credentials.get()
+            return "Deleted by Bob"
+
+        async def run_tool_turn():
+            with patch.object(DeleteAdmin, "execute", side_effect=record_and_run):
+                req = CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="delete_admin",
+                        arguments={"admin_name": ADMIN_NAME_TARGET},
+                    ),
+                )
+                return await handler(req)
+
+        res = await asyncio.create_task(run_tool_turn())
+        assert res.root.content[0].text == "Deleted by Bob"
+        assert captured_cred == ("bob_sp", "bob_password")
+
+    def test_sse_cross_user_post_rejected_with_403(self):
+        """
+        DAUTH-11: Foreign caller POST to active stream UUID is rejected with HTTP 403 Forbidden.
+        """
+        from starlette.testclient import TestClient
+        from unittest.mock import MagicMock
+        from sp_mcp_server.http_server import (
+            create_http_app,
+            record_stream_owner,
+            remove_stream_owner,
+            OIDCBearerMiddleware,
+        )
+
+        mock_server = MagicMock()
+        app = create_http_app(mock_server, "https://login.example.com", "test-aud")
+
+        async def mock_get_jwks(self):
+            self._jwks_uri = "https://login.example.com/jwks"
+            return {"keys": []}
+
+        stream_sid = "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+        record_stream_owner(stream_sid, "alice_oidc_sub")
+        try:
+            client = TestClient(app, raise_server_exceptions=False)
+            with patch.object(OIDCBearerMiddleware, "_get_jwks", mock_get_jwks):
+                with patch("jwt.PyJWKClient.get_signing_key_from_jwt"):
+                    with patch("jwt.decode", return_value={
+                        "sub": "bob_oidc_sub",
+                        "scope": "mcp:system",
+                        "exp": 9999999999,
+                        "iat": 1000000000,
+                    }):
+                        resp = client.post(
+                            f"/mcp/messages?session_id={stream_sid}",
+                            headers={"Authorization": "Bearer bob_token"},
+                            json={"jsonrpc": "2.0", "method": "tools/call", "params": {}, "id": 1},
+                        )
+
+            assert resp.status_code == 403
+            err_body = resp.json()
+            assert err_body["error"]["code"] == -32001
+            assert "Forbidden: stream does not belong to authenticated user" in err_body["error"]["message"]
+        finally:
+            remove_stream_owner(stream_sid)
+
+    def test_sse_legitimate_post_accepted_with_202(self):
+        """
+        DAUTH-11: Legitimate stream owner POST to matching stream UUID is accepted with HTTP 202.
+        """
+        from starlette.testclient import TestClient
+        from unittest.mock import MagicMock, AsyncMock
+        import uuid
+        from sp_mcp_server.http_server import (
+            create_http_app,
+            record_stream_owner,
+            remove_stream_owner,
+            OIDCBearerMiddleware,
+        )
+
+        mock_server = MagicMock()
+        app = create_http_app(mock_server, "https://login.example.com", "test-aud")
+
+        async def mock_get_jwks(self):
+            self._jwks_uri = "https://login.example.com/jwks"
+            return {"keys": []}
+
+        stream_uuid = uuid.UUID("a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d")
+        mock_writer = AsyncMock()
+
+        mcp_mount = next(r for r in app.routes if getattr(r, "path", None) == "/mcp")
+        msg_mount = next(r for r in mcp_mount.routes if getattr(r, "path", None) == "/messages")
+
+        transport = None
+        for cell in (msg_mount.app.__closure__ or []):
+            if hasattr(cell.cell_contents, "_read_stream_writers"):
+                transport = cell.cell_contents
+                break
+
+        assert transport is not None
+        transport._read_stream_writers[stream_uuid] = mock_writer
+
+        record_stream_owner(str(stream_uuid), "alice_oidc_sub")
+        try:
+            client = TestClient(app, raise_server_exceptions=False)
+            with patch.object(OIDCBearerMiddleware, "_get_jwks", mock_get_jwks):
+                with patch("jwt.PyJWKClient.get_signing_key_from_jwt"):
+                    with patch("jwt.decode", return_value={
+                        "sub": "alice_oidc_sub",
+                        "scope": "mcp:system",
+                        "exp": 9999999999,
+                        "iat": 1000000000,
+                    }):
+                        resp = client.post(
+                            f"/mcp/messages?session_id={stream_uuid.hex}",
+                            headers={"Authorization": "Bearer alice_token"},
+                            json={"jsonrpc": "2.0", "method": "ping", "id": 1},
+                        )
+
+            assert resp.status_code == 202
+        finally:
+            transport._read_stream_writers.pop(stream_uuid, None)
+            remove_stream_owner(str(stream_uuid))
+
+    @pytest.mark.asyncio
+    async def test_cross_transport_stdio_leak_blocked(self, monkeypatch):
+        """
+        DAUTH-10: Network HTTP/SSE request never inherits local "stdio" lease.
+        """
+        from sp_mcp_server.mcp_factory import create_mcp_server, current_connection_id
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from sp_mcp_server.session import global_session_manager
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+
+        # Mint a local stdio session lease
+        stdio_lease = global_session_manager.create_session(
+            username="local_admin",
+            privileges={"system"},
+            connection_id="stdio",
+            transport_mode="stdio",
+            password="secret_password",
+        )
+
+        cfg = _cfg()
+        admc = _admc(cfg)
+
+        server = create_mcp_server(
+            server_name="cross-transport-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        # 1. Unauthenticated network connection (has conn_id from SSE transport, but no session)
+        tok_conn = current_connection_id.set("conn_sse_net_100")
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin",
+                    arguments={"admin_name": ADMIN_NAME_TARGET},
+                ),
+            )
+            res1 = await handler(req)
+            payload1 = json.loads(res1.root.content[0].text)
+            # Must trigger dynamic auth challenge and NOT inherit the stdio lease
+            assert payload1.get("is_error") is True
+            assert payload1.get("error_type") == "AUTHENTICATION_REQUIRED"
+
+            # 2. Network caller attempts explicit IDOR using the stdio lease ID
+            req_idor = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin",
+                    arguments={"admin_name": ADMIN_NAME_TARGET, "_session_id": stdio_lease.session_id},
+                ),
+            )
+            res2 = await handler(req_idor)
+            payload2 = json.loads(res2.root.content[0].text)
+            assert payload2.get("is_error") is True
+            assert payload2.get("error_type") == "AUTHORIZATION_DENIED"
+            assert "Cross-transport session access denied" in payload2.get("message", "")
+        finally:
+            current_connection_id.reset(tok_conn)

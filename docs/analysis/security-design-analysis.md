@@ -99,6 +99,10 @@ To maintain compliance with the MCP server network security controls, configure 
 5. **Keyring-First Credential Resolution**:
    - [`config._get_password()`](../../src/sp_mcp_server/config.py:134) queries the OS keyring under service `ibm-sp-mcp-server` prior to reading plain environment variables.
 
+6. **Dynamic Ephemeral Lease Management & Transport Isolation (DAUTH-10)**:
+   - Ephemeral leases (`SessionLease`) in `SessionManager` are bound to connection identifiers and OIDC subjects, eliminating vulnerable process-global storage.
+   - Single-tenant `stdio` execution resolves leases deterministically via a dedicated `"stdio"` connection identifier and reverse-chronological iteration in `SessionManager`, persisting session state across discrete `asyncio.Task` invocations.
+
 ### 2.2 IBM Storage Protect Native Controls & Recommendations
 
 - **Provision Dedicated Privilege-Tiered Administrators**:
@@ -257,6 +261,16 @@ To maintain compliance with the MCP server network security controls, configure 
 3. **Secrets Reference Resolution for External Integrations (INT-3, INT-4)**:
    - Cloud storage connections ([`commands/system/conn.py`](../../src/sp_mcp_server/commands/system/conn.py)) resolve sensitive access keys and secrets using indirection patterns (`keyring:<key>` or `env:<VAR>`), avoiding plaintext credentials in tool execution arguments.
 
+4. **SSE Ingress Stream Ownership Enforcement (DAUTH-11)**:
+   - In HTTP/SSE deployments, tool requests arrive via HTTP POST while MCP server loops run within long-lived SSE tasks.
+   - To mitigate threat `THR-SSE-01` (Cross-Client POST Injection via Exposed Stream UUID / `CWE-284` / `CWE-613`), ingress guard `guarded_post_messages` validates that the OIDC subject on incoming `POST /mcp/messages?session_id=<UUID>` matches the registered stream owner in `StreamOwnershipRegistry`, rejecting foreign caller injections with HTTP 403 Forbidden.
+
+5. **Live SSE Session Context Synchronization & Token Lifetime Bounding (OA-8 / VUL0790479)**:
+   - Eliminates the asynchronous AnyIO memory stream context disconnect where tool execution inside `mcp_server.run()` statically retained initial connection privileges and ignored subsequent POST token scopes and expiration (`CWE-284` / `CWE-613` / `ASI03`).
+   - Populates ASGI-standard `scope["user"]` for native SDK session owner compatibility.
+   - Synchronizes incoming POST claims into `_sse_session_contexts` (`active_privilege`, `active_exp`, `last_post_at`).
+   - Dynamically resolves live stream context in `mcp_factory.handle_call_tool()`, enforcing call-time token expiration (`AUTHENTICATION_REQUIRED`) and dynamic privilege satisfaction (`AUTHORIZATION_DENIED`), preventing in-stream privilege retention across token expirations or scope downgrades.
+
 ### 5.2 IBM Storage Protect Native Controls & Recommendations
 
 - **Directory-Based Identity Federation (LDAP/AD)**:
@@ -414,3 +428,4 @@ The following table summarizes all implemented controls and their alignment with
 | **API Authentication** | `http_server.OIDCBearerMiddleware` validates JWT bearer tokens | OAuth 2.1 / OIDC standard | **Active** | RFC 9068 / OIDC Core |
 | **Identity Federation** | Service accounts support directory authentication | `UPDATE ADMIN AUTHENTICATION=LDAP` | **Active** | b_srv_admin_ref_linux.pdf (`UPDATE ADMIN`) |
 | **Dynamic Authentication & Multi-Client Isolation** | `session.py:SessionManager` with `oidc_subject` & `connection_id` binding, anti-IDOR validation, process global elimination (DAUTH-10), target-server binding (DAUTH-7) | Ephemeral challenge-response against `dsmadmc` with native lockout (`SET INVALIDPWLIMIT`) | **Active** (DAUTH-1 to DAUTH-10) | [`security-dynamic-authn.md`](../design/security-dynamic-authn.md) |
+| **Live SSE Session Authorization & Expiration** | `http_server.SSESessionContext` synchronization, ASGI `scope['user']`, call-time token expiration & dynamic privilege gate in `handle_call_tool()` (OA-8) | OAuth 2.1 / OIDC token lifetime & scope bounding | **Active** (OA-8) | [`security-integrations.md`](../design/security-integrations.md) |

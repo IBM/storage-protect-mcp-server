@@ -119,7 +119,7 @@ class SessionManager:
         if not connection_id:
             return None
         with self._lock:
-            for sid, lease in list(self._sessions.items()):
+            for sid, lease in reversed(list(self._sessions.items())):
                 if lease.connection_id == connection_id:
                     if lease.is_expired():
                         logger.info(
@@ -129,7 +129,7 @@ class SessionManager:
                         )
                         lease.password = None  # AUD-08: zero credential before discard
                         self._sessions.pop(sid, None)
-                        return None
+                        continue
                     return sid
         return None
 
