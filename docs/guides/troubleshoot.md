@@ -988,6 +988,75 @@ The provided username or password was rejected by the IBM Storage Protect server
 
 ---
 
+### Symptom C — Repetitive `AUTHENTICATION_REQUIRED` in stdio Mode (Claude Desktop)
+
+#### Symptom
+The user provides valid credentials to `authenticate_session`, which returns `success: true`. However, the very next tool call (e.g. `query_node` or `query_status`) fails again with `AUTHENTICATION_REQUIRED`.
+
+#### Cause
+In single-client `stdio` mode, each MCP JSON-RPC tool call executes in an independent `asyncio.Task`. In builds missing the DAUTH-10 stdio fallback patch, the task-scoped `ContextVar` set by `authenticate_session` is lost when that task completes. Because stdio mode carries no network connection ID, the server fails to resolve the active lease and prompts again.
+
+#### Remediation
+1. Verify that your server deployment includes the DAUTH-10 deterministic stdio fallback patch (`connection_id="stdio"` and reverse chronological search).
+2. Ensure `SP_MCP_AUTH_MODE=dynamic` is explicitly configured in `.env`.
+3. If running a multi-user network deployment, switch to `--transport http` with OIDC bearer authentication (`SP_OIDC_ISSUER`).
+
+---
+
+### Symptom D — HTTP 403 Forbidden on SSE POST Messages (`/mcp/messages`)
+
+#### Symptom
+An HTTP POST to `/mcp/messages?session_id=<UUID>` returns HTTP 403 Forbidden with JSON-RPC error:
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32001,
+    "message": "Forbidden: stream does not belong to authenticated user."
+  },
+  "id": null
+}
+```
+
+#### Cause
+Control DAUTH-11 enforces that messages dispatched to an SSE stream must originate from the OIDC principal that created the stream. This error indicates that the Bearer token presented in the POST request belongs to a different subject than the stream owner.
+
+#### Remediation
+1. Ensure your client application POSTs only to the SSE endpoint URL provided in the `endpoint` event received on its own SSE stream connection.
+2. Verify that your client does not reuse SSE stream session URLs across different user tokens or authentication sessions.
+
+---
+
+### Symptom E — AUTHENTICATION_REQUIRED or AUTHORIZATION_DENIED on Active SSE Stream
+
+#### Symptom
+A client with an established SSE stream submits an HTTP POST to `/mcp/messages?session_id=<UUID>` and receives an error payload:
+```json
+{
+  "is_error": true,
+  "error_type": "AUTHENTICATION_REQUIRED",
+  "message": "OIDC access token has expired. Please re-authenticate."
+}
+```
+or:
+```json
+{
+  "is_error": true,
+  "error_type": "AUTHORIZATION_DENIED",
+  "message": "OIDC token does not have the privilege required by this tool."
+}
+```
+
+#### Cause
+Control **`OA-8`** eliminates in-stream privilege retention by dynamically synchronizing the active authorization context on every incoming POST request. If the token expires during an open stream, or if the client submits a request with a token that lacks the required privilege tier (e.g. `mcp:read` attempting to invoke an operator or system tool), execution is blocked at runtime.
+
+#### Remediation
+1. Automate token renewal in your client application: refresh the OIDC Bearer token from your identity provider before its expiration (`exp`).
+2. Verify that the refreshed token includes the appropriate scope (`mcp:operator`, `mcp:storage`, `mcp:policy`, or `mcp:system`) required for the desired administrative operation.
+3. Pass the refreshed token in the `Authorization: Bearer <new_token>` header on subsequent POST requests.
+
+---
+
 ## 17. Log File Access
 
 ```bash

@@ -45,6 +45,9 @@ class SessionLease:
     session_id: str
     username: str
     privilege_classes: Set[str]
+    oidc_subject: Optional[str] = None
+    connection_id: Optional[str] = None
+    transport_mode: str = "stdio"
     password: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -82,6 +85,9 @@ class SessionManager:
         target_server: Optional[str] = None,
         ttl_seconds: Optional[int] = None,
         password: Optional[str] = None,
+        oidc_subject: Optional[str] = None,
+        connection_id: Optional[str] = None,
+        transport_mode: str = "stdio",
     ) -> SessionLease:
         """Create and store a new ephemeral session lease."""
         with self._lock:
@@ -91,18 +97,41 @@ class SessionManager:
                 session_id=session_id,
                 username=username,
                 privilege_classes=privileges or {"any"},
+                oidc_subject=oidc_subject,
+                connection_id=connection_id,
+                transport_mode=transport_mode,
                 password=password,
                 ttl_seconds=min(max(ttl_seconds or self._default_ttl, 1), MAX_SESSION_TTL_SECONDS),
                 target_server=target_server,
             )
             self._sessions[session_id] = lease
         logger.info(
-            "Created ephemeral session lease for user='%s' (session_id=%s..., TTL=%ds)",
+            "Created ephemeral session lease for user='%s' (session_id=%s..., TTL=%ds, mode=%s)",
             username,
             session_id[:8],
             lease.ttl_seconds,
+            transport_mode,
         )
         return lease
+
+    def get_session_id_for_connection(self, connection_id: Optional[str]) -> Optional[str]:
+        """Look up the active session ID associated with a transport connection ID."""
+        if not connection_id:
+            return None
+        with self._lock:
+            for sid, lease in reversed(list(self._sessions.items())):
+                if lease.connection_id == connection_id:
+                    if lease.is_expired():
+                        logger.info(
+                            "Session lease %s... for connection='%s' expired. Removing.",
+                            sid[:8],
+                            connection_id,
+                        )
+                        lease.password = None  # AUD-08: zero credential before discard
+                        self._sessions.pop(sid, None)
+                        continue
+                    return sid
+        return None
 
     def get_session(self, session_id: str) -> Optional[SessionLease]:
         """Retrieve and refresh a session lease if valid and unexpired."""

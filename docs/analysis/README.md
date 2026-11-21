@@ -8,8 +8,8 @@ Security design analysis and audit findings for the IBM Storage Protect MCP Serv
 
 | Document | Description |
 |---|---|
-| [`security-design-analysis.md`](security-design-analysis.md) | Comprehensive security architecture and active controls analysis across six domains: Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations, and Non-Repudiation & Forensics. Validated by 88 automated regression tests. |
-| [`security-dynamic-authn-analysis.md`](security-dynamic-authn-analysis.md) | Dynamic & delegated user authentication design analysis — challenge-response workflow, stateful session verification, structured authentication challenge schema, zero-trace credential validation, privilege enforcement, target-server binding, and credential-lifecycle zeroing. |
+| [`security-design-analysis.md`](security-design-analysis.md) | Comprehensive security architecture and active controls analysis across six domains: Network Security, Identity & Credentials, Access Management, Policy Management, Secure Integrations, Non-Repudiation & Forensics, and Dynamic Authentication with Multi-Client Isolation. Validated by 102 automated security regression tests (130 tests overall). |
+| [`security-dynamic-authn-analysis.md`](security-dynamic-authn-analysis.md) | Dynamic & delegated user authentication design analysis — challenge-response workflow, stateful session verification, structured authentication challenge schema, zero-trace credential validation, privilege enforcement, target-server binding (DAUTH-7), credential-lifecycle zeroing (AUD-08), multi-client transport isolation (DAUTH-10), and dual-identity compound audit trails (POL-4 / NR-1). |
 
 ---
 
@@ -24,6 +24,7 @@ The analysis covers the following security domains:
 | Access Management | Per-tool privilege gate, self-narrowing tool registry, `sudo` execution | ✅ 0 open gaps |
 | Policy Management | Command approval workflow, `MINPWLENGTH` pre-validation, ACTLOG audit attribution | ✅ 0 open gaps |
 | Secure Integrations | OAuth 2.1 / OIDC bearer auth, HTTP TLS enforcement, keyring secret resolution | ✅ 0 open gaps |
+| Dynamic Auth & Multi-Client Isolation | Ephemeral challenge-response, zero-trace verification, transport & OIDC subject binding (DAUTH-10), anti-IDOR checks, compound dual attribution | ✅ 0 open gaps |
 
 ---
 

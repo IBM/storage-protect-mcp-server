@@ -20,12 +20,8 @@ from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 current_audit_user: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_audit_user", default=None)
 current_session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_session_id", default=None)
 current_request_privilege: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_request_privilege", default=None)
-
-# Module-level session store — persists the active session ID across tool calls
-# within the same stdio process lifetime (ContextVars are per-async-task and do
-# not survive between separate MCP tool call invocations).
-_process_session_id: Optional[str] = None
-_process_audit_user: Optional[str] = None
+# DAUTH-10: Context variable holding the active transport connection identifier
+current_connection_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_connection_id", default=None)
 
 import json
 from .session import global_session_manager
@@ -33,6 +29,15 @@ from .config import load_config
 from .cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
 from .commands.base import BaseCommand, BaseOfflineCommand, BaseServermonCommand, PRIVILEGE_TIERS
 from .cli_wrapper import current_execution_credentials
+
+
+def reset_execution_state() -> None:
+    """Reset task-local execution context variables to default state."""
+    current_session_id.set(None)
+    current_audit_user.set(None)
+    current_request_privilege.set(None)
+    current_execution_credentials.set((None, None))
+    current_connection_id.set(None)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 # Security notes:
@@ -682,56 +687,124 @@ def create_mcp_server(
 
         # ── Dynamic Auth Challenge Interceptor ──────────────────────────────
         auth_mode = os.environ.get("SP_MCP_AUTH_MODE", "service_account").lower()
+        session = None
         if auth_mode == "dynamic" and name != "authenticate_session":
-            # Prefer module-level store (survives across tool calls in stdio)
-            # then ContextVar (set within same async task), then explicit arg.
-            active_sid = (
-                _process_session_id
+            current_sub = current_audit_user.get()  # Injected by OIDC middleware
+            conn_id = current_connection_id.get()   # Injected by SSE transport handler
+
+            # 1. Resolve candidate session ID (Strict Order — DAUTH-10)
+            candidate_sid = (
+                (arguments and arguments.get("_session_id"))
                 or current_session_id.get()
-                or (arguments and arguments.get("_session_id"))
+                or global_session_manager.get_session_id_for_connection(conn_id)
+                or (
+                    global_session_manager.get_session_id_for_connection("stdio")
+                    if not conn_id
+                    else None
+                )
             )
-            session = global_session_manager.get_session(active_sid) if active_sid else None
-            if session is None:
+
+            challenge_payload = {
+                "is_error": True,
+                "error_type": "AUTHENTICATION_REQUIRED",
+                "message": "Authentication required. Please provide your IBM Storage Protect administrator credentials.",
+                "challenge": {
+                    "server": getattr(config, "server_address", "default"),
+                    "required_fields": ["username", "password"],
+                    "supported_schemes": ["basic_delegated", "oidc_bearer"],
+                    "auth_tool": "authenticate_session",
+                },
+            }
+
+            if not candidate_sid:
                 logger.info(
                     "Dynamic auth challenge triggered for tool='%s' (no active session)",
                     name,
                 )
-                challenge_payload = {
-                    "is_error": True,
-                    "error_type": "AUTHENTICATION_REQUIRED",
-                    "message": "Authentication required. Please provide your IBM Storage Protect administrator credentials.",
-                    "challenge": {
-                        "server": getattr(config, "server_address", "default"),
-                        "required_fields": ["username", "password"],
-                        "supported_schemes": ["basic_delegated", "oidc_bearer"],
-                        "auth_tool": "authenticate_session",
-                    },
-                }
                 return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
-            else:
-                # Update user identity and execution context from active session.
-                global _process_audit_user
-                current_audit_user.set(session.username)
-                _process_audit_user = session.username
-                if not _privilege_satisfies_for_session(session, tool_privilege):
-                    return [TextContent(type="text", text=json.dumps({
-                        "is_error": True,
-                        "error_type": "AUTHORIZATION_DENIED",
-                        "message": "Authenticated session does not have the privilege required by this tool.",
-                    }))]
-                # ── DAUTH-7: reject cross-server session reuse ────────────────
-                target_err = _check_session_target_server(session, config)
-                if target_err:
-                    return [TextContent(type="text", text=json.dumps({
-                        "is_error": True,
-                        "error_type": "AUTHORIZATION_DENIED",
-                        "message": target_err,
-                    }))]
-                current_execution_credentials.set((session.username, session.password))
 
-        # ── INT-2: enforce OIDC request privilege at call time ────────────────
-        request_privilege = current_request_privilege.get()
-        if request_privilege and not _privilege_satisfies(request_privilege, tool_privilege):
+            session = global_session_manager.get_session(candidate_sid)
+            if session is None:
+                logger.info(
+                    "Dynamic auth challenge triggered for tool='%s' (session not found or expired)",
+                    name,
+                )
+                return [TextContent(type="text", text=json.dumps(challenge_payload, indent=2))]
+
+            # 2. Strict Principal & Connection Verification (Anti-Hijacking / Anti-IDOR — DAUTH-10)
+            if session.oidc_subject and session.oidc_subject != current_sub:
+                logger.warning(
+                    "SECURITY: Cross-client session use attempt! OIDC subject '%s' "
+                    "attempted to use session belonging to '%s'.",
+                    current_sub, session.oidc_subject,
+                )
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": "Session does not belong to the authenticated user.",
+                }))]
+
+            if conn_id and session.connection_id and session.connection_id != conn_id:
+                logger.warning(
+                    "SECURITY: Cross-transport session use attempt! Network caller (conn='%s') "
+                    "attempted to use session bound to connection '%s'.",
+                    conn_id, session.connection_id,
+                )
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": "Cross-transport session access denied.",
+                }))]
+
+            # 3. Target Server Verification (DAUTH-7)
+            target_err = _check_session_target_server(session, config)
+            if target_err:
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": target_err,
+                }))]
+
+            # 4. Privilege Verification
+            if not _privilege_satisfies_for_session(session, tool_privilege):
+                return [TextContent(type="text", text=json.dumps({
+                    "is_error": True,
+                    "error_type": "AUTHORIZATION_DENIED",
+                    "message": "Authenticated session does not have the privilege required by this tool.",
+                }))]
+
+            # In single-tenant stdio mode where no OIDC subject was bound, set username for attribution
+            if not session.oidc_subject:
+                current_audit_user.set(session.username)
+
+            # Apply delegated execution credentials
+            current_execution_credentials.set((session.username, session.password))
+
+        # ── OA-8 & INT-2: Enforce live OIDC request privilege & token lifetime at call time ──
+        effective_privilege = None
+        conn_id = current_connection_id.get()
+        session_ctx = None
+        if conn_id:
+            from .http_server import get_sse_session_context
+            session_ctx = get_sse_session_context(conn_id)
+            if session_ctx:
+                # 1. Token Lifetime & Expiration Gate (OA-8 / CWE-613)
+                if session_ctx.active_exp and time.time() > session_ctx.active_exp:
+                    logger.warning(
+                        "SECURITY (OA-8): Tool execution blocked! OIDC token for stream '%s' (owner='%s') expired at %f (now=%f).",
+                        conn_id, session_ctx.owner_sub, session_ctx.active_exp, time.time(),
+                    )
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHENTICATION_REQUIRED",
+                        "message": "OIDC access token has expired. Please re-authenticate.",
+                    }))]
+                effective_privilege = session_ctx.active_privilege
+
+        if effective_privilege is None:
+            effective_privilege = current_request_privilege.get()
+
+        if effective_privilege and not _privilege_satisfies(effective_privilege, tool_privilege):
             return [TextContent(type="text", text=json.dumps({
                 "is_error": True,
                 "error_type": "AUTHORIZATION_DENIED",
@@ -742,14 +815,24 @@ def create_mcp_server(
         correlation_id = None
         if tool_privilege in _WRITE_PRIVILEGES:
             correlation_id = uuid.uuid4().hex[:12]
-            # NR-1: Bind authenticated end-user / subject or fallback to local account
-            user_id = current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
-            audit_msg = (
-                f"MCP_AUDIT user={user_id} "
-                f"tool={name} "
-                f"priv={tool_privilege} "
-                f"corr={correlation_id}"
-            )
+            # NR-1 / POL-4: Compound attribution in dynamic mode; standard user_id in service_account mode
+            if session:
+                oidc_user = session.oidc_subject or current_audit_user.get() or "local"
+                audit_msg = (
+                    f"MCP_AUDIT oidc_user={oidc_user} "
+                    f"sp_admin={session.username} "
+                    f"tool={name} "
+                    f"priv={tool_privilege} "
+                    f"corr={correlation_id}"
+                )
+            else:
+                user_id = (session_ctx.owner_sub if session_ctx else None) or current_audit_user.get() or os.environ.get("SP_MCP_USER") or "local"
+                audit_msg = (
+                    f"MCP_AUDIT user={user_id} "
+                    f"tool={name} "
+                    f"priv={tool_privilege} "
+                    f"corr={correlation_id}"
+                )
             logger.info("POL-4: Emitting audit correlation: %s", audit_msg)
             strict_audit = os.environ.get("SP_MCP_STRICT_AUDIT", "0") == "1"
             try:

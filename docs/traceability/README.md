@@ -42,4 +42,4 @@ Use the matrix to:
 - Security audit: [`../analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 - Design specs: [`../design/`](../design/)
 - Implementation specs: [`../implement/`](../implement/)
-- Tests: [`../../tests/test_security_controls.py`](../../tests/test_security_controls.py)
+- Tests: [`../../tests/test_sec_startup.py`](../../tests/test_sec_startup.py)

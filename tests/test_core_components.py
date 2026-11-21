@@ -1,3 +1,5 @@
+import allure
+
 from sp_mcp_server.config import ServerConfig, load_config
 from sp_mcp_server.cli_wrapper import DsmAdmcWrapper, DsmServWrapper, ServermonWrapper
 from sp_mcp_server.commands.system.server import QueryServerStatus
@@ -40,6 +42,11 @@ from tests.fixtures import (
 # ---------------------------------------------------------------------------
 
 
+@allure.epic("Core Framework & Infrastructure")
+@allure.feature("Configuration Management")
+@allure.story("Environment Variable Ingestion")
+@allure.title("Load configuration successfully from environment variables")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_load_config_reads_environment(monkeypatch):
     monkeypatch.setenv("TCPSERVERADDRESS", SP_TEST_SERVER_ADDRESS)
     monkeypatch.setenv("SP_SERVER_PORT", SP_ALT_SERVER_PORT)
@@ -64,6 +71,11 @@ def test_load_config_reads_environment(monkeypatch):
     assert config.instance_user == SP_INSTANCE_USER
 
 
+@allure.epic("Core Framework & Infrastructure")
+@allure.feature("Configuration Management")
+@allure.story("Credential Validation")
+@allure.title("Validate requirement of service credentials in ServerConfig")
+@allure.severity(allure.severity_level.NORMAL)
 def test_server_config_validate_requires_credentials():
     valid = ServerConfig(
         server_address=None,
@@ -87,6 +99,11 @@ def test_server_config_validate_requires_credentials():
 # ---------------------------------------------------------------------------
 
 
+@allure.epic("Core Framework & Infrastructure")
+@allure.feature("CLI Wrappers")
+@allure.story("dsmadmc Wrapper")
+@allure.title("Verify dsmadmc wrapper reports configuration error when credentials missing")
+@allure.severity(allure.severity_level.NORMAL)
 def test_dsmadmc_wrapper_returns_config_error_when_credentials_missing():
     config = ServerConfig(
         server_address=SP_TEST_SERVER_ADDRESS,
@@ -103,6 +120,11 @@ def test_dsmadmc_wrapper_returns_config_error_when_credentials_missing():
     assert code == 1
 
 
+@allure.epic("Core Framework & Infrastructure")
+@allure.feature("CLI Wrappers")
+@allure.story("dsmserv Wrapper")
+@allure.title("Verify dsmserv wrapper executes under configured instance user with sudo")
+@allure.severity(allure.severity_level.NORMAL)
 def test_dsmserv_wrapper_uses_instance_user(monkeypatch):
     captured = {}
 
@@ -138,6 +160,11 @@ def test_dsmserv_wrapper_uses_instance_user(monkeypatch):
     assert "DBSPACE" in captured["args"]
 
 
+@allure.epic("Core Framework & Infrastructure")
+@allure.feature("CLI Wrappers")
+@allure.story("Servermon Diagnostics Wrapper")
+@allure.title("Verify servermon wrapper reuses existing diagnostic XML output when process busy")
+@allure.severity(allure.severity_level.NORMAL)
 def test_servermon_wrapper_returns_existing_output_when_busy(monkeypatch, tmp_path):
     xml_root = tmp_path / "srvmon"
     results_dir = xml_root / SERVERMON_SUBDIR_NAME / "results"
@@ -168,6 +195,11 @@ def test_servermon_wrapper_returns_existing_output_when_busy(monkeypatch, tmp_pa
 # ---------------------------------------------------------------------------
 
 
+@allure.epic("Storage Protect Tool Commands")
+@allure.feature("Server Commands")
+@allure.story("Query Server Status")
+@allure.title("Verify QueryServerStatus tool command execution and argument formatting")
+@allure.severity(allure.severity_level.NORMAL)
 def test_query_server_status_executes_expected_command():
     cli = FakeAdmcCli(stdout=SP_OUTPUT_STATUS_OK)
     cmd = QueryServerStatus(cli)  # type: ignore[arg-type]
@@ -178,6 +210,11 @@ def test_query_server_status_executes_expected_command():
     assert result == SP_OUTPUT_STATUS_OK
 
 
+@allure.epic("Storage Protect Tool Commands")
+@allure.feature("Diagnostic Commands")
+@allure.story("Run Servermon")
+@allure.title("Verify RunServerMon forwards arguments to wrapper")
+@allure.severity(allure.severity_level.NORMAL)
 def test_run_servermon_passes_args_to_wrapper():
     cli = FakeServermonCli(stdout=SP_OUTPUT_SERVERMON_OK)
     cmd = RunServerMon(cli)  # type: ignore[arg-type]

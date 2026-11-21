@@ -63,10 +63,12 @@ mcp-server-ops-rules = "sp_mcp_server.main_ops_rules:main"
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "allure-pytest>=2.13.0",
 ]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "allure-pytest>=2.13.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -93,3 +95,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["sp_mcp_server*"]
 exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+addopts = "-v --alluredir=allure-results --clean-alluredir"
+testpaths = ["tests"]

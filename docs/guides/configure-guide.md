@@ -253,6 +253,20 @@ curl -k -H "Authorization: Bearer <oidc-access-token>" \
 
 > Replace `<oidc-access-token>` with a token obtained from your IdP with the appropriate `mcp:*` scope. Tokens are short-lived — automate refresh in your deployment tooling.
 
+### Security Hardening for HTTP/SSE Transports (Reverse Proxies & Access Logs)
+
+When deploying `--transport http` behind reverse proxies (e.g. NGINX, Envoy, HAProxy, or Cloudflare):
+1. **Scrub Query Parameters from Access Logs (CWE-598):** The SSE transport transmits connection session identifiers as query parameters (`/mcp/messages?session_id=<UUID>`). Configure your proxy to strip or redact query parameters from access logs to prevent session UUID leakage:
+   ```nginx
+   # Example NGINX configuration: redact query strings from access logs
+   log_format sanitized '$remote_addr - $remote_user [$time_local] '
+                        '"$uri" $status $body_bytes_sent '
+                        '"$http_referer" "$http_user_agent"';
+   access_log /var/log/nginx/mcp_access.log sanitized;
+   ```
+2. **Strict Ingress Stream Ownership (DAUTH-11):** The MCP server automatically rejects cross-caller POST requests targeting foreign stream UUIDs with HTTP 403 Forbidden. Ensure clients send valid OIDC Bearer tokens on every HTTP POST request to `/mcp/messages`.
+3. **Per-Message Token Expiration & Privilege Gating (OA-8):** Control `OA-8` continuously synchronizes live session context across incoming POST requests and enforces call-time expiration and scope verification. Client automation must refresh short-lived OIDC Bearer tokens before dispatching POST requests. If an access token expires while the stream is connected, subsequent tool calls return `AUTHENTICATION_REQUIRED` (`code: -32001`).
+
 ---
 
 ## Part 3 — Dynamic & Delegated User Authentication (Challenge-Response)

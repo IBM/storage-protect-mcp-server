@@ -16,9 +16,10 @@ The implemented static controls are:
 | ID | Change | Gaps closed |
 |----|--------|-------------|
 | ACC-1 | Add `required_privilege` property to `BaseCommand`, `BaseOfflineCommand`, `BaseServermonCommand` | A1, A2 |
-| ACC-2 | Self-narrowing tool registration in `mcp_factory.py` based on configured service-account privilege | Static gate implemented; dynamic/OIDC call-time gate pending |
-| ACC-3 | Annotate all existing command classes with `required_privilege` | A2, A3 |
+| ACC-2 | Self-narrowing tool registration in `mcp_factory.py` based on configured service-account privilege | Static gate implemented |
+| ACC-3 | Annotate all existing command classes with `required_privilege` & call-time dynamic authorization gate | A2, A3 |
 | ACC-4 | Replace `su` with `sudo` + sudoers allowlist in `DsmServWrapper` / `ServermonWrapper` | A4 |
+| OA-8 | Live SSE Session Context Synchronization & Call-Time Token Expiration / Privilege Enforcement | OA-8, VUL0790479 |
 
 ---
 
@@ -315,6 +316,35 @@ def create_mcp_server(
         if name not in commands:
             raise ValueError(f"Unknown tool: {name}")
         cmd = commands[name]
+        tool_privilege = getattr(cmd, "required_privilege", "any")
+
+        # ── OA-8 & ACC-3: Dynamic Call-Time Privilege & Token Lifetime Verification ──
+        conn_id = current_connection_id.get()
+        effective_privilege = None
+        if conn_id:
+            # Under HTTP/SSE transport, resolve live context synchronized from latest POST
+            from .http_server import get_sse_session_context
+            session_ctx = get_sse_session_context(conn_id)
+            if session_ctx:
+                # 1. Token Lifetime & Expiration Gate (OA-8 / CWE-613)
+                if session_ctx.active_exp and time.time() > session_ctx.active_exp:
+                    return [TextContent(type="text", text=json.dumps({
+                        "is_error": True,
+                        "error_type": "AUTHENTICATION_REQUIRED",
+                        "message": "OIDC access token has expired. Please re-authenticate.",
+                    }))]
+                effective_privilege = session_ctx.active_privilege
+
+        if effective_privilege is None:
+            effective_privilege = current_request_privilege.get()
+
+        if effective_privilege and not _privilege_satisfies(effective_privilege, tool_privilege):
+            return [TextContent(type="text", text=json.dumps({
+                "is_error": True,
+                "error_type": "AUTHORIZATION_DENIED",
+                "message": "OIDC token does not have the privilege required by this tool.",
+            }))]
+
         try:
             result = await asyncio.to_thread(cmd.execute, arguments or {})
             return [TextContent(type="text", text=result)]

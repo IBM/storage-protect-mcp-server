@@ -1,8 +1,8 @@
 # Security Design: Dynamic & Delegated User Authentication
 
 * **Domain**: Identity, Credentials & Delegated Authentication
-* **Revision**: 2026-09 (Post-Audit Remediation — AUD-07, AUD-08, DAUTH-7 Closed)
-* **Status**: Fully implemented and regression-tested — challenge, bounded leases, privilege enforcement, delegated execution, credential lifecycle zeroing, explicit logout, and target-server binding all present
+* **Revision**: 2026-11 (Remediation Specification — DAUTH-10 Stdio Session Persistence & DAUTH-11 SSE Stream Principal Invariant Enforcement)
+* **Status**: Specification updated — defines deterministic single-tenant stdio lease fallback (DAUTH-10), reverse-chronological lease resolution, and mandatory SSE stream ownership validation on POST message ingress (DAUTH-11)
 * **Implementation spec**: [`docs/implement/impl-security-dynamic-authn.md`](../implement/impl-security-dynamic-authn.md)
 * **Analysis reference**: [`docs/analysis/security-dynamic-authn-analysis.md`](../analysis/security-dynamic-authn-analysis.md) · [`docs/analysis/security-design-analysis.md`](../analysis/security-design-analysis.md)
 * **Cross-reference**: [`docs/design/security-identity-credentials.md`](security-identity-credentials.md) · [`docs/design/security-integrations.md`](security-integrations.md) · [`docs/design/security-non-repudiation.md`](security-non-repudiation.md) · [`docs/design/security-access.md`](security-access.md) · [`docs/design/security-policy.md`](security-policy.md)
@@ -53,8 +53,44 @@ flowchart TD
 | **Credential Storage** | Local `.env` (0600), OS keyring, `dsm.sys` stash | Ephemeral in-memory lease; credentials provided at runtime by human |
 | **Identity Attribution** | Service account name (`mcp-svc-*`) | Actual human administrator ID bound into `current_audit_user` and used for delegated command execution |
 | **Session Lifetime** | Persistent daemon lifetime | Short-lived lease (15-minute sliding TTL, max 60 minutes) |
-| **Transport Compatibility**| stdio, SSE, HTTP | stdio, SSE, HTTP |
+| **Transport Compatibility**| stdio, SSE, HTTP | stdio (single-process isolated); HTTP/SSE (requires connection & OIDC subject binding; see § 2.1) |
 | **MFA Compatibility** | Exemption with compensating controls (CRED-4) | Native SP password verification + potential MFA challenge |
+
+---
+
+### 2.1 Transport Modes & Concurrency Isolation Requirements
+
+A critical architectural distinction exists between transport modes regarding state isolation, concurrency, and task lifetimes:
+
+1. **`stdio` Transport (Single-Tenant Local Process — Control DAUTH-10)**:
+   * The MCP server runs as a dedicated child process spawned by a single client application (e.g., Claude Desktop).
+   * Process memory is private to that single client process boundary.
+   * **Task Boundary & Context Decay:** In asynchronous MCP server dispatchers, each incoming JSON-RPC request executes within a distinct `asyncio.Task`. Mutations to Python `contextvars.ContextVar` performed in one task (such as `AuthenticateSession.execute()`) do not persist to subsequent sibling tasks.
+   * **Deterministic Stdio Lease Fallback:** Because no OIDC subject or network connection ID exists in stdio mode, `authenticate_session` binds the created lease to `connection_id="stdio"` and `transport_mode="stdio"`.
+   * **Lease Resolution Invariant:** During tool execution under stdio, `mcp_factory.handle_call_tool()` resolves the candidate session lease using deterministic fallback: explicit argument $\rightarrow$ task context $\rightarrow$ connection map $\rightarrow$ stdio fallback (`get_session_id_for_connection("stdio")`).
+   * **Reverse-Chronological Lease Search:** `SessionManager.get_session_id_for_connection()` evaluates active leases in reverse chronological order (`reversed(list(self._sessions.items()))`), ensuring that subsequent authentications under different administrative accounts immediately supersede prior leases.
+
+2. **`HTTP/SSE` Transport (Multi-Tenant Shared Daemon — Controls DAUTH-10 & DAUTH-11)**:
+   * The MCP server runs as a long-lived network service (`--transport http`), accepting concurrent Server-Sent Events (SSE) connections and HTTP POST messages from multiple distinct clients.
+   * **Strict Elimination of Process Globals:** Module-level global variables (`_process_session_id`, `_process_audit_user`) are strictly prohibited. Storing client session state in module globals causes catastrophic cross-client credential bleeding (`DAUTH-10`).
+   * **Mandatory Cryptographic Principal & Connection Binding (`DAUTH-10`)**:
+     * Every ephemeral `SessionLease` created over network transports must record:
+       1. `oidc_subject`: The cryptographically validated OIDC `sub` claim extracted by `OIDCBearerMiddleware`.
+       2. `connection_id`: The unique transport connection / SSE stream identifier assigned during connection initialization.
+       3. `transport_mode`: Explicitly marked as `"http"` or `"stdio"`.
+     * **Invocation-Time Enforcement:** Before executing any tool using a delegated lease, the server interceptor verifies that the lease's `oidc_subject` matches the active caller's `request.state.mcp_subject`. If an IDOR or cross-client session attempt is detected, execution is immediately aborted with `AUTHORIZATION_DENIED`.
+
+---
+
+### 2.2 Ingress Protection & SSE Stream Principal Invariant (Control DAUTH-11)
+
+In Starlette and AnyIO SSE transport architectures, stream reception (`GET /mcp/sse`) and message transmission (`POST /mcp/messages?session_id=<UUID>`) are decoupled. The long-lived `mcp_server.run()` loop executes within the asynchronous context of the `GET` request handler. Consequently, any tool call enqueued into that stream executes within the stream creator's task context.
+
+To prevent cross-client tool injection and identity spoofing (`CWE-284` / `CWE-613` / `ASI03`):
+1. **Stream Ownership Registration:** When an SSE connection is established at `/mcp/sse`, the server assigns a connection UUID and securely registers the authenticated OIDC subject in a thread-safe `StreamOwnershipRegistry`.
+2. **Ingress POST Ownership Validation:** On every incoming HTTP POST to `/mcp/messages?session_id=<UUID>`, the ingress guard middleware (`guarded_post_messages`) inspects the query parameter, looks up the registered owner in `StreamOwnershipRegistry`, and compares the owner's subject with the POST caller's authenticated `request.state.mcp_subject`.
+3. **Fail-Closed Abort:** If the subjects do not match, the request is immediately rejected with **HTTP 403 Forbidden** and JSON-RPC error payload (`code: -32001, message: "Forbidden: stream does not belong to authenticated user"`). The unauthorized payload is never placed on the stream queue.
+4. **Lifecycle Cleanup:** When the SSE stream terminates, its entry is cleanly expunged from the registry.
 
 ---
 
@@ -85,10 +121,11 @@ sequenceDiagram
         MCP->>SP: dsmadmc QUERY STATUS
         SP-->>MCP: Authenticated ANR0000I
         Note over MCP: Mint ephemeral lease token (TTL=15m)
-        MCP->>SessionStore: Store session token
-        Note over MCP: Set current_audit_user for forensics
+        MCP->>SessionStore: Store session token (bound to oidc_sub or connection_id='stdio')
+        Note over MCP: Set identity context for task
         MCP-->>AI: Authentication success
-        AI->>MCP: call_tool query_node
+        AI->>MCP: call_tool query_node (Discrete asyncio Task)
+        Note over MCP: Resolve lease: Arg -> ContextVar -> Connection Map -> Stdio Fallback
         MCP->>SP: dsmadmc QUERY NODE
         SP-->>MCP: Node records output
         MCP-->>AI: Tool result payload
@@ -167,14 +204,22 @@ In accordance with security requirement **CRED-2** and **RG-3**, the password su
 
 ## 5. Security & Forensic Alignment
 
-### 5.1 Non-Repudiation Binding (NR-1 & POL-4)
-When dynamic authentication succeeds:
-1. The validated username is injected into `contextvars.ContextVar("current_audit_user")`.
-2. All subsequent mutating commands executed during this session emit the user identity to the IBM Storage Protect Activity Log:
+### 5.1 Dual-Identity Compound Audit Trail (NR-1 & POL-4)
+
+To prevent forensic attribution collapse and non-repudiation failures in multi-tenant environments (`DAUTH-10`), the server enforces a **compound audit trail** binding both the calling OIDC identity and the delegated Storage Protect administrator ID:
+
+1. **Dual Attribution Capture**:
+   * `oidc_user`: The authenticated OIDC subject (`request.state.mcp_subject`), immutable across the network session.
+   * `sp_admin`: The IBM Storage Protect administrator username (`session.username`) whose delegated credentials execute the command.
+2. **Activity Log Correlation Format**:
+   All mutating commands executed in dynamic authentication mode emit a structured compound audit record to the IBM Storage Protect Activity Log via `DEFINE SCRATCHPADENTRY`:
    ```
-   DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT user=admin_alice tool=delete_node priv=policy corr=e8f7a192b0c3"
+   DEFINE SCRATCHPADENTRY MCP_AUDIT DESCRIPTION="MCP_AUDIT oidc_user=bob_oidc sp_admin=admin_alice tool=delete_node priv=policy corr=e8f7a192b0c3"
    ```
-3. This adds the human administrator to the SP audit correlation record and aligns the command execution context with the authenticated session.
+3. **Forensic Guarantees**:
+   * If User Bob (`bob_oidc`) invokes an MCP tool using Alice's delegated SP lease (`admin_alice`), the audit record irrevocably binds both principals, making unauthorized delegation or rogue actions instantly discoverable in forensic reviews.
+   * In single-tenant `stdio` mode where no OIDC token is present, `oidc_user` defaults to `stdio` or `local`, preserving the dual-parameter structure.
+   * Under strict audit fail-closed mode (`SP_MCP_STRICT_AUDIT=1` / `NR-4`), failure to write this compound entry immediately aborts the tool execution.
 
 ### 5.2 Native Lockout Protection (POL-3)
 Authentication attempts directly exercise the IBM Storage Protect authentication engine. Failed attempts increment the administrator's failed sign-on counter on the SP server, preserving native brute-force protection (`SET INVALIDPWLIMIT`).

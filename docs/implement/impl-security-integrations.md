@@ -277,9 +277,20 @@ class OIDCBearerMiddleware(BaseHTTPMiddleware):
 
         request.state.mcp_privilege = privilege
         request.state.mcp_subject   = payload.get("sub", "unknown")
+        request.state.mcp_exp       = float(payload.get("exp", 0.0))
+        # OA-8: Populate ASGI-standard scope["user"] for native SDK session owner compatibility
+        scope["user"] = {
+            "sub": request.state.mcp_subject,
+            "privilege": privilege,
+            "exp": request.state.mcp_exp,
+            "auth_model": "oidc",
+        }
+        # Propagate OIDC subject into task context for audit and dynamic session binding (DAUTH-10 / POL-4)
+        current_audit_user.set(request.state.mcp_subject)
+        current_request_privilege.set(privilege)
         logger.info(
-            "INT-2: Authenticated subject='%s' privilege='%s' scopes=%s",
-            request.state.mcp_subject, privilege, scopes
+            "INT-2: Authenticated subject='%s' privilege='%s' exp=%f scopes=%s",
+            request.state.mcp_subject, privilege, request.state.mcp_exp, scopes
         )
         return await call_next(request)
 
@@ -289,23 +300,137 @@ def _privilege_rank(p: str) -> int:
     return order.get(p, 0)
 
 
+@dataclass
+class SSESessionContext:
+    """OA-8: Active live authorization context for an SSE stream."""
+    stream_id: str
+    owner_sub: str
+    active_privilege: str
+    active_exp: float
+    active_auth_model: str
+    created_at: float
+    last_post_at: float
+
+
 def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlette:
     """
     Wrap an MCP server in a Starlette app with OIDC bearer auth middleware.
     The MCP server's SSE handler is mounted at /mcp.
+    Note: SseServerTransport uses relative "messages" endpoint to correctly
+    advertise "/mcp/messages" under the "/mcp" mount (DAUTH-10).
+    Enforces DAUTH-11: stream ownership validation on POST messages.
+    Enforces OA-8: live session context synchronization & call-time token expiration.
     """
     from mcp.server.sse import SseServerTransport
+    from threading import RLock
 
-    sse_transport = SseServerTransport("/mcp/messages")
+    sse_transport = SseServerTransport("messages")
+    _sse_stream_owners: dict[str, str] = {}
+    _sse_session_contexts: dict[str, SSESessionContext] = {}
+    _sse_owners_lock = RLock()
+
+    def record_stream_owner(session_id: str, oidc_subject: str, privilege: str = "any", exp: float = 0.0) -> None:
+        with _sse_owners_lock:
+            now = time.time()
+            _sse_stream_owners[session_id] = oidc_subject
+            ctx = SSESessionContext(
+                stream_id=session_id,
+                owner_sub=oidc_subject,
+                active_privilege=privilege,
+                active_exp=exp,
+                active_auth_model="oidc",
+                created_at=now,
+                last_post_at=now,
+            )
+            _sse_session_contexts[session_id] = ctx
+            sid_clean = session_id.replace("-", "")
+            if sid_clean != session_id:
+                _sse_stream_owners[sid_clean] = oidc_subject
+                _sse_session_contexts[sid_clean] = ctx
+
+    def update_stream_context(session_id: str, privilege: str, exp: float) -> Optional[SSESessionContext]:
+        with _sse_owners_lock:
+            ctx = _sse_session_contexts.get(session_id) or _sse_session_contexts.get(session_id.replace("-", ""))
+            if ctx:
+                ctx.active_privilege = privilege
+                ctx.active_exp = exp
+                ctx.last_post_at = time.time()
+            return ctx
+
+    def remove_stream_owner(session_id: str) -> None:
+        with _sse_owners_lock:
+            _sse_stream_owners.pop(session_id, None)
+            _sse_stream_owners.pop(session_id.replace("-", ""), None)
+            _sse_session_contexts.pop(session_id, None)
+            _sse_session_contexts.pop(session_id.replace("-", ""), None)
+
+    def get_stream_owner(session_id: str) -> Optional[str]:
+        with _sse_owners_lock:
+            return _sse_stream_owners.get(session_id) or _sse_stream_owners.get(session_id.replace("-", ""))
+
+    def get_sse_session_context(session_id: str) -> Optional[SSESessionContext]:
+        with _sse_owners_lock:
+            return _sse_session_contexts.get(session_id) or _sse_session_contexts.get(session_id.replace("-", ""))
 
     async def handle_sse(request: Request):
-        async with sse_transport.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await mcp_server.run(
-                streams[0], streams[1],
-                mcp_server.create_initialization_options()
-            )
+        conn_id = request.query_params.get("session_id") or str(id(request))
+        caller_sub = request.scope.get("state", {}).get("mcp_subject", "unknown")
+        caller_priv = request.scope.get("state", {}).get("mcp_privilege", "any")
+        caller_exp = request.scope.get("state", {}).get("mcp_exp", 0.0)
+        record_stream_owner(str(conn_id), caller_sub, caller_priv, caller_exp)
+        token = current_connection_id.set(str(conn_id))
+        try:
+            async with sse_transport.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await mcp_server.run(
+                    streams[0], streams[1],
+                    mcp_server.create_initialization_options()
+                )
+        finally:
+            remove_stream_owner(str(conn_id))
+            current_connection_id.reset(token)
+
+    async def guarded_post_messages(scope, receive, send):
+        """
+        DAUTH-11 & OA-8: Enforce stream ownership and synchronize live session context;
+        reject POSTs where caller != stream owner with HTTP 403 Forbidden.
+        """
+        from urllib.parse import parse_qs
+        request = Request(scope, receive, send)
+        qs = parse_qs(request.url.query)
+        session_id_vals = qs.get("session_id")
+        target_sid = session_id_vals[0] if session_id_vals else None
+        caller_sub = scope.get("state", {}).get("mcp_subject")
+        caller_priv = scope.get("state", {}).get("mcp_privilege", "any")
+        caller_exp = scope.get("state", {}).get("mcp_exp", 0.0)
+
+        if target_sid:
+            owner_sub = get_stream_owner(target_sid)
+            if owner_sub and caller_sub and owner_sub != caller_sub:
+                logger.warning(
+                    "SECURITY: Cross-client SSE POST injection attempt! "
+                    "Caller '%s' targeted stream owned by '%s'.",
+                    caller_sub, owner_sub,
+                )
+                response = JSONResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32001,
+                            "message": "Forbidden: stream does not belong to authenticated user.",
+                        },
+                        "id": None,
+                    },
+                    status_code=403,
+                )
+                await response(scope, receive, send)
+                return
+
+            # OA-8: Synchronize live session context with incoming POST claims
+            update_stream_context(target_sid, caller_priv, caller_exp)
+
+        await sse_transport.handle_post_message(scope, receive, send)
 
     async def health(_: Request):
         return JSONResponse({"status": "ok"})
@@ -315,7 +440,7 @@ def create_http_app(mcp_server, oidc_issuer: str, oidc_audience: str) -> Starlet
             Route("/health", health),
             Mount("/mcp", routes=[
                 Route("/sse",      handle_sse),
-                Mount("/messages", app=sse_transport.handle_post_message),
+                Mount("/messages", app=guarded_post_messages),
             ]),
         ]
     )
@@ -981,5 +1106,5 @@ python3 -m sp_mcp_server.main --transport http --port 8443
 
 ### Automated test coverage
 
-[`tests/test_security_controls.py::TestHttpTransportTLS`](../../tests/test_security_controls.py)
+[`tests/test_sec_startup.py::TestHttpTransportTLS`](../../tests/test_sec_startup.py)
 
