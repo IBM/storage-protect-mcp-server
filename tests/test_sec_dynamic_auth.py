@@ -812,3 +812,209 @@ class TestMultiClientDynamicAuthIsolation:
         route_paths = [r.path for r in mcp_mount.routes]
         assert "/sse" in route_paths
         assert "/messages" in route_paths
+
+    def test_sse_stream_post_cross_client_rejected_403(self):
+        """
+        TC-DAUTH-29: Cross-client POST to an active SSE stream owned by another principal
+        must be rejected with HTTP 403 Forbidden.
+        """
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        from sp_mcp_server.http_server import create_http_app
+
+        mock_server = MagicMock()
+        mock_server.create_initialization_options.return_value = {}
+
+        app = create_http_app(
+            mcp_server=mock_server,
+            oidc_issuer="https://issuer.example.com/oauth",
+            oidc_audience="sp-mcp-server",
+        )
+
+        # Alice owns stream 'stream_alice_123'
+        app.state.sse_stream_owners["stream_alice_123"] = "alice_oidc"
+
+        # Locate guarded_post_messages handler under /mcp mount
+        mcp_mount = next(r for r in app.routes if getattr(r, "path", None) == "/mcp")
+        messages_mount = next(r for r in mcp_mount.routes if getattr(r, "path", None) == "/messages")
+        guarded_handler = messages_mount.app
+
+        sent_messages = []
+        async def mock_send(message):
+            sent_messages.append(message)
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b'{"jsonrpc": "2.0", "method": "test"}', "more_body": False}
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp/messages",
+            "query_string": b"session_id=stream_alice_123",
+            "headers": [],
+            "state": {"mcp_subject": "bob_oidc"},
+        }
+
+        coro = guarded_handler(scope, mock_receive, mock_send)
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+
+        start_msg = next((m for m in sent_messages if m["type"] == "http.response.start"), None)
+        assert start_msg is not None
+        assert start_msg["status"] == 403
+
+        body_msg = next((m for m in sent_messages if m["type"] == "http.response.body"), None)
+        assert body_msg is not None
+        body = json.loads(body_msg["body"].decode("utf-8"))
+        assert body["error"]["code"] == -32001
+        assert "does not own" in body["error"]["message"].lower()
+
+    def test_stdio_reauthentication_newest_lease_wins(self):
+        """
+        TC-DAUTH-30: Multiple authentications in stdio mode resolve to the newest lease (LIFO).
+        Verifies that re-authenticating as admin2 supersedes admin1 without dict FIFO shadowing.
+        """
+        from sp_mcp_server.session import SessionManager
+
+        mgr = SessionManager()
+        lease_1 = mgr.create_session("admin_1", {"operator"}, connection_id="stdio")
+        lease_2 = mgr.create_session("admin_2", {"system"}, connection_id="stdio")
+
+        active_sid = mgr.get_session_id_for_connection("stdio")
+        assert active_sid == lease_2.session_id
+        session = mgr.get_session(active_sid)
+        assert session is not None
+        assert session.username == "admin_2"
+        assert "system" in session.privilege_classes
+
+    def test_http_cannot_redeem_stdio_lease_via_idor(self, monkeypatch):
+        """
+        TC-DAUTH-31: Redeeming a stdio session lease over HTTP returns AUTHORIZATION_DENIED.
+        """
+        from sp_mcp_server.mcp_factory import (
+            create_mcp_server,
+            current_session_id,
+            current_connection_id,
+            current_oidc_subject,
+            current_audit_user,
+            current_request_privilege,
+            current_transport_mode,
+        )
+        from sp_mcp_server.session import global_session_manager
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+        cfg = _cfg()
+        admc = _admc(cfg)
+
+        server = create_mcp_server(
+            server_name="test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        stdio_lease = global_session_manager.create_session(
+            "admin_stdio",
+            {"system"},
+            connection_id="stdio",
+            transport_mode="stdio",
+            password="stdio_password",
+        )
+
+        tok_conn = current_connection_id.set("conn_attacker")
+        tok_sub = current_oidc_subject.set("attacker_oidc")
+        tok_audit = current_audit_user.set("attacker_oidc")
+        tok_priv = current_request_privilege.set("system")
+        tok_sess = current_session_id.set(None)
+        tok_trans = current_transport_mode.set("http")
+
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin",
+                    arguments={
+                        "admin_name": ADMIN_NAME_TARGET,
+                        "_session_id": stdio_lease.session_id,
+                    },
+                ),
+            )
+            res = run_tool(handler, req)
+            payload = json.loads(first_text(res))
+            assert payload.get("is_error") is True
+            assert payload.get("error_type") == "AUTHORIZATION_DENIED"
+            assert "cannot be redeemed" in payload.get("message", "").lower() or "belong" in payload.get("message", "").lower()
+        finally:
+            current_transport_mode.reset(tok_trans)
+            current_session_id.reset(tok_sess)
+            current_request_privilege.reset(tok_priv)
+            current_audit_user.reset(tok_audit)
+            current_oidc_subject.reset(tok_sub)
+            current_connection_id.reset(tok_conn)
+
+    def test_unauthenticated_http_does_not_inherit_stdio_lease(self, monkeypatch):
+        """
+        TC-DAUTH-32: HTTP requests without an OIDC subject do not fall back to active stdio leases.
+        """
+        from sp_mcp_server.mcp_factory import (
+            create_mcp_server,
+            current_session_id,
+            current_connection_id,
+            current_oidc_subject,
+            current_audit_user,
+            current_request_privilege,
+            current_transport_mode,
+        )
+        from sp_mcp_server.session import global_session_manager
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+
+        monkeypatch.setenv("SP_MCP_AUTH_MODE", "dynamic")
+        cfg = _cfg()
+        admc = _admc(cfg)
+
+        server = create_mcp_server(
+            server_name="test-server",
+            tool_classes=[DeleteAdmin],
+            admc_cli=admc,
+            config=cfg,
+        )
+        handler = server.request_handlers[CallToolRequest]
+
+        stdio_lease = global_session_manager.create_session(
+            "admin_stdio",
+            {"system"},
+            connection_id="stdio",
+            transport_mode="stdio",
+            password="stdio_password",
+        )
+
+        tok_conn = current_connection_id.set(None)
+        tok_sub = current_oidc_subject.set(None)
+        tok_audit = current_audit_user.set(None)
+        tok_priv = current_request_privilege.set(None)
+        tok_sess = current_session_id.set(None)
+        tok_trans = current_transport_mode.set("http")
+
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin",
+                    arguments={"admin_name": ADMIN_NAME_TARGET},
+                ),
+            )
+            res = run_tool(handler, req)
+            payload = json.loads(first_text(res))
+            assert payload.get("is_error") is True
+            assert payload.get("error_type") == "AUTHENTICATION_REQUIRED"
+        finally:
+            current_transport_mode.reset(tok_trans)
+            current_session_id.reset(tok_sess)
+            current_request_privilege.reset(tok_priv)
+            current_audit_user.reset(tok_audit)
+            current_oidc_subject.reset(tok_sub)
+            current_connection_id.reset(tok_conn)

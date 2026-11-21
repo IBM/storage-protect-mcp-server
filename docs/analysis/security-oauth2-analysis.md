@@ -24,7 +24,7 @@
 
 The IBM Storage Protect MCP Server operates as an **OIDC resource server** when deployed over the HTTP/SSE transport. Bearer tokens issued by an external Identity Provider (IdP) are validated against the IdP's JWKS endpoint, scopes are mapped to SP privilege tiers, and TLS is enforced at startup (RG-5). This baseline (INT-2) is specified in [`docs/design/security-integrations.md`](../design/security-integrations.md).
 
-This document analyses the **OAuth 2 authorization requirements** (OA-1 through OA-7) that extend the INT-2 baseline to meet MCP 2025-03 protocol compliance, operational key-rotation resilience, interactive-client (Authorization Code + PKCE) support, token revocation detection, RFC 9470 protected-resource metadata, and forensic audit-model attribution.
+This document analyses the **OAuth 2 authorization requirements** (OA-1 through OA-8) that extend the INT-2 baseline to meet MCP 2025-03 protocol compliance, operational key-rotation resilience, interactive-client (Authorization Code + PKCE) support, token revocation detection, RFC 9470 protected-resource metadata, forensic audit-model attribution, and per-message SSE privilege and token expiration enforcement.
 
 ### OAuth 2 Role Model
 
@@ -359,6 +359,31 @@ MCP_AUDIT user=local          authmodel=local           tool=query_status priv=a
 
 ---
 
+### OA-8 — Per-Message SSE Privilege & Expiration Enforcement
+
+**Standard**: MCP 2025-03 · RFC 6749 §4.1 · ASGI Specification · CWE-284 · CWE-613
+
+**Problem Analysis**:
+In the Starlette/AnyIO Server-Sent Events (SSE) transport implementation, a fundamental asynchronous context disconnect exists between event stream establishment and message ingestion:
+1. `GET /mcp/sse` establishes a persistent event stream and spawns a long-running worker task (`mcp_server.run()`). This worker task captures the initial Python `ContextVar` state (e.g., `current_request_privilege="system"`).
+2. `POST /mcp/messages?session_id=UUID` receives subsequent tool call requests in discrete, independent ASGI task frames. While `OIDCBearerMiddleware` validates the POST token and sets ContextVars in that POST task, those ContextVars are reset when the POST finishes and **never propagate** to the background worker task.
+3. The worker task dequeues the JSON-RPC tool call and runs `handle_call_tool()`. Because it relies on task-local ContextVars, it permanently reads the stale privilege from the initial `GET /mcp/sse` request.
+4. **Impact in Default `service_account` Mode**: The backend connection holds system-level Storage Protect administrative credentials. If an operator establishes an SSE connection with a temporary `mcp:system` token and later POSTs using an `mcp:read` token (or an expired token), the tool execution gate reads the stale `"system"` privilege and executes administrative commands (`grant_authority`, `delete_admin`).
+5. **Omission of ASGI `scope["user"]`**: The middleware sets `scope["state"]["mcp_subject"]`, but omits `scope["user"]`. Consequently, the MCP Python SDK's internal `_session_owners[session_id]` verification evaluates `None == None`, bypassing built-in session isolation.
+
+**Architectural Remediation**:
+* **Standard `scope["user"]` Population**: `OIDCBearerMiddleware` sets `scope["user"] = {"sub": sub, "privilege": privilege, "exp": exp, "auth_model": auth_model}` on all authenticated requests.
+* **Live `SSESessionContext` Registry**: The HTTP layer maintains an in-memory session registry mapping stream UUIDs to active token claims (`owner_sub`, `active_privilege`, `active_exp`, `active_auth_model`, `last_post_at`).
+* **Ingestion Gate (`guarded_post_messages`)**: Enforces `caller_sub == session.owner_sub` (terminating with HTTP 403 on mismatch) and updates `session.active_privilege` and `session.active_exp` on every valid POST.
+* **Call-Time Dynamic Gate (`handle_call_tool`)**: Resolves effective privilege from `SSESessionContext` rather than stale task ContextVars. Rejects expired tokens with `AUTHENTICATION_REQUIRED` and insufficient scopes with `AUTHORIZATION_DENIED`.
+
+**Tests**: `tests/test_sec_oauth2.py::TestSSEStreamIsolation` (3 tests)
+- `test_sse_privilege_downgrade_rejected` (`TC-OA-13`)
+- `test_sse_expired_token_rejected` (`TC-OA-14`)
+- `test_asgi_scope_user_populated` (`TC-OA-15`)
+
+---
+
 ## 4. Security Hardening & Best Practices
 
 ### 4.1 Scope Elevation Prevention
@@ -435,12 +460,13 @@ All OA requirements are fully implemented and regression-tested.
 | OA-5 — Token introspection (RFC 7662) | `_introspect()` · threshold-based · fail-open | [`http_server.py:253`](../../src/sp_mcp_server/http_server.py) | ✅ `TestIntrospection` (5) |
 | OA-6 — RFC 9470 protected resource metadata | `_protected_resource_doc()` · `_unauthorized()` | [`http_server.py:191,236`](../../src/sp_mcp_server/http_server.py) | ✅ `TestProtectedResourceMetadata` (5) |
 | OA-7 — Auth model in ACTLOG | `current_auth_model` ContextVar · `authmodel=` field | [`mcp_factory.py:21,564`](../../src/sp_mcp_server/mcp_factory.py) | ✅ `TestAuthModelAudit` (4) |
+| OA-8 — Per-message SSE privilege & expiration | `SSESessionContext` · `scope["user"]` · `guarded_post_messages` · `handle_call_tool` | [`http_server.py:449`](../../src/sp_mcp_server/http_server.py) · [`mcp_factory.py:621`](../../src/sp_mcp_server/mcp_factory.py) | ✅ `TestSSEStreamIsolation` (3) |
 
 Run with:
 
 ```bash
 python3 -m pytest tests/test_sec_oauth2.py -v
-# 26 passed
+# 29 passed
 ```
 
 ---

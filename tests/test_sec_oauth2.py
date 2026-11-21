@@ -68,6 +68,7 @@ def reset_http_server_caches():
     hs._jwks_uri_cache = None
     hs._jwks_fetched_at = 0.0
     hs._jwks_last_refetch_at = 0.0
+    hs._sse_session_contexts.clear()
     yield
     hs._as_metadata_cache = None
     hs._as_metadata_fetched_at = 0.0
@@ -75,6 +76,7 @@ def reset_http_server_caches():
     hs._jwks_uri_cache = None
     hs._jwks_fetched_at = 0.0
     hs._jwks_last_refetch_at = 0.0
+    hs._sse_session_contexts.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -631,3 +633,188 @@ class TestAuthModelAudit:
         cmd.execute({"username": "alice", "password": "pw"})
 
         assert current_auth_model.get() == "dynamic_session"
+
+
+# ---------------------------------------------------------------------------
+# OA-8 — Per-Message SSE Privilege & Expiration Enforcement
+# ---------------------------------------------------------------------------
+
+class TestSSEStreamIsolation:
+    """OA-8: Dynamic session context synchronization and call-time verification."""
+
+    def _make_server(self):
+        import os
+        from unittest.mock import MagicMock
+        from sp_mcp_server.mcp_factory import create_mcp_server
+        from sp_mcp_server.commands.system.admin import DeleteAdmin
+        from tests.fixtures import make_config_with_cred, SP_OUTPUT_SESSION_STRICT_TLS13
+
+        cfg = make_config_with_cred()
+        admc = MagicMock()
+        admc.config = cfg
+        admc.execute.return_value = (SP_OUTPUT_SESSION_STRICT_TLS13, "", 0)
+        admc.execute_silent.return_value = (SP_OUTPUT_SESSION_STRICT_TLS13, "", 0)
+
+        os.environ["SP_MCP_SKIP_SECURITY_CHECKS"] = "1"
+        try:
+            server = create_mcp_server(
+                server_name="test-server",
+                tool_classes=[DeleteAdmin],
+                admc_cli=admc,
+                config=cfg,
+            )
+        finally:
+            del os.environ["SP_MCP_SKIP_SECURITY_CHECKS"]
+
+        admc.execute.return_value = ("ANR0000I OK", "", 0)
+        return server, admc
+
+    def test_sse_privilege_downgrade_rejected(self):
+        """
+        TC-OA8-01: An open SSE stream does NOT retain stale initial 'system' privilege
+        when the latest POST token scope is downgraded to 'any' / 'read'.
+        DeleteAdmin requires 'system'. Active session context has active_privilege='any'.
+        Must return AUTHORIZATION_DENIED.
+        """
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+        from sp_mcp_server.mcp_factory import current_connection_id, current_transport_mode
+        from sp_mcp_server.http_server import _sse_session_contexts, SSESessionContext
+        from tests.fixtures import run_tool, first_text, ADMIN_NAME_OLD
+
+        server, admc = self._make_server()
+        handler = server.request_handlers[CallToolRequest]
+
+        stream_id = "test-stream-uuid-downgrade"
+        # Simulate active session context updated by a POST with scope=mcp:read -> privilege="any"
+        _sse_session_contexts[stream_id] = SSESessionContext(
+            stream_id=stream_id,
+            owner_sub="user_alice",
+            active_privilege="any",
+            active_exp=time.time() + 3600,
+            active_auth_model="oidc_bearer",
+            last_post_at=time.time(),
+        )
+
+        tok_conn = current_connection_id.set(stream_id)
+        tok_trans = current_transport_mode.set("http")
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin", arguments={"admin_name": ADMIN_NAME_OLD}
+                ),
+            )
+            res = run_tool(handler, req)
+            payload = json.loads(first_text(res))
+            assert payload.get("is_error") is True
+            assert payload.get("error_type") == "AUTHORIZATION_DENIED"
+            assert "privilege required by this tool" in payload.get("message", "")
+        finally:
+            current_transport_mode.reset(tok_trans)
+            current_connection_id.reset(tok_conn)
+            _sse_session_contexts.pop(stream_id, None)
+
+    def test_sse_expired_token_rejected(self):
+        """
+        TC-OA8-02: Tool call executed on an open SSE stream whose active token has expired
+        must be rejected with AUTHENTICATION_REQUIRED fail-closed.
+        """
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+        from sp_mcp_server.mcp_factory import current_connection_id, current_transport_mode
+        from sp_mcp_server.http_server import _sse_session_contexts, SSESessionContext
+        from tests.fixtures import run_tool, first_text, ADMIN_NAME_OLD
+
+        server, admc = self._make_server()
+        handler = server.request_handlers[CallToolRequest]
+
+        stream_id = "test-stream-uuid-expired"
+        # Simulate active session context whose token expired 10 seconds ago
+        _sse_session_contexts[stream_id] = SSESessionContext(
+            stream_id=stream_id,
+            owner_sub="user_alice",
+            active_privilege="system",
+            active_exp=time.time() - 10,
+            active_auth_model="oidc_bearer",
+            last_post_at=time.time(),
+        )
+
+        tok_conn = current_connection_id.set(stream_id)
+        tok_trans = current_transport_mode.set("http")
+        try:
+            req = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="delete_admin", arguments={"admin_name": ADMIN_NAME_OLD}
+                ),
+            )
+            res = run_tool(handler, req)
+            payload = json.loads(first_text(res))
+            assert payload.get("is_error") is True
+            assert payload.get("error_type") == "AUTHENTICATION_REQUIRED"
+            assert "expired" in payload.get("message", "").lower()
+        finally:
+            current_transport_mode.reset(tok_trans)
+            current_connection_id.reset(tok_conn)
+            _sse_session_contexts.pop(stream_id, None)
+
+    @pytest.mark.asyncio
+    async def test_asgi_scope_user_populated(self):
+        """
+        TC-OA8-03: OIDCBearerMiddleware populates ASGI scope['user'] with sub, privilege,
+        exp, and auth_model dictionary for standard MCP SDK compliance.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+        import jwt as pyjwt
+        from sp_mcp_server.http_server import OIDCBearerMiddleware
+
+        mock_app = AsyncMock()
+        middleware = OIDCBearerMiddleware(
+            app=mock_app,
+            issuer=FAKE_ISSUER,
+            audience=FAKE_AUDIENCE,
+        )
+
+        now = time.time()
+        claims = {
+            "sub": "test_operator",
+            "scope": "mcp:operator",
+            "preferred_username": "operator_bob",
+            "aud": FAKE_AUDIENCE,
+            "iss": FAKE_ISSUER,
+            "exp": now + 1800,
+            "iat": now,
+        }
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("sp_mcp_server.http_server._jwks_uri_cache", "https://idp.example.com/jwks")
+            mp.setattr("sp_mcp_server.http_server._fetch_as_metadata", AsyncMock(return_value={"jwks_uri": "https://idp.example.com/jwks"}))
+            mp.setattr(pyjwt, "get_unverified_header", lambda t: {"kid": "k1", "alg": "RS256"})
+            mp.setattr("sp_mcp_server.http_server._get_jwks_with_ttl", AsyncMock(return_value={"keys": [{"kid": "k1"}]}))
+            mp.setattr("sp_mcp_server.http_server._get_key_for_kid", AsyncMock())
+            mock_client = MagicMock()
+            mock_key = MagicMock()
+            mock_key.key = "fake_key"
+            mock_client.get_signing_key_from_jwt.return_value = mock_key
+            mp.setattr(pyjwt, "PyJWKClient", lambda uri: mock_client)
+            mp.setattr(pyjwt, "decode", lambda *args, **kwargs: claims)
+
+            scope = {
+                "type": "http",
+                "method": "POST",
+                "path": "/mcp/messages",
+                "headers": [(b"authorization", b"Bearer valid_mock_token")],
+                "query_string": b"session_id=stream123",
+            }
+            receive = AsyncMock()
+            send = AsyncMock()
+
+            await middleware(scope, receive, send)
+
+            assert "user" in scope
+            user = scope["user"]
+            assert user["sub"] == "test_operator"
+            assert user["privilege"] == "operator"
+            assert user["exp"] == now + 1800
+            assert user["auth_model"] == "oidc_bearer"

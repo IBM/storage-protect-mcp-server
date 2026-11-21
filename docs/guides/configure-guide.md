@@ -532,6 +532,8 @@ Use `QUERY ACTLOG SEARCH=corr=<correlation-id>` to trace a specific tool call ac
 | All tools return `403 insufficient privilege` | Token scope too narrow | Request a higher `mcp:*` scope when obtaining the token |
 | `404 Not Found` on SSE POST requests (`/mcp/mcp/messages`) | Route duplication in SSE transport mount | Use relative endpoint `"messages"` in `SseServerTransport` initialization under `/mcp` mount |
 | `AUTHORIZATION_DENIED` on valid session ID | Cross-client or cross-connection lease access attempt (Anti-IDOR) | Dynamic leases are bound to the caller's connection and OIDC subject (DAUTH-10). Ensure client authenticates within its own session |
+| `AUTHENTICATION_REQUIRED: Active OIDC token expired` | Token expired on open SSE stream | In HTTP/SSE transport (OA-8), tool calls verify active token expiry dynamically. Refresh the OIDC token and re-submit the POST request |
+| `AUTHORIZATION_DENIED: OIDC token does not have privilege` | POST token scope downgraded | Tool execution enforces the privilege of the active POST token (OA-8). Request the necessary `mcp:*` scope from the IdP |
 
 ---
 
@@ -588,6 +590,7 @@ sequenceDiagram
 2. **Ephemeral In-Memory Leases**: Session leases are kept only in memory with a sliding inactivity window (`SP_MCP_SESSION_TTL`, default 15 minutes) and are destroyed upon process restart or explicit timeout.
 3. **Forensic Attribution (Non-Repudiation)**: Once authenticated, the user's verified identity is stored in `current_audit_user` ContextVar. In HTTP/SSE mode, compound dual-identity audit markers (`DEFINE SCRATCHPADENTRY MCP_AUDIT oidc_user=<sub|local> sp_admin=<username> ...`) are emitted to the SP Activity Log for every modifying operation, preventing identity erasure.
 4. **Multi-Client Transport Isolation (DAUTH-10)**: When dynamic authentication is deployed over the HTTP/SSE transport (`--transport http`), session leases are bound to the client's transport connection identifier (`connection_id`) and OIDC subject (`oidc_subject`). Process-wide session globals are eliminated, and explicit `_session_id` parameters are checked against caller ownership to prevent cross-session credential hijacking and IDOR. Session revocation (`logout_session`) enforces caller ownership to prevent denial of service.
+5. **SSE Stream Ownership, Token Expiration & Context Synchronization (OA-8 / ACC-3)**: Incoming HTTP POST message submissions to `/mcp/messages?session_id=...` are verified against the stream creator's OIDC subject; mismatched submissions are rejected with HTTP 403 Forbidden. The active privilege tier and token expiration are dynamically synchronized on every POST request (`SSESessionContext`), and tool execution enforces non-expiration and scope compliance at call time. Operators deploying behind reverse proxies (Nginx, Envoy, AWS ALB) should configure access log masking for the `session_id` query parameter to prevent transport UUID harvesting, and set `proxy_buffering off;` to ensure uninterrupted EventSource delivery.
 
 ---
 

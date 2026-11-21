@@ -10,7 +10,7 @@
 ## 1. Executive Summary
 
 All security requirements, sample prompt operational workflows, and documentation gaps across the entire project have been remediated, verified, and closed:
-- **52 Security Requirements**: All 20 historical security gaps, 7 post-implementation residual gaps (RG-1 through RG-7), 5 Non-Repudiation gaps (NR-1 through NR-5), 12 Dynamic Authentication items (DAUTH-1 through DAUTH-10), and 7 OAuth 2 Extended Middleware items (OA-1 through OA-7) are closed.
+- **53 Security Requirements**: 53 closed. All 20 historical security gaps, 8 post-implementation residual gaps (RG-1 through RG-8), 5 Non-Repudiation gaps (NR-1 through NR-5), 11 Dynamic Authentication items (DAUTH-1 through DAUTH-11), and 8 OAuth 2 Extended Middleware items (OA-1 through OA-8) are closed.
 - **8 Sample Prompt Operational Personas & Negative Prompts**: All eight personas defined in [`docs/example/sample-prompts.md`](../example/sample-prompts.md) (R-01 through R-08) and adversarial scenarios in [`tests/negative_sample_prompts.md`](../../tests/negative_sample_prompts.md) (NP-R01..08) are fully mapped and validated by 107 positive tests in `tests/test_sample_prompts_positive.py` (92 unit + 15 live integration), 18 negative tests in `tests/test_sample_prompts_negative.py`, and 300 structure checks in `tests/test_sample_prompts_structure.py` that keep both prompt catalogs complete (role, context, task, constraints, output format) with lines of at most 100 characters.
 - **5 Guide Documentation Gaps**: All 5 findings (GGA-01 through GGA-05) across `docs/guides/` are resolved.
 - **Test Automation & Quality Baseline**: The automated test suite has expanded to **266 collected tests across 15 test files**:
@@ -99,11 +99,11 @@ All security requirements, sample prompt operational workflows, and documentatio
   - `_check_session_target_server()` enforces `SessionLease.target_server` binding; cross-server reuse rejected with `AUTHORIZATION_DENIED` (**DAUTH-7**).
   - `SessionLease.password` is set to `None` on every removal path — `revoke_session()`, expiry in `get_session()`, bulk `cleanup_expired()`, and `clear()` at shutdown (**DAUTH-8** / AUD-08).
   - `LogoutSession` tool (`logout_session`, `required_privilege: any`) allows users to explicitly revoke their session, zeroing the in-memory credential and clearing audit context variables (**DAUTH-9** / AUD-08).
-  - Multi-client transport isolation eliminates process-global session variables, binds leases to `(connection_id, oidc_subject)`, enforces anti-IDOR caller ownership checks on explicit `_session_id` and `logout_session`, emits compound dual-identity audit trail (`oidc_user` + `sp_admin`) to ACTLOG, and fixes relative SSE endpoint routing (**DAUTH-10**, HackerOne #4212881).
+  - Multi-client transport isolation eliminates process-global session variables, binds leases to `(connection_id, oidc_subject)`, enforces anti-IDOR caller ownership checks on explicit `_session_id` and `logout_session`, validates SSE stream ownership on POST (HTTP 403), resolves stdio leases via LIFO reverse lookup, emits compound dual-identity audit trail (`oidc_user` + `sp_admin`) to ACTLOG, and fixes relative SSE endpoint routing (**DAUTH-10** / **RG-8** — closed & verified by TC-DAUTH-24..32).
 
 ### 3.8 Domain 8: OAuth 2 Extended Middleware (OA)
 - **Status**: 0 Open Gaps.
-- **Implemented Controls** (OA-1 through OA-7):
+- **Implemented Controls** (OA-1 through OA-8):
   - **OA-1**: `_fetch_as_metadata()` fetches and caches RFC 8414 AS metadata from `{SP_OIDC_ISSUER}/.well-known/oauth-authorization-server`; the `as_metadata` route proxies it on the MCP HTTP server.
   - **OA-2**: Module-level `_get_jwks_with_ttl()` fetches JWKS with configurable TTL (`SP_OIDC_JWKS_TTL`, default 3600 s); `_get_key_for_kid()` rate-limits `kid`-miss re-fetches to max 1 per 60 s.
   - **OA-3**: `OIDCBearerMiddleware.__call__()` inspects verified JWT claims: presence of `preferred_username` discriminates `oidc_bearer` from `client_credentials` in `authmodel`.
@@ -111,6 +111,7 @@ All security requirements, sample prompt operational workflows, and documentatio
   - **OA-5**: `_introspect()` performs RFC 7662 token introspection when `SP_OIDC_INTROSPECTION_ENDPOINT` is configured; skips introspection when remaining token TTL ≥ `SP_OIDC_INTROSPECT_BELOW_TTL` (default 60 s); fails open on network error.
   - **OA-6**: `_protected_resource_doc()` builds RFC 9470 resource metadata; served at `/.well-known/oauth-protected-resource`; `_unauthorized()` injects `resource_metadata` URI into `WWW-Authenticate`.
   - **OA-7**: `current_auth_model` ContextVar embeds `authmodel=<model>` in every `DEFINE SCRATCHPADENTRY MCP_AUDIT` record (`client_credentials`, `oidc_bearer`, `dynamic_session`, or `local`).
+  - **OA-8**: Per-message SSE privilege & token expiration enforcement: `OIDCBearerMiddleware` populates ASGI `scope["user"]`; `guarded_post_messages` updates live `SSESessionContext` with active POST token claims; `handle_call_tool` dynamically enforces active non-expired token validity and privilege compliance, preventing privilege retention across token expirations or scope downgrades.
 
 ---
 

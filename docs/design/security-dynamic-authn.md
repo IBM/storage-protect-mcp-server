@@ -53,7 +53,7 @@ flowchart TD
 | **Credential Storage** | Local `.env` (0600), OS keyring, `dsm.sys` stash | Ephemeral in-memory lease; credentials provided at runtime by human |
 | **Identity Attribution** | Service account name (`mcp-svc-*`) | Actual human administrator ID bound into `current_audit_user` and used for delegated command execution |
 | **Session Lifetime** | Persistent daemon lifetime | Short-lived lease (15-minute sliding TTL, max 60 minutes) |
-| **Transport Compatibility**| stdio, SSE, HTTP | stdio, SSE, HTTP (HTTP/SSE requires per-connection session binding under DAUTH-10; module-level process globals eliminated) |
+| **Transport Compatibility**| stdio, SSE, HTTP | stdio, SSE, HTTP (HTTP/SSE requires per-connection session binding & stream ownership gates under DAUTH-10; stdio uses reverse-lookup lease resolution; module-level process globals eliminated) |
 | **MFA Compatibility** | Exemption with compensating controls (CRED-4) | Native SP password verification + potential MFA challenge |
 
 ---
@@ -165,10 +165,33 @@ In accordance with security requirement **CRED-2** and **RG-3**, the password su
 
 ### 4.4 Secure Lease Resolution Precedence & Anti-IDOR Enforcement (DAUTH-10)
 
-In multi-client deployments, `handle_call_tool()` resolves active sessions without relying on process-wide globals:
-1. **Resolution Priority**: Request-local ContextVar (`current_session_id`) and transport connection mapping (`conn_id`) take precedence.
-2. **Anti-IDOR Ownership Gate**: If an explicit `_session_id` argument is passed, the server verifies that the session's recorded `oidc_subject` matches the caller's validated token subject (`current_audit_user.get()`). Cross-client redemption attempts are rejected with `AUTHORIZATION_DENIED`.
+In multi-client deployments, `handle_call_tool()` resolves active sessions without relying on process-wide globals, applying a strict 3-tier precedence hierarchy:
+
+```
+Tier 1: Request ContextVar (active within the current task / coroutine execution frame)
+Tier 2: Transport Connection Binding
+        - stdio transport: Resolves the single local stdio lease. To prevent FIFO dictionary
+          iteration shadowing upon re-authentication, the resolver selects the newest active lease.
+        - HTTP/SSE transport: Looks up by (connection_id, caller_oidc_subject).
+Tier 3: Explicit _session_id Argument (Strict Anti-IDOR Gated)
+        - If target lease has oidc_subject: caller MUST possess a valid OIDC token with matching sub.
+        - If target lease has transport_mode == 'stdio': REJECT if caller connects over HTTP.
+        - If caller or target lease subject is missing / mismatched: REJECT with AUTHORIZATION_DENIED.
+```
+
+1. **Resolution Priority**: Request-local ContextVar (`current_session_id`) and transport connection mapping (`conn_id`) take precedence over explicit parameters.
+2. **Anti-IDOR Ownership Gate**: If an explicit `_session_id` argument is passed, the server verifies that the session's recorded `oidc_subject` matches the caller's validated token subject (`current_audit_user.get()`). Cross-client or cross-transport redemption attempts (e.g. attempting to redeem a stdio lease over HTTP) are rejected with `AUTHORIZATION_DENIED`.
 3. **Challenge on Miss**: If no valid, unexpired session matches the caller's context, the server emits the structured `AUTHENTICATION_REQUIRED` challenge.
+
+### 4.5 SSE Stream Ownership Binding & Stream Hijacking Defenses (DAUTH-10)
+
+Under the MCP Server-Sent Events (SSE) transport (`http_server.py`), request receipt and tool execution are decoupled across asynchronous boundaries:
+1. **Threat Model (Stream UUID Interception)**: The SSE transport assigns an ephemeral UUID to each connection stream (`/mcp/messages?session_id=<stream_uuid>`). Because query parameters are routinely logged by intermediate web servers, proxies (Nginx, Envoy), and cloud load balancers, possession of a stream UUID alone must not grant execution privileges.
+2. **Asynchronous Context Boundary Decay**: In ASGI frameworks (Starlette/AnyIO), HTTP POST messages are handed to an in-memory queue consumed by the long-running SSE worker task (`mcp_server.run()`). The worker task retains the initial subscriber's ContextVars (`current_oidc_subject`, `current_session_id`).
+3. **Stream Ownership Gate**: To prevent cross-client injection into another user's stream, `create_http_app()` maintains a thread-safe registry `_sse_stream_owners: Dict[str, str]`.
+   - When `handle_sse` accepts a connection, it binds `stream_uuid -> request.scope['state']['mcp_subject']`.
+   - On incoming `POST /mcp/messages?session_id=<stream_uuid>`, the middleware verifies that the caller's Bearer token subject matches the registered stream owner.
+   - Any mismatched submission is immediately rejected with **HTTP 403 Forbidden** (`Forbidden: Caller does not own this SSE session stream.`) before the message can enter the worker stream.
 
 ---
 
@@ -192,6 +215,8 @@ To prevent cross-session credential bleeding:
 1. **Removal of Module Globals**: Process-wide variables `_process_session_id` and `_process_audit_user` are eliminated.
 2. **Connection-Scoped Leases**: Ephemeral leases are scoped to the transport connection ID and OIDC subject.
 3. **Transport Routing Alignment**: `SseServerTransport` registers with relative endpoint `"messages"` to prevent route duplication when mounted under `/mcp`.
+4. **Stream Ownership Gate**: HTTP POST endpoints enforce caller ownership against the registering SSE stream identity, returning HTTP 403 Forbidden on mismatched callers.
+5. **Stdio Isolation**: Single-user stdio persistence uses reverse LIFO lease resolution and strictly prevents unauthenticated HTTP requests from inheriting local stdio credentials.
 
 ---
 

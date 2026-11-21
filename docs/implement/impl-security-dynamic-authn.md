@@ -132,17 +132,27 @@ priv_out, _, _ = self.cli.execute_silent(
 
 privileges = _parse_privileges(priv_out)
 
-# Mint session lease (stores password for delegated execution)
+# Mint session lease (bound to caller connection & OIDC subject — DAUTH-10)
+conn_id = current_connection_id.get()
+current_sub = current_oidc_subject.get() or current_audit_user.get()
+transport_mode = "http" if conn_id or current_oidc_subject.get() else "stdio"
+bound_conn_id = conn_id or ("stdio" if transport_mode == "stdio" else None)
+
 lease = global_session_manager.create_session(
     username=username,
     privileges=privileges,
     target_server=target_server,
     password=password,
+    oidc_subject=current_sub if current_oidc_subject.get() else None,
+    connection_id=bound_conn_id,
+    transport_mode=transport_mode,
 )
 
 # Set identity context for audit & forensics
-current_audit_user.set(username)
+if not current_oidc_subject.get():
+    current_audit_user.set(username)
 current_session_id.set(lease.session_id)
+current_auth_model.set("dynamic_session")   # OA-7
 ```
 
 > **AUD-09 (corrected):** The return order is `(stdout, stderr, return_code)` — corrected from the earlier `(return_code, stdout, stderr)` example in the original document.
@@ -174,10 +184,18 @@ current_session_id.set(lease.session_id)
 6. **Multi-Client Transport Isolation & Anti-IDOR (DAUTH-10)**:
    * **Module-Level Globals Eliminated**: Module-level variables `_process_session_id` and `_process_audit_user` are eliminated.
    * **Session Resolution Hierarchy**: Tool interception in `mcp_factory.py` resolves candidate session IDs from request ContextVars (`current_session_id`) and connection mappings first.
-   * **Anti-IDOR Ownership Verification**: If caller passes explicit `_session_id`, the server validates `session.oidc_subject == current_audit_user.get()`. Mismatched ownership returns `AUTHORIZATION_DENIED`.
+   * **Anti-IDOR Ownership Verification**: If caller passes explicit `_session_id`, the server validates `session.oidc_subject == current_sub`. Mismatched ownership or cross-realm redemption (e.g. attempting to redeem a stdio lease over HTTP) returns `AUTHORIZATION_DENIED`.
    * **Compound Dual-Identity Logging**: Mutating commands emit both `oidc_user` and `sp_admin` to SP ACTLOG (`DEFINE SCRATCHPADENTRY MCP_AUDIT oidc_user=<sub|local> sp_admin=<admin_name> ...`), maintaining non-repudiation (NR-1 / POL-4).
    * **Protected Revocation**: `logout_session` verifies that the caller owns the targeted session before calling `revoke_session()`.
    * **SSE URL Advertisement**: In `http_server.py`, `SseServerTransport("messages")` registers relative to the `/mcp` mount, avoiding route doubling.
+
+7. **SSE Stream Ownership Gate (`http_server.py`)**:
+   * To prevent stream hijacking in asynchronous AnyIO task queues, `http_server.py` maintains `_sse_stream_owners: Dict[str, str]` mapping active stream UUIDs to creator OIDC subjects.
+   * Incoming `POST /mcp/messages?session_id=...` requests are verified against `_sse_stream_owners`. If the POST caller's OIDC subject does not match the registering stream owner, the endpoint immediately returns **HTTP 403 Forbidden** with JSON-RPC error `-32001`.
+
+8. **Stdio Lease Lifecycle & Reverse Resolution (`session.py` / `mcp_factory.py`)**:
+   * Single-client stdio mode maps connection ID to `"stdio"`. In `session.py`, `get_session_id_for_connection()` traverses `reversed(list(self._sessions.items()))` so that newly created leases immediately supersede older leases upon re-authentication, preventing FIFO dictionary iteration shadowing.
+   * In `mcp_factory.py`, fallback to `"stdio"` is strictly restricted to `transport_mode == "stdio"`. Network HTTP requests without an OIDC subject are blocked from inheriting local stdio administrator credentials.
 
 ---
 
@@ -213,6 +231,10 @@ current_session_id.set(lease.session_id)
 | `TestMultiClientDynamicAuthIsolation::test_logout_does_not_terminate_other_client_sessions` | Client B logout does not disrupt Client A's active session (DAUTH-10) | ✅ |
 | `TestMultiClientDynamicAuthIsolation::test_dual_audit_attribution_logged` | POL-4 audit logs record both OIDC `sub` and SP admin username (DAUTH-10) | ✅ |
 | `TestMultiClientDynamicAuthIsolation::test_sse_endpoint_advertisement_correct` | SSE endpoint advertises `/mcp/messages` without path duplication (DAUTH-10) | ✅ |
+| `TestMultiClientDynamicAuthIsolation::test_sse_stream_post_cross_client_rejected_403` | Cross-client POST to another user's SSE stream rejected with HTTP 403 (DAUTH-10, TC-DAUTH-29) | Planned |
+| `TestMultiClientDynamicAuthIsolation::test_stdio_reauthentication_newest_lease_wins` | Re-authenticating in stdio supersedes previous lease via LIFO lookup (DAUTH-10, TC-DAUTH-30) | Planned |
+| `TestMultiClientDynamicAuthIsolation::test_http_cannot_redeem_stdio_lease_via_idor` | Redeeming a stdio session lease over HTTP returns `AUTHORIZATION_DENIED` (DAUTH-10, TC-DAUTH-31) | Planned |
+| `TestMultiClientDynamicAuthIsolation::test_unauthenticated_http_does_not_inherit_stdio_lease` | HTTP request without OIDC token does not fall back to stdio lease (DAUTH-10, TC-DAUTH-32) | Planned |
 
 ---
 

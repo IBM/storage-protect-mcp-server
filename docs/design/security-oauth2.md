@@ -30,6 +30,7 @@ The INT-2 baseline (implemented in `http_server.py`) established the MCP server 
 | **OA-5** | Optional RFC 7662 token introspection for near-expiry revocation detection | RFC 7662 |
 | **OA-6** | `/.well-known/oauth-protected-resource` route + `resource_metadata` in `WWW-Authenticate` | RFC 9470 |
 | **OA-7** | `authmodel=` field in ACTLOG `DEFINE SCRATCHPADENTRY` to distinguish auth paths | NR-1 · NR-4 |
+| **OA-8** | Per-Message SSE Privilege & Expiration Enforcement | MCP 2025-03 · RFC 6749 §4.1 · ASGI Spec |
 
 All requirements are implemented. The existing stdio transport, service-account model, and dynamic-auth session-lease implementation are unchanged.
 
@@ -311,6 +312,54 @@ MCP_AUDIT user=local         authmodel=local                tool=query_status  p
 
 ---
 
+### OA-8 — Per-Message SSE Privilege & Expiration Enforcement
+
+**Requirement**: In the Model Context Protocol (MCP) Server-Sent Events (SSE) transport, a persistent GET connection (`/mcp/sse`) establishes a long-running background worker coroutine (`mcp_server.run()`), while tool call requests arrive via discrete HTTP POST requests (`POST /mcp/messages?session_id=<UUID>`). Because Python `ContextVar` state in the worker task is decoupled from the POST request's task frame, tool execution can suffer from *context decay*: an operator who initiates a stream with a high-privilege token (`mcp:system`) retains `system` execution rights in the worker task indefinitely, even after the token expires or is replaced by a low-privilege token (`mcp:read`). Furthermore, omitting ASGI-standard `scope["user"]` leaves MCP Python SDK internal session ownership verification dormant.
+
+**Design** — four coordinated mechanisms:
+
+1. **ASGI Standard `scope["user"]` Population**:
+   `OIDCBearerMiddleware.__call__()` populates `scope["user"]` with an authenticated principal dictionary containing `sub`, `privilege`, `exp`, and `auth_model`:
+   ```python
+   scope["user"] = {
+       "sub": payload.get("sub", "unknown"),
+       "privilege": privilege,
+       "exp": payload.get("exp", 0),
+       "auth_model": auth_model,
+   }
+   ```
+   This satisfies standard ASGI authentication semantics and enables the MCP Python SDK's internal `_session_owners[session_id]` verification.
+
+2. **Live Session Context Registry (`SSESessionContext`)**:
+   `create_http_app` maintains a thread-safe registry of active SSE stream sessions:
+   ```python
+   @dataclass
+   class SSESessionContext:
+       stream_id: str
+       owner_sub: str
+       active_privilege: str
+       active_exp: float
+       active_auth_model: str
+       last_post_at: float
+   ```
+   Initialized in `handle_sse()` upon GET connection and cleared upon stream disconnection.
+
+3. **Ingestion Gate & Context Update (`guarded_post_messages`)**:
+   Mounted at `/mcp/messages`, `guarded_post_messages` intercepts incoming POST requests before delegating to `sse_transport.handle_post_message()`:
+   * **Ownership Verification**: Rejects cross-client submissions with **HTTP 403 Forbidden** (`code: -32001`) if `caller_sub != session.owner_sub`.
+   * **Context Synchronization**: Updates `session.active_privilege`, `session.active_exp`, `session.active_auth_model`, and `session.last_post_at` with claims validated from the current POST request's token.
+
+4. **Call-Time Privilege & Expiration Enforcement (`handle_call_tool`)**:
+   In `mcp_factory.py`, when operating under HTTP transport, `handle_call_tool()` resolves the caller's active context from `SSESessionContext`:
+   * **Token Expiration Gate**: If `time.time() > session.active_exp`, the tool call is rejected with `AUTHENTICATION_REQUIRED` (`code: -32001`, `Active OIDC token expired`).
+   * **Runtime Privilege Gate**: If `not _privilege_satisfies(session.active_privilege, tool_privilege)`, the tool call is rejected with `AUTHORIZATION_DENIED` (`code: -32001`, `OIDC token does not have the privilege required by this tool`).
+   * This guarantees that permissions are dynamically re-evaluated against the active POST token's scope, closing the privilege retention window across token expirations or scope downgrades.
+
+5. **SSE Route Advertisement Normalization**:
+   `SseServerTransport` is configured with relative endpoint `"messages"` mounted under `/mcp`, ensuring the SSE handshake advertises strictly `/mcp/messages` and eliminating route-doubling (`/mcp/mcp/messages`) 404 errors for standard clients.
+
+---
+
 ## 4. Component Architecture
 
 ```mermaid
@@ -414,6 +463,14 @@ An attacker who can forge a JWT with an unknown `kid` could trigger a JWKS re-fe
 
 `SP_MCP_PUBLIC_URL` is served in the protected-resource metadata document. It must reflect the externally reachable address of the MCP server — not `localhost` or an internal hostname not resolvable by MCP clients.
 
+### 7.6 Stale SSE Stream Context & Privilege Downgrade Decay
+
+In asynchronous SSE transports, long-running worker tasks decouple tool execution from incoming POST request tasks. If the worker task permanently retains claims from the initial GET request, a caller whose administrative privileges have been revoked or whose initial token has expired could execute unauthorized commands using lower-privilege or expired credentials. Mitigations:
+- Live `SSESessionContext` tracks the latest validated POST token claims per stream.
+- `handle_call_tool()` dynamically resolves active privilege and token expiration from `SSESessionContext`.
+- Immediate rejection with `AUTHENTICATION_REQUIRED` on token expiration and `AUTHORIZATION_DENIED` on insufficient scope.
+- ASGI `scope["user"]` population to activate native MCP Python SDK session ownership checks.
+
 ---
 
 ## 8. Deployment Checklist
@@ -451,6 +508,14 @@ OA-7 (Auth model binding):
   [x] ACTLOG entries for interactive user tokens show authmodel=oidc_bearer
       and sub=<human principal>
   [x] ACTLOG entries for dynamic-session tools show authmodel=dynamic_session
+
+OA-8 (Per-Message SSE Privilege & Expiration):
+  [x] OIDCBearerMiddleware populates ASGI scope["user"] with sub, privilege, exp, auth_model
+  [x] guarded_post_messages updates active privilege and expiration in SSESessionContext on each POST
+  [x] Cross-client POST message injection is rejected with 403 Forbidden
+  [x] Expired tokens on open SSE streams return AUTHENTICATION_REQUIRED
+  [x] Scope downgrades on open SSE streams return AUTHORIZATION_DENIED for high-privilege tools
+  [x] Advertised SSE endpoint is /mcp/messages (no /mcp/mcp/messages route doubling)
 ```
 
 ---
@@ -459,7 +524,8 @@ OA-7 (Auth model binding):
 
 | Existing control | Interaction |
 |-----------------|-------------|
-| INT-2 (`OIDCBearerMiddleware`) | Extended by OA-2, OA-4, OA-5, OA-6, OA-7 — additive only; no interface changes |
+| INT-2 (`OIDCBearerMiddleware`) | Extended by OA-2, OA-4, OA-5, OA-6, OA-7, OA-8 — additive only; no interface changes |
+| ACC-3 (Runtime Privilege Gate) | OA-8 replaces static task ContextVars with dynamic SSESessionContext lookup in HTTP/SSE transport |
 | DAUTH (`authenticate_session`) | OA-7 adds `authmodel=dynamic_session` to ACTLOG records; session-lease logic unchanged |
 | NR-1 (identity binding) | OA-7 enriches ACTLOG with `authmodel`; closes forensic gap in cross-model attribution |
 | CRED-3 (`.env` permissions) | `SP_OIDC_INTROSPECTION_CLIENT_SECRET` follows the same `0600` / keyring-first rule |

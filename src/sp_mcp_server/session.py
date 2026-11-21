@@ -114,11 +114,16 @@ class SessionManager:
         return lease
 
     def get_session_id_for_connection(self, connection_id: Optional[str]) -> Optional[str]:
-        """Look up active unexpired session ID bound to a transport connection ID."""
+        """Look up active unexpired session ID bound to a transport connection ID.
+
+        Iterates in reverse so that the newest active lease supersedes older
+        leases when multiple leases exist for the same connection (e.g. re-authentication
+        in stdio mode).
+        """
         if not connection_id:
             return None
         with self._lock:
-            for sid, lease in self._sessions.items():
+            for sid, lease in reversed(list(self._sessions.items())):
                 if lease.connection_id == connection_id and not lease.is_expired():
                     return sid
         return None
